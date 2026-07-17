@@ -12,9 +12,8 @@ jobs:
     steps:
       - name: Send Telegram Notification
         run: |
-          curl -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
-            -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
-            --data-urlencode text="🚀 New Push
+          MESSAGE=$(cat <<EOF
+🚀 New Push
 
 Developer: ${{ github.actor }}
 Repository: ${{ github.repository }}
@@ -23,4 +22,10 @@ Branch: ${{ github.ref_name }}
 Commit:
 ${{ github.event.head_commit.message }}
 
-https://github.com/${{ github.repository }}/commit/${{ github.sha }}"
+https://github.com/${{ github.repository }}/commit/${{ github.sha }}
+EOF
+)
+
+          curl -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+            --data-urlencode text="$MESSAGE"
