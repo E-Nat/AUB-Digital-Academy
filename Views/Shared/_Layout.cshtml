@@ -1,0 +1,237 @@
+@{
+    var userRole = User.IsInRole("Admin") ? "Admin" : User.IsInRole("Teacher") ? "Teacher" : "Student";
+    var areaPrefix = $"/{userRole}";
+}
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="light">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@ViewData["Title"] - AUB Digital Academy</title>
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    
+    <!-- Bootstrap Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+    @await RenderSectionAsync("Styles", required: false)
+</head>
+<body>
+    <div class="d-flex" id="wrapper">
+        <!-- Sidebar -->
+        <div class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <div class="d-flex align-items-center gap-2">
+                    <div class="logo-icon">
+                        <i class="bi bi-mortarboard-fill"></i>
+                    </div>
+                    <div class="sidebar-brand">
+                        <span class="brand-text">AUB</span>
+                        <small class="brand-sub">Digital Academy</small>
+                    </div>
+                </div>
+            </div>
+
+            <nav class="sidebar-nav">
+                @if (User.IsInRole("Admin"))
+                {
+                    <div class="nav-section">
+                        <span class="nav-section-title">MAIN</span>
+                        <a href="/Admin/Dashboard" class="nav-link-item @(ViewData["ActivePage"]?.ToString() == "Dashboard" ? "active" : "")">
+                            <i class="bi bi-grid-1x2-fill"></i>
+                            <span>Dashboard</span>
+                        </a>
+                    </div>
+                    <div class="nav-section">
+                        <span class="nav-section-title">MANAGEMENT</span>
+                        <a href="/Admin/Users" class="nav-link-item @(ViewData["ActivePage"]?.ToString() == "Users" ? "active" : "")">
+                            <i class="bi bi-people-fill"></i>
+                            <span>Users</span>
+                        </a>
+                        <a href="/Admin/Categories" class="nav-link-item @(ViewData["ActivePage"]?.ToString() == "Categories" ? "active" : "")">
+                            <i class="bi bi-collection-fill"></i>
+                            <span>Categories</span>
+                        </a>
+                        <a href="/Admin/Majors" class="nav-link-item @(ViewData["ActivePage"]?.ToString() == "Majors" ? "active" : "")">
+                            <i class="bi bi-bookmark-fill"></i>
+                            <span>Majors</span>
+                        </a>
+                        <a href="/Admin/Semesters" class="nav-link-item @(ViewData["ActivePage"]?.ToString() == "Semesters" ? "active" : "")">
+                            <i class="bi bi-calendar3"></i>
+                            <span>Semesters</span>
+                        </a>
+                        <a href="/Admin/Courses" class="nav-link-item @(ViewData["ActivePage"]?.ToString() == "Courses" ? "active" : "")">
+                            <i class="bi bi-book-fill"></i>
+                            <span>Courses</span>
+                        </a>
+                        <a href="/Admin/Enrollments" class="nav-link-item @(ViewData["ActivePage"]?.ToString() == "Enrollments" ? "active" : "")">
+                            <i class="bi bi-person-plus-fill"></i>
+                            <span>Enrollments</span>
+                        </a>
+                    </div>
+                }
+                else if (User.IsInRole("Teacher"))
+                {
+                    <div class="nav-section">
+                        <span class="nav-section-title">MAIN</span>
+                        <a href="/Teacher/Dashboard" class="nav-link-item @(ViewData["ActivePage"]?.ToString() == "Dashboard" ? "active" : "")">
+                            <i class="bi bi-grid-1x2-fill"></i>
+                            <span>Dashboard</span>
+                        </a>
+                    </div>
+                    <div class="nav-section">
+                        <span class="nav-section-title">TEACHING</span>
+                        <a href="/Teacher/Courses" class="nav-link-item @(ViewData["ActivePage"]?.ToString() == "Courses" ? "active" : "")">
+                            <i class="bi bi-book-fill"></i>
+                            <span>My Courses</span>
+                        </a>
+                        <a href="/Teacher/Submissions" class="nav-link-item @(ViewData["ActivePage"]?.ToString() == "Submissions" ? "active" : "")">
+                            <i class="bi bi-file-earmark-check-fill"></i>
+                            <span>Submissions</span>
+                        </a>
+                        <a href="/Teacher/Grades" class="nav-link-item @(ViewData["ActivePage"]?.ToString() == "Grades" ? "active" : "")">
+                            <i class="bi bi-clipboard-data-fill"></i>
+                            <span>Grades</span>
+                        </a>
+                    </div>
+                }
+                else
+                {
+                    <div class="nav-section">
+                        <span class="nav-section-title">MAIN</span>
+                        <a href="/Student/Dashboard" class="nav-link-item @(ViewData["ActivePage"]?.ToString() == "Dashboard" ? "active" : "")">
+                            <i class="bi bi-grid-1x2-fill"></i>
+                            <span>Dashboard</span>
+                        </a>
+                    </div>
+                    <div class="nav-section">
+                        <span class="nav-section-title">LEARNING</span>
+                        <a href="/Student/Courses" class="nav-link-item @(ViewData["ActivePage"]?.ToString() == "Courses" ? "active" : "")">
+                            <i class="bi bi-book-fill"></i>
+                            <span>My Courses</span>
+                        </a>
+                        <a href="/Student/Grades" class="nav-link-item @(ViewData["ActivePage"]?.ToString() == "Grades" ? "active" : "")">
+                            <i class="bi bi-clipboard-data-fill"></i>
+                            <span>Grades</span>
+                        </a>
+                    </div>
+                }
+
+                <div class="nav-section">
+                    <span class="nav-section-title">ACCOUNT</span>
+                    <a href="/Profile" class="nav-link-item @(ViewData["ActivePage"]?.ToString() == "Profile" ? "active" : "")">
+                        <i class="bi bi-person-circle"></i>
+                        <span>Profile</span>
+                    </a>
+                </div>
+            </nav>
+
+            <div class="sidebar-footer">
+                <form asp-controller="Auth" asp-action="Logout" method="post">
+                    <button type="submit" class="btn btn-logout w-100">
+                        <i class="bi bi-box-arrow-left"></i>
+                        <span>Logout</span>
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Page Content -->
+        <div class="main-content" id="mainContent">
+            <!-- Top Bar -->
+            <header class="topbar">
+                <div class="d-flex align-items-center">
+                    <button class="btn btn-link sidebar-toggle" id="sidebarToggle">
+                        <i class="bi bi-list fs-4"></i>
+                    </button>
+                    <nav aria-label="breadcrumb" class="ms-2">
+                        <ol class="breadcrumb mb-0">
+                            <li class="breadcrumb-item"><a href="#">@userRole</a></li>
+                            <li class="breadcrumb-item active">@ViewData["Title"]</li>
+                        </ol>
+                    </nav>
+                </div>
+                <div class="d-flex align-items-center gap-3">
+                    <!-- Theme Toggle -->
+                    <button class="btn btn-link theme-toggle" id="themeToggle" title="Toggle theme">
+                        <i class="bi bi-moon-fill" id="themeIcon"></i>
+                    </button>
+                    <!-- Notifications -->
+                    <div class="dropdown">
+                        <button class="btn btn-link position-relative" data-bs-toggle="dropdown">
+                            <i class="bi bi-bell-fill"></i>
+                            <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style="font-size: 0.6rem;">3</span>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end shadow-lg">
+                            <li><h6 class="dropdown-header">Notifications</h6></li>
+                            <li><a class="dropdown-item" href="#"><i class="bi bi-info-circle me-2"></i>New enrollment request</a></li>
+                            <li><a class="dropdown-item" href="#"><i class="bi bi-check-circle me-2"></i>Assignment graded</a></li>
+                            <li><a class="dropdown-item" href="#"><i class="bi bi-exclamation-circle me-2"></i>Quiz deadline approaching</a></li>
+                        </ul>
+                    </div>
+                    <!-- User Menu -->
+                    <div class="dropdown">
+                        <button class="btn btn-link d-flex align-items-center gap-2 user-menu" data-bs-toggle="dropdown">
+                            <div class="user-avatar">
+                                <i class="bi bi-person-fill"></i>
+                            </div>
+                            <div class="d-none d-md-block text-start">
+                                <div class="user-name">@User.Identity?.Name</div>
+                                <div class="user-role">@userRole</div>
+                            </div>
+                            <i class="bi bi-chevron-down d-none d-md-block"></i>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end shadow-lg">
+                            <li><a class="dropdown-item" href="/Profile"><i class="bi bi-person me-2"></i>Profile</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li>
+                                <form asp-controller="Auth" asp-action="Logout" method="post">
+                                    <button type="submit" class="dropdown-item text-danger"><i class="bi bi-box-arrow-left me-2"></i>Logout</button>
+                                </form>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Main Content Area -->
+            <main class="content-area">
+                <!-- Toast Container -->
+                <div class="toast-container position-fixed top-0 end-0 p-3" style="z-index: 1100;" id="toastContainer"></div>
+                
+                @if (TempData["SuccessMessage"] != null)
+                {
+                    <div class="alert alert-success alert-dismissible fade show" role="alert">
+                        <i class="bi bi-check-circle-fill me-2"></i>@TempData["SuccessMessage"]
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                }
+                @if (TempData["ErrorMessage"] != null)
+                {
+                    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                        <i class="bi bi-exclamation-triangle-fill me-2"></i>@TempData["ErrorMessage"]
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                }
+
+                @RenderBody()
+            </main>
+        </div>
+    </div>
+
+    <!-- Bootstrap 5 JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <!-- Custom JS -->
+    <script src="~/js/site.js" asp-append-version="true"></script>
+    @await RenderSectionAsync("Scripts", required: false)
+</body>
+</html>
