@@ -4,58 +4,64 @@
     Layout = "_AuthLayout";
 }
 
-<div class="auth-form-section">
-    <h2 class="auth-form-title">Welcome Back</h2>
-    <p class="auth-form-subtitle">Sign in to your account to continue</p>
+<div class="pe-xl-5">
+    <h2 class="fw-bold mb-2 text-navy" style="font-size: 2.25rem; letter-spacing: -0.5px;">Welcome Back!</h2>
+    <p class="text-secondary mb-5 fs-6">Sign in to continue to AUB Digital Academy.</p>
 
     <form asp-action="Login" asp-controller="Auth" method="post">
         <input type="hidden" name="returnUrl" value="@ViewData["ReturnUrl"]" />
         
         <div asp-validation-summary="ModelOnly" class="alert alert-danger" role="alert"></div>
 
-        <div class="mb-3">
-            <label asp-for="LoginId" class="form-label"></label>
-            <div class="input-group">
-                <span class="input-group-text"><i class="bi bi-person"></i></span>
-                <input asp-for="LoginId" class="form-control" placeholder="Enter your University ID or Email" autofocus />
+        <div class="mb-4">
+            <label asp-for="LoginId" class="form-label fw-medium text-dark mb-2 fs-6">University ID</label>
+            <div class="input-group auth-input-group">
+                <span class="input-group-text bg-white border-end-0 ps-3 pe-2 text-secondary">
+                    <i class="bi bi-person fs-5"></i>
+                </span>
+                <input asp-for="LoginId" class="form-control border-start-0 ps-1 py-2 fs-6 shadow-none" placeholder="Enter your University ID" autofocus />
             </div>
-            <span asp-validation-for="LoginId" class="text-danger small"></span>
+            <span asp-validation-for="LoginId" class="text-danger small mt-1 d-block"></span>
         </div>
 
-        <div class="mb-3">
-            <label asp-for="Password" class="form-label"></label>
-            <div class="input-group">
-                <span class="input-group-text"><i class="bi bi-lock"></i></span>
-                <input asp-for="Password" class="form-control" placeholder="Enter your password" />
-                <button class="btn btn-outline-secondary" type="button" id="togglePassword">
-                    <i class="bi bi-eye"></i>
+        <div class="mb-4">
+            <label asp-for="Password" class="form-label fw-medium text-dark mb-2 fs-6">Password</label>
+            <div class="input-group auth-input-group">
+                <span class="input-group-text bg-white border-end-0 ps-3 pe-2 text-secondary">
+                    <i class="bi bi-lock fs-5"></i>
+                </span>
+                <input asp-for="Password" class="form-control border-start-0 border-end-0 px-1 py-2 fs-6 shadow-none" placeholder="Enter your password" />
+                <button class="btn btn-outline-secondary border-start-0 bg-white text-secondary pe-3" type="button" id="togglePassword" style="border-color: var(--bs-border-color);">
+                    <i class="bi bi-eye-slash fs-5"></i>
                 </button>
             </div>
-            <span asp-validation-for="Password" class="text-danger small"></span>
+            <span asp-validation-for="Password" class="text-danger small mt-1 d-block"></span>
         </div>
 
         <div class="d-flex justify-content-between align-items-center mb-4">
-            <div class="form-check">
-                <input asp-for="RememberMe" class="form-check-input" />
-                <label asp-for="RememberMe" class="form-check-label"></label>
+            <div class="form-check custom-checkbox">
+                <input asp-for="RememberMe" class="form-check-input shadow-none cursor-pointer" id="rememberMeCheck" />
+                <label asp-for="RememberMe" class="form-check-label text-dark fw-medium cursor-pointer ms-1" for="rememberMeCheck">Remember me</label>
             </div>
-            <a href="@Url.Action("ForgotPassword", "Auth")" class="auth-link">Forgot Password?</a>
+            <a href="@Url.Action("ForgotPassword", "Auth")" class="text-primary text-decoration-none fw-medium">Forgot Password?</a>
         </div>
 
-        <button type="submit" class="btn btn-primary-aub w-100 mb-3">
-            <i class="bi bi-box-arrow-in-right me-2"></i>Sign In
+        <button type="submit" class="btn btn-primary-aub w-100 py-3 mb-4 rounded-3 fs-6">
+            Sign In
         </button>
     </form>
 
-    <div class="auth-divider">
-        <span>OR</span>
+    <div class="d-flex align-items-center mb-4">
+        <div class="flex-grow-1 border-bottom"></div>
+        <span class="px-3 text-secondary" style="font-size: 0.85rem;">or continue with</span>
+        <div class="flex-grow-1 border-bottom"></div>
     </div>
 
-    <form asp-action="ExternalLogin" asp-controller="Auth" method="post">
+    <form asp-action="ExternalLogin" asp-controller="Auth" method="post" class="mb-5">
         <input type="hidden" name="provider" value="Google" />
         <input type="hidden" name="returnUrl" value="@ViewData["ReturnUrl"]" />
-        <button type="submit" class="btn btn-google w-100">
-            <svg class="google-icon" viewBox="0 0 24 24" width="20" height="20">
+        <button type="submit" class="btn btn-google w-100 py-2 rounded-3">
+            <svg class="google-icon" viewBox="0 0 24 24" width="22" height="22">
                 <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/>
                 <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
                 <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
@@ -64,6 +70,17 @@
             Continue with Google
         </button>
     </form>
+    
+    <!-- Info alert area at bottom -->
+    <div class="d-flex align-items-center gap-3 mt-4">
+        <div class="rounded-circle d-flex align-items-center justify-content-center bg-primary bg-opacity-10 text-primary" style="width: 40px; height: 40px; flex-shrink: 0;">
+            <i class="bi bi-shield-check fs-5"></i>
+        </div>
+        <div class="d-flex flex-column text-secondary" style="font-size: 0.85rem;">
+            <span>Need an account?</span>
+            <span>Please <a href="#" class="text-primary text-decoration-none">contact the system administrator</a>.</span>
+        </div>
+    </div>
 </div>
 
 @section Scripts {
@@ -74,10 +91,10 @@
         const icon = this.querySelector('i');
         if (passwordInput.type === 'password') {
             passwordInput.type = 'text';
-            icon.classList.replace('bi-eye', 'bi-eye-slash');
+            icon.classList.replace('bi-eye-slash', 'bi-eye');
         } else {
             passwordInput.type = 'password';
-            icon.classList.replace('bi-eye-slash', 'bi-eye');
+            icon.classList.replace('bi-eye', 'bi-eye-slash');
         }
     });
 </script>

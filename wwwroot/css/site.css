@@ -334,123 +334,92 @@ a {
 }
 
 /* ============================================
-   Auth Pages
+   Auth Pages (Split Screen)
    ============================================ */
-.auth-body {
-    background: linear-gradient(135deg, var(--aub-navy-dark) 0%, var(--aub-navy) 40%, var(--aub-navy-light) 100%);
-    min-height: 100vh;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+.auth-left-panel {
+    background-color: var(--aub-navy-dark);
 }
 
-.auth-container {
+.auth-bg-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
     width: 100%;
-    max-width: 440px;
-    padding: 1rem;
+    height: 100%;
+    background: linear-gradient(135deg, rgba(0,34,68,0.95) 0%, rgba(0,51,102,0.85) 100%);
+    z-index: 2;
 }
 
-.auth-card {
-    background: var(--aub-white);
-    border-radius: 1rem;
-    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-    overflow: hidden;
+.auth-abstract-bg {
+    height: 60%;
+    background-image: 
+        radial-gradient(circle at 15% 50%, rgba(255,215,0,0.03) 0%, transparent 50%),
+        radial-gradient(circle at 85% 30%, rgba(255,255,255,0.02) 0%, transparent 50%),
+        linear-gradient(45deg, transparent 48%, rgba(255,255,255,0.03) 49%, rgba(255,255,255,0.03) 51%, transparent 52%);
+    background-size: 100% 100%, 100% 100%, 20px 20px;
+    opacity: 0.8;
 }
 
-[data-bs-theme="dark"] .auth-card {
-    background: #1e1e2e;
-}
-
-.auth-header {
-    background: linear-gradient(135deg, var(--aub-navy-dark), var(--aub-navy));
-    padding: 2rem 2rem 1.75rem;
-    text-align: center;
-    color: #fff;
-}
-
-.auth-logo {
-    width: 64px;
-    height: 64px;
-    background: var(--aub-gold);
-    border-radius: 16px;
+.auth-logo-icon {
+    width: 50px;
+    height: 50px;
+    background-color: transparent;
     display: flex;
     align-items: center;
     justify-content: center;
-    margin: 0 auto 1rem;
     font-size: 2rem;
-    color: var(--aub-navy-dark);
-    box-shadow: 0 4px 15px rgba(255, 215, 0, 0.4);
+    color: var(--aub-gold);
 }
 
-.auth-title {
-    font-size: 1.5rem;
-    font-weight: 700;
-    margin-bottom: 0.25rem;
+.letter-spacing-tight {
+    letter-spacing: -1px;
 }
 
-.auth-subtitle {
-    font-size: 0.8rem;
-    opacity: 0.7;
-    letter-spacing: 0.5px;
+.auth-title-underline {
+    width: 40px;
+    height: 3px;
+    background-color: var(--aub-gold);
 }
 
-.auth-form-section {
-    padding: 2rem;
+.auth-right-panel {
+    border-radius: 20px 0 0 20px;
+    box-shadow: -10px 0 30px rgba(0,0,0,0.05);
 }
 
-.auth-form-title {
-    font-size: 1.25rem;
-    font-weight: 600;
-    color: var(--aub-gray-800);
-    margin-bottom: 0.25rem;
+@media (max-width: 991.98px) {
+    .auth-right-panel {
+        border-radius: 0;
+        box-shadow: none;
+    }
 }
 
-[data-bs-theme="dark"] .auth-form-title {
-    color: #e0e0e0;
+.auth-input-group .input-group-text {
+    border-color: var(--bs-border-color);
 }
 
-.auth-form-subtitle {
-    font-size: 0.85rem;
-    color: var(--aub-gray-500);
-    margin-bottom: 1.5rem;
+.auth-input-group .form-control {
+    border-color: var(--bs-border-color);
 }
 
-.auth-link {
+.auth-input-group .form-control:focus {
+    box-shadow: none;
+    border-color: var(--bs-border-color);
+}
+
+.auth-input-group:focus-within .input-group-text,
+.auth-input-group:focus-within .form-control,
+.auth-input-group:focus-within .btn {
+    border-color: var(--aub-navy) !important;
+}
+
+.auth-input-group:focus-within .input-group-text i {
     color: var(--aub-navy);
-    font-size: 0.85rem;
-    font-weight: 500;
 }
 
-.auth-link:hover {
-    color: var(--aub-gold-dark);
+.cursor-pointer {
+    cursor: pointer;
 }
 
-.auth-divider {
-    display: flex;
-    align-items: center;
-    margin: 1.25rem 0;
-    color: var(--aub-gray-400);
-    font-size: 0.8rem;
-}
-
-.auth-divider::before,
-.auth-divider::after {
-    content: '';
-    flex: 1;
-    height: 1px;
-    background: var(--aub-gray-300);
-}
-
-.auth-divider span {
-    padding: 0 0.75rem;
-}
-
-.auth-footer {
-    text-align: center;
-    padding: 1rem;
-    color: rgba(255,255,255,0.5);
-    font-size: 0.75rem;
-}
 
 /* ============================================
    Buttons
