@@ -1,9 +1,9 @@
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace AUBDigitalAcademy.Models;
 
-public class Material
+public class Book
 {
     public int Id { get; set; }
 
@@ -21,3 +21,4 @@ public class Material
 
     public long? FileSize { get; set; }
 }
+

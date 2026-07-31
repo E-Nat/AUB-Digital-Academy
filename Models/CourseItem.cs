@@ -1,4 +1,4 @@
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 using AUBDigitalAcademy.Models.Enums;
 
@@ -23,8 +23,9 @@ public class CourseItem
 
     // One-to-one navigation (only one will be non-null based on Type)
     public virtual Lesson? Lesson { get; set; }
-    public virtual Material? Material { get; set; }
+    public virtual Book? Book { get; set; }
     public virtual Quiz? Quiz { get; set; }
     public virtual Assignment? Assignment { get; set; }
     public virtual ICollection<CourseProgress> Progress { get; set; } = new List<CourseProgress>();
 }
+

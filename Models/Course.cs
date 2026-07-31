@@ -1,4 +1,4 @@
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 using AUBDigitalAcademy.Models.Enums;
 
@@ -36,7 +36,7 @@ public class Course
     public string TeacherId { get; set; } = string.Empty;
 
     [ForeignKey(nameof(TeacherId))]
-    public virtual ApplicationUser Teacher { get; set; } = null!;
+    public virtual User Teacher { get; set; } = null!;
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
@@ -44,3 +44,4 @@ public class Course
     public virtual ICollection<Chapter> Chapters { get; set; } = new List<Chapter>();
     public virtual ICollection<Enrollment> Enrollments { get; set; } = new List<Enrollment>();
 }
+

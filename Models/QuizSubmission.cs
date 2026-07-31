@@ -1,4 +1,4 @@
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace AUBDigitalAcademy.Models;
@@ -16,7 +16,7 @@ public class QuizSubmission
     public string StudentId { get; set; } = string.Empty;
 
     [ForeignKey(nameof(StudentId))]
-    public virtual ApplicationUser Student { get; set; } = null!;
+    public virtual User Student { get; set; } = null!;
 
     public double Score { get; set; }
 
@@ -24,3 +24,4 @@ public class QuizSubmission
 
     public DateTime SubmittedAt { get; set; } = DateTime.UtcNow;
 }
+

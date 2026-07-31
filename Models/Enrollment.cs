@@ -1,4 +1,4 @@
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace AUBDigitalAcademy.Models;
@@ -11,7 +11,7 @@ public class Enrollment
     public string StudentId { get; set; } = string.Empty;
 
     [ForeignKey(nameof(StudentId))]
-    public virtual ApplicationUser Student { get; set; } = null!;
+    public virtual User Student { get; set; } = null!;
 
     public int CourseId { get; set; }
 
@@ -20,3 +20,4 @@ public class Enrollment
 
     public DateTime EnrolledAt { get; set; } = DateTime.UtcNow;
 }
+

@@ -1,6 +1,6 @@
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 
-namespace AUBDigitalAcademy.ViewModels.Auth;
+namespace AUBDigitalAcademy.Models.Models.ViewModels;
 
 public class LoginViewModel
 {
@@ -15,3 +15,4 @@ public class LoginViewModel
     [Display(Name = "Remember me")]
     public bool RememberMe { get; set; }
 }
+

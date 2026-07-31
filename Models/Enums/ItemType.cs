@@ -1,9 +1,10 @@
-namespace AUBDigitalAcademy.Models.Enums;
+﻿namespace AUBDigitalAcademy.Models.Enums;
 
 public enum ItemType
 {
     Lesson,
-    Material,
+    Book,
     Quiz,
     Assignment
 }
+

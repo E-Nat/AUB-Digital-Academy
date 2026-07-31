@@ -8,7 +8,7 @@ public static class SeedData
     public static async Task InitializeAsync(IServiceProvider serviceProvider)
     {
         var roleManager = serviceProvider.GetRequiredService<RoleManager<IdentityRole>>();
-        var userManager = serviceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        var userManager = serviceProvider.GetRequiredService<UserManager<User>>();
 
         // Create roles
         string[] roles = { "Admin", "Teacher", "Student" };
@@ -25,7 +25,7 @@ public static class SeedData
         var adminUser = await userManager.FindByEmailAsync(adminEmail);
         if (adminUser == null)
         {
-            adminUser = new ApplicationUser
+            adminUser = new User
             {
                 UserName = adminEmail,
                 Email = adminEmail,
@@ -47,7 +47,7 @@ public static class SeedData
         var teacherUser = await userManager.FindByEmailAsync(teacherEmail);
         if (teacherUser == null)
         {
-            teacherUser = new ApplicationUser
+            teacherUser = new User
             {
                 UserName = teacherEmail,
                 Email = teacherEmail,
@@ -69,7 +69,7 @@ public static class SeedData
         var studentUser = await userManager.FindByEmailAsync(studentEmail);
         if (studentUser == null)
         {
-            studentUser = new ApplicationUser
+            studentUser = new User
             {
                 UserName = studentEmail,
                 Email = studentEmail,

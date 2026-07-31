@@ -1,6 +1,6 @@
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 
-namespace AUBDigitalAcademy.ViewModels.Auth;
+namespace AUBDigitalAcademy.Models.Models.ViewModels;
 
 public class ForgotPasswordViewModel
 {
@@ -9,3 +9,4 @@ public class ForgotPasswordViewModel
     [Display(Name = "Email Address")]
     public string Email { get; set; } = string.Empty;
 }
+

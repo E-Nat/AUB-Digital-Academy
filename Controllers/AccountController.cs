@@ -1,21 +1,21 @@
-using Microsoft.AspNetCore.Identity;
+﻿using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using AUBDigitalAcademy.Models;
-using AUBDigitalAcademy.ViewModels.Auth;
+using AUBDigitalAcademy.Models.Models.ViewModels;
 
 namespace AUBDigitalAcademy.Controllers;
 
-public class AuthController : Controller
+public class AccountController : Controller
 {
-    private readonly SignInManager<ApplicationUser> _signInManager;
-    private readonly UserManager<ApplicationUser> _userManager;
-    private readonly ILogger<AuthController> _logger;
+    private readonly SignInManager<User> _signInManager;
+    private readonly UserManager<User> _userManager;
+    private readonly ILogger<AccountController> _logger;
 
-    public AuthController(
-        SignInManager<ApplicationUser> signInManager,
-        UserManager<ApplicationUser> userManager,
-        ILogger<AuthController> logger)
+    public AccountController(
+        SignInManager<User> signInManager,
+        UserManager<User> userManager,
+        ILogger<AccountController> logger)
     {
         _signInManager = signInManager;
         _userManager = userManager;
@@ -164,7 +164,7 @@ public class AuthController : Controller
             var user = await _userManager.FindByEmailAsync(email);
             if (user == null)
             {
-                user = new ApplicationUser
+                user = new User
                 {
                     UserName = email,
                     Email = email,
@@ -190,7 +190,7 @@ public class AuthController : Controller
     }
 
     // Helper methods
-    private async Task<ApplicationUser?> FindByUniversityIdAsync(string universityId)
+    private async Task<User?> FindByUniversityIdAsync(string universityId)
     {
         return await _userManager.Users
             .FirstOrDefaultAsync(u => u.UniversityId == universityId);
@@ -218,3 +218,4 @@ public class AuthController : Controller
         return RedirectToAction("Index", "Dashboard", new { area = "Student" });
     }
 }
+

@@ -1,10 +1,10 @@
-using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
+﻿using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using AUBDigitalAcademy.Models;
 
 namespace AUBDigitalAcademy.Data;
 
-public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
+public class ApplicationDbContext : IdentityDbContext<User>
 {
     public ApplicationDbContext(DbContextOptions<ApplicationDbContext> options)
         : base(options)
@@ -18,7 +18,7 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
     public DbSet<Chapter> Chapters { get; set; }
     public DbSet<CourseItem> CourseItems { get; set; }
     public DbSet<Lesson> Lessons { get; set; }
-    public DbSet<Material> Materials { get; set; }
+    public DbSet<Book> Books { get; set; }
     public DbSet<Quiz> Quizzes { get; set; }
     public DbSet<Question> Questions { get; set; }
     public DbSet<QuestionOption> QuestionOptions { get; set; }
@@ -32,8 +32,8 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
     {
         base.OnModelCreating(builder);
 
-        // ApplicationUser relationships
-        builder.Entity<ApplicationUser>(entity =>
+        // User relationships
+        builder.Entity<User>(entity =>
         {
             entity.HasIndex(u => u.UniversityId).IsUnique().HasFilter("[UniversityId] IS NOT NULL");
         });
@@ -109,13 +109,13 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
-        // Material (1:1 with CourseItem)
-        builder.Entity<Material>(entity =>
+        // Book (1:1 with CourseItem)
+        builder.Entity<Book>(entity =>
         {
             entity.HasIndex(m => m.CourseItemId).IsUnique();
             entity.HasOne(m => m.CourseItem)
-                .WithOne(ci => ci.Material)
-                .HasForeignKey<Material>(m => m.CourseItemId)
+                .WithOne(ci => ci.Book)
+                .HasForeignKey<Book>(m => m.CourseItemId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
@@ -218,3 +218,4 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>
         });
     }
 }
+

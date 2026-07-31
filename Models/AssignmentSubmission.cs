@@ -1,4 +1,4 @@
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 using AUBDigitalAcademy.Models.Enums;
 
@@ -17,7 +17,7 @@ public class AssignmentSubmission
     public string StudentId { get; set; } = string.Empty;
 
     [ForeignKey(nameof(StudentId))]
-    public virtual ApplicationUser Student { get; set; } = null!;
+    public virtual User Student { get; set; } = null!;
 
     public string? FileUrl { get; set; }
 
@@ -36,5 +36,6 @@ public class AssignmentSubmission
     public string? GradedById { get; set; }
 
     [ForeignKey(nameof(GradedById))]
-    public virtual ApplicationUser? GradedBy { get; set; }
+    public virtual User? GradedBy { get; set; }
 }
+

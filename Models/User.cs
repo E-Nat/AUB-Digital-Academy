@@ -1,9 +1,9 @@
-using Microsoft.AspNetCore.Identity;
+﻿using Microsoft.AspNetCore.Identity;
 using System.ComponentModel.DataAnnotations;
 
 namespace AUBDigitalAcademy.Models;
 
-public class ApplicationUser : IdentityUser
+public class User : IdentityUser
 {
     [Required]
     [StringLength(100)]
@@ -27,3 +27,4 @@ public class ApplicationUser : IdentityUser
     public virtual ICollection<AssignmentSubmission> AssignmentSubmissions { get; set; } = new List<AssignmentSubmission>();
     public virtual ICollection<AssignmentSubmission> GradedSubmissions { get; set; } = new List<AssignmentSubmission>();
 }
+
