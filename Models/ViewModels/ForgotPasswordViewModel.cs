@@ -1,6 +1,6 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 
-namespace AUBDigitalAcademy.Models.Models.ViewModels;
+namespace AUBDigitalAcademy.Models.ViewModels;
 
 public class ForgotPasswordViewModel
 {
