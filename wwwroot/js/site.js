@@ -34,6 +34,43 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
+    // 1b. Sidebar Scroll Position Persistence (Predictable, No jumping)
+    const sidebarNav = document.querySelector('.sidebar-nav');
+    if (sidebarNav) {
+        try {
+            const savedScroll = sessionStorage.getItem('aub_backend_sidebar_scroll');
+            if (savedScroll !== null) {
+                const scrollVal = parseInt(savedScroll, 10);
+                if (!isNaN(scrollVal)) sidebarNav.scrollTop = scrollVal;
+            }
+        } catch (e) {}
+
+        sidebarNav.addEventListener('scroll', function () {
+            try {
+                sessionStorage.setItem('aub_backend_sidebar_scroll', String(sidebarNav.scrollTop));
+            } catch (e) {}
+        }, { passive: true });
+
+        sidebarNav.querySelectorAll('.nav-link-item').forEach(link => {
+            link.addEventListener('click', function () {
+                try {
+                    sessionStorage.setItem('aub_backend_sidebar_scroll', String(sidebarNav.scrollTop));
+                } catch (e) {}
+            });
+        });
+
+        window.addEventListener('beforeunload', function () {
+            try {
+                sessionStorage.setItem('aub_backend_sidebar_scroll', String(sidebarNav.scrollTop));
+            } catch (e) {}
+        });
+        window.addEventListener('pagehide', function () {
+            try {
+                sessionStorage.setItem('aub_backend_sidebar_scroll', String(sidebarNav.scrollTop));
+            } catch (e) {}
+        });
+    }
+
     // 2. Theme Toggle Logic (Dark / Light Mode)
     const themeToggle = document.getElementById('themeToggle');
     const themeIcon = document.getElementById('themeIcon');
