@@ -1,1 +1,613 @@
-<!-- Course.cshtml -->
+@model AUBDigitalAcademy.Models.ViewModels.CourseManagementViewModel
+@{
+    ViewData["Title"] = "Course Management";
+    ViewData["ActivePage"] = "Courses";
+}
+
+@section Styles {
+    <link rel="stylesheet" href="~/css/admin.css" asp-append-version="true" />
+}
+
+<div class="container-fluid p-0">
+    <!-- Page Header -->
+    <div class="admin-page-header">
+        <div>
+            <h1 class="admin-page-title">Course Management</h1>
+            <p class="admin-page-subtitle">Manage specialized courses, curriculum, syllabus modules, and course catalogs.</p>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+            <button class="btn btn-primary-aub d-inline-flex align-items-center gap-2 shadow-sm" data-bs-toggle="modal" data-bs-target="#createCourseModal" type="button" id="openAddCourseModalBtn">
+                <i class="bi bi-plus-lg"></i>
+                <span>Add New Course</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- KPI Summary Cards -->
+    <div class="admin-kpi-grid mb-4">
+        <div class="kpi-card">
+            <div class="kpi-icon-wrap" style="background:#EFF6FF;color:#2563EB;">
+                <i class="bi bi-journal-bookmark-fill"></i>
+            </div>
+            <div class="kpi-info">
+                <span class="kpi-label">Total Courses</span>
+                <div class="kpi-value">@Model.TotalCourses</div>
+                <span class="kpi-subtext">Active academic catalog</span>
+            </div>
+        </div>
+
+        <div class="kpi-card">
+            <div class="kpi-icon-wrap" style="background:#ECFDF5;color:#059669;">
+                <i class="bi bi-check-circle-fill"></i>
+            </div>
+            <div class="kpi-info">
+                <span class="kpi-label">Published Courses</span>
+                <div class="kpi-value">@Model.PublishedCourses</div>
+                <span class="kpi-subtext">Available for enrollment</span>
+            </div>
+        </div>
+
+        <div class="kpi-card">
+            <div class="kpi-icon-wrap" style="background:#F5F3FF;color:#7C3AED;">
+                <i class="bi bi-collection-fill"></i>
+            </div>
+            <div class="kpi-info">
+                <span class="kpi-label">Curriculum Modules</span>
+                <div class="kpi-value">@Model.TotalModules</div>
+                <span class="kpi-subtext">Structured syllabus units</span>
+            </div>
+        </div>
+
+        <div class="kpi-card">
+            <div class="kpi-icon-wrap" style="background:#FFFBEB;color:#D97706;">
+                <i class="bi bi-play-btn-fill"></i>
+            </div>
+            <div class="kpi-info">
+                <span class="kpi-label">Total Lessons</span>
+                <div class="kpi-value">@Model.TotalLessons</div>
+                <span class="kpi-subtext">Videos, articles & labs</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Course Table Card -->
+    <div class="course-table-card">
+        <!-- Segment Tabs -->
+        <div class="course-segment-tabs">
+            <button class="course-segment-tab active" data-filter="all" type="button">
+                All Courses <span class="tab-count">@Model.TotalCourses</span>
+            </button>
+            <button class="course-segment-tab" data-filter="published" type="button">
+                Published <span class="tab-count">@Model.PublishedCourses</span>
+            </button>
+            <button class="course-segment-tab" data-filter="draft" type="button">
+                Drafts <span class="tab-count">@Model.DraftCourses</span>
+            </button>
+            <button class="course-segment-tab" data-filter="archived" type="button">
+                Archived <span class="tab-count">@Model.ArchivedCourses</span>
+            </button>
+        </div>
+
+        <!-- Filter Bar -->
+        <div class="course-filter-bar">
+            <div class="course-search-box">
+                <i class="bi bi-search"></i>
+                <input type="text" class="form-control course-search-input" id="courseSearchInput" placeholder="Search courses by title, code, major, instructor...">
+            </div>
+            <select class="form-select course-filter-select" id="courseCategoryFilter" aria-label="Filter by Category">
+                <option value="">All Categories</option>
+                @foreach (var cat in Model.CreateModel.CategoryOptions)
+                {
+                    <option value="@cat.Text">@cat.Text</option>
+                }
+            </select>
+        </div>
+
+        <!-- Course Table -->
+        <div class="table-responsive">
+            <table class="table align-middle mb-0" id="coursesTable">
+                <thead class="table-light">
+                    <tr>
+                        <th class="ps-3" style="width: 28%;">Course</th>
+                        <th style="width: 18%;">Major / Category</th>
+                        <th style="width: 14%;">Semester</th>
+                        <th style="width: 18%;">Instructor</th>
+                        <th class="text-center" style="width: 10%;">Curriculum</th>
+                        <th style="width: 8%;">Status</th>
+                        <th class="text-end pe-3" style="width: 4%;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="courseTableBody">
+                    @if (Model.Courses != null && Model.Courses.Any())
+                    {
+                        @foreach (var course in Model.Courses)
+                        {
+                            var statusClass = course.Status.ToString().ToLowerInvariant();
+                            <tr class="course-row" data-status="@statusClass" data-title="@(course.Title ?? "").ToLowerInvariant()" data-code="@(course.Code ?? "").ToLowerInvariant()" data-major="@(course.Major?.Name?.ToLowerInvariant() ?? "")" data-category="@(course.Major?.Category?.Name?.ToLowerInvariant() ?? "")">
+                                <td class="ps-3">
+                                    <div class="d-flex align-items-center gap-3">
+                                        @if (!string.IsNullOrEmpty(course.Thumbnail))
+                                        {
+                                            <img src="@course.Thumbnail" alt="@course.Title" class="course-thumb-preview" onerror="this.style.display='none';if(this.nextElementSibling)this.nextElementSibling.style.display='flex';" />
+                                            <div class="course-thumb-placeholder" style="display:none;">
+                                                <i class="bi bi-book-half"></i>
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            <div class="course-thumb-placeholder">
+                                                <i class="bi bi-book-half"></i>
+                                            </div>
+                                        }
+                                        <div>
+                                            <div class="fw-bold text-dark mb-0.5">@course.Title</div>
+                                            <span class="course-code-badge">@course.Code</span>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td>
+                                    <div class="fw-medium text-dark small">@(course.Major?.Name ?? "General")</div>
+                                    <small class="text-muted">@(course.Major?.Category?.Name ?? "Academic")</small>
+                                </td>
+                                <td>
+                                    <div class="fw-medium text-dark small">@(course.Semester?.Name ?? "N/A")</div>
+                                    <small class="text-muted">@(course.Semester?.Code ?? "")</small>
+                                </td>
+                                <td>
+                                    <div class="d-flex align-items-center gap-2">
+                                        <div class="rounded-circle d-flex align-items-center justify-content-center text-white bg-primary fw-bold" style="width:28px;height:28px;font-size:0.75rem;">
+                                            @((!string.IsNullOrEmpty(course.Teacher?.FullName) ? course.Teacher.FullName.Substring(0, 1) : "T"))
+                                        </div>
+                                        <div>
+                                            <div class="fw-medium text-dark small">@(course.Teacher?.FullName ?? "Unassigned")</div>
+                                            <small class="text-muted">@(course.Teacher?.UniversityId ?? course.Teacher?.Email ?? "")</small>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td class="text-center">
+                                    <span class="badge bg-light text-dark border">
+                                        @(course.Chapters?.Count ?? 0) Modules
+                                    </span>
+                                </td>
+                                <td>
+                                    <span class="badge-course-status @statusClass">
+                                        <i class="bi bi-circle-fill" style="font-size: 0.5rem;"></i>
+                                        @course.Status
+                                    </span>
+                                </td>
+                                <td class="text-end pe-3">
+                                    <div class="d-flex align-items-center justify-content-end gap-1">
+                                        <button type="button" class="btn btn-sm btn-outline-secondary p-1 edit-course-btn"
+                                                data-id="@course.Id"
+                                                data-title="@course.Title"
+                                                data-code="@course.Code"
+                                                data-desc="@course.Description"
+                                                data-major="@course.MajorId"
+                                                data-semester="@course.SemesterId"
+                                                data-teacher="@course.TeacherId"
+                                                data-thumbnail="@course.Thumbnail"
+                                                data-status="@((int)course.Status)"
+                                                title="Edit Course">
+                                            <i class="bi bi-pencil"></i>
+                                        </button>
+                                        <a href="/Teacher/Courses" class="btn btn-sm btn-link text-primary p-1" title="View Course Details">
+                                            <i class="bi bi-eye"></i>
+                                        </a>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    }
+                    else
+                    {
+                        <tr>
+                            <td colspan="7" class="p-5 text-center text-muted">
+                                <i class="bi bi-journal-x fs-1 d-block mb-3 text-secondary opacity-50"></i>
+                                <h5 class="fw-bold text-dark mb-1">No courses yet</h5>
+                                <p class="text-muted small mb-3">Create your first academic course to start building your catalog.</p>
+                                <button class="btn btn-primary-aub btn-sm" data-bs-toggle="modal" data-bs-target="#createCourseModal" type="button">
+                                    <i class="bi bi-plus-lg me-1"></i> Add New Course
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- 1. ADD NEW COURSE MODAL                                      -->
+<!-- ============================================================ -->
+<div class="modal fade" id="createCourseModal" tabindex="-1" aria-labelledby="createCourseModalTitle" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content shadow-lg border-0">
+            <div class="modal-course-header d-flex align-items-center justify-content-between">
+                <div>
+                    <h5 class="modal-title fw-bold text-dark mb-0" id="createCourseModalTitle">Add New Course</h5>
+                    <small class="text-muted">Create and configure a new course in the academic catalog.</small>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+
+            <form asp-controller="Academic" asp-action="CreateCourse" method="post" id="createCourseForm" novalidate>
+                @Html.AntiForgeryToken()
+
+                <div class="modal-body p-4" style="max-height: calc(85vh - 140px); overflow-y: auto;">
+                    <div asp-validation-summary="ModelOnly" class="alert alert-danger py-2 small mb-3" role="alert"></div>
+
+                    <!-- 1. Basic Information -->
+                    <div class="mb-4">
+                        <div class="modal-section-title">
+                            <i class="bi bi-info-circle text-primary"></i>
+                            <span>Basic Information</span>
+                        </div>
+
+                        <div class="row g-3">
+                            <div class="col-md-8">
+                                <label asp-for="CreateModel.Title" class="form-label small fw-bold text-secondary mb-1">
+                                    Course Title <span class="text-danger">*</span>
+                                </label>
+                                <input asp-for="CreateModel.Title" class="form-control" placeholder="e.g. Full-Stack Web Development" required />
+                                <span asp-validation-for="CreateModel.Title" class="text-danger small d-block mt-1"></span>
+                            </div>
+
+                            <div class="col-md-4">
+                                <label asp-for="CreateModel.Code" class="form-label small fw-bold text-secondary mb-1">
+                                    Course Code <span class="text-danger">*</span>
+                                </label>
+                                <input asp-for="CreateModel.Code" class="form-control text-uppercase font-monospace" placeholder="e.g. CS-WD101" maxlength="20" required />
+                                <span asp-validation-for="CreateModel.Code" class="text-danger small d-block mt-1"></span>
+                            </div>
+
+                            <div class="col-12">
+                                <label asp-for="CreateModel.Description" class="form-label small fw-bold text-secondary mb-1">
+                                    Description <span class="text-muted fw-normal">(Optional)</span>
+                                </label>
+                                <textarea asp-for="CreateModel.Description" class="form-control" rows="2" placeholder="Brief summary of topics covered in this course..."></textarea>
+                                <span asp-validation-for="CreateModel.Description" class="text-danger small d-block mt-1"></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 2. Academic Placement -->
+                    <div class="mb-4">
+                        <div class="modal-section-title">
+                            <i class="bi bi-building text-primary"></i>
+                            <span>Academic Placement</span>
+                        </div>
+
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label asp-for="CreateModel.CategoryId" class="form-label small fw-bold text-secondary mb-1">
+                                    Category <span class="text-muted fw-normal">(Optional)</span>
+                                </label>
+                                <select asp-for="CreateModel.CategoryId" asp-items="Model.CreateModel.CategoryOptions" class="form-select" id="createCourseCategoryId">
+                                    <option value="">Select Category...</option>
+                                </select>
+                                <span asp-validation-for="CreateModel.CategoryId" class="text-danger small d-block mt-1"></span>
+                            </div>
+
+                            <div class="col-md-6">
+                                <label asp-for="CreateModel.MajorId" class="form-label small fw-bold text-secondary mb-1">
+                                    Major <span class="text-danger">*</span>
+                                </label>
+                                <select asp-for="CreateModel.MajorId" asp-items="Model.CreateModel.MajorOptions" class="form-select" required>
+                                    <option value="" disabled>Select Major...</option>
+                                </select>
+                                <span asp-validation-for="CreateModel.MajorId" class="text-danger small d-block mt-1"></span>
+                            </div>
+
+                            <div class="col-md-6">
+                                <label asp-for="CreateModel.SemesterId" class="form-label small fw-bold text-secondary mb-1">
+                                    Semester <span class="text-danger">*</span>
+                                </label>
+                                <select asp-for="CreateModel.SemesterId" asp-items="Model.CreateModel.SemesterOptions" class="form-select" required>
+                                    <option value="" disabled>Select Semester...</option>
+                                </select>
+                                <span asp-validation-for="CreateModel.SemesterId" class="text-danger small d-block mt-1"></span>
+                            </div>
+
+                            <div class="col-md-6">
+                                <label asp-for="CreateModel.TeacherId" class="form-label small fw-bold text-secondary mb-1">
+                                    Assigned Instructor (Teacher) <span class="text-danger">*</span>
+                                </label>
+                                <select asp-for="CreateModel.TeacherId" asp-items="Model.CreateModel.TeacherOptions" class="form-select" required>
+                                    <option value="" disabled>Select Assigned Instructor...</option>
+                                </select>
+                                <span asp-validation-for="CreateModel.TeacherId" class="text-danger small d-block mt-1"></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 3. Cover Image & Status -->
+                    <div class="mb-2">
+                        <div class="modal-section-title">
+                            <i class="bi bi-image text-primary"></i>
+                            <span>Media & Initial Visibility</span>
+                        </div>
+
+                        <div class="row g-3">
+                            <div class="col-md-8">
+                                <label asp-for="CreateModel.Thumbnail" class="form-label small fw-bold text-secondary mb-1">
+                                    Cover Image URL / Path <span class="text-muted fw-normal">(Optional)</span>
+                                </label>
+                                <input asp-for="CreateModel.Thumbnail" class="form-control" placeholder="assets/images/course_webdev.jpg or /uploads/..." />
+                                <small class="text-muted">Leave empty to use automatic subject gradient.</small>
+                            </div>
+
+                            <div class="col-md-4">
+                                <label asp-for="CreateModel.Status" class="form-label small fw-bold text-secondary mb-1">
+                                    Status
+                                </label>
+                                <select asp-for="CreateModel.Status" asp-items="Html.GetEnumSelectList<AUBDigitalAcademy.Models.Enums.CourseStatus>()" class="form-select"></select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Modal Footer -->
+                <div class="modal-footer bg-light px-4 py-3 d-flex justify-content-end gap-2 border-top">
+                    <input type="hidden" name="submitAction" id="createCourseSubmitAction" value="publish" />
+                    <button type="button" class="btn btn-outline-secondary px-3 py-2 fw-medium" data-bs-dismiss="modal">
+                        Cancel
+                    </button>
+                    <button type="submit" name="submitAction" value="draft" class="btn btn-outline-primary px-3 py-2 fw-medium" onclick="document.getElementById('createCourseSubmitAction').value='draft';">
+                        <i class="bi bi-file-earmark me-1"></i> Save as Draft
+                    </button>
+                    <button type="submit" name="submitAction" value="publish" class="btn btn-primary-aub px-4 py-2 fw-medium" onclick="document.getElementById('createCourseSubmitAction').value='publish';">
+                        <i class="bi bi-check2-circle me-1"></i> Publish Course
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- 2. EDIT COURSE MODAL                                         -->
+<!-- ============================================================ -->
+<div class="modal fade" id="editCourseModal" tabindex="-1" aria-labelledby="editCourseModalTitle" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content shadow-lg border-0">
+            <div class="modal-course-header d-flex align-items-center justify-content-between">
+                <div>
+                    <h5 class="modal-title fw-bold text-dark mb-0" id="editCourseModalTitle">Edit Course</h5>
+                    <small class="text-muted">Update course curriculum details, academic placement, or status.</small>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+
+            <form asp-controller="Academic" asp-action="EditCourse" method="post" id="editCourseForm" novalidate>
+                @Html.AntiForgeryToken()
+                <input type="hidden" asp-for="EditModel.Id" id="editCourseId" />
+
+                <div class="modal-body p-4" style="max-height: calc(85vh - 140px); overflow-y: auto;">
+                    <div asp-validation-summary="ModelOnly" class="alert alert-danger py-2 small mb-3" role="alert"></div>
+
+                    <!-- 1. Basic Information -->
+                    <div class="mb-4">
+                        <div class="modal-section-title">
+                            <i class="bi bi-info-circle text-primary"></i>
+                            <span>Basic Information</span>
+                        </div>
+
+                        <div class="row g-3">
+                            <div class="col-md-8">
+                                <label asp-for="EditModel.Title" class="form-label small fw-bold text-secondary mb-1">
+                                    Course Title <span class="text-danger">*</span>
+                                </label>
+                                <input asp-for="EditModel.Title" id="editCourseTitle" class="form-control" placeholder="e.g. Full-Stack Web Development" required />
+                                <span asp-validation-for="EditModel.Title" class="text-danger small d-block mt-1"></span>
+                            </div>
+
+                            <div class="col-md-4">
+                                <label asp-for="EditModel.Code" class="form-label small fw-bold text-secondary mb-1">
+                                    Course Code <span class="text-danger">*</span>
+                                </label>
+                                <input asp-for="EditModel.Code" id="editCourseCode" class="form-control text-uppercase font-monospace" placeholder="e.g. CS-WD101" maxlength="20" required />
+                                <span asp-validation-for="EditModel.Code" class="text-danger small d-block mt-1"></span>
+                            </div>
+
+                            <div class="col-12">
+                                <label asp-for="EditModel.Description" class="form-label small fw-bold text-secondary mb-1">
+                                    Description <span class="text-muted fw-normal">(Optional)</span>
+                                </label>
+                                <textarea asp-for="EditModel.Description" id="editCourseDescription" class="form-control" rows="2" placeholder="Brief summary of topics covered in this course..."></textarea>
+                                <span asp-validation-for="EditModel.Description" class="text-danger small d-block mt-1"></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 2. Academic Placement -->
+                    <div class="mb-4">
+                        <div class="modal-section-title">
+                            <i class="bi bi-building text-primary"></i>
+                            <span>Academic Placement</span>
+                        </div>
+
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label asp-for="EditModel.MajorId" class="form-label small fw-bold text-secondary mb-1">
+                                    Major <span class="text-danger">*</span>
+                                </label>
+                                <select asp-for="EditModel.MajorId" id="editCourseMajorId" asp-items="Model.EditModel.MajorOptions" class="form-select" required>
+                                    <option value="" disabled>Select Major...</option>
+                                </select>
+                                <span asp-validation-for="EditModel.MajorId" class="text-danger small d-block mt-1"></span>
+                            </div>
+
+                            <div class="col-md-6">
+                                <label asp-for="EditModel.SemesterId" class="form-label small fw-bold text-secondary mb-1">
+                                    Semester <span class="text-danger">*</span>
+                                </label>
+                                <select asp-for="EditModel.SemesterId" id="editCourseSemesterId" asp-items="Model.EditModel.SemesterOptions" class="form-select" required>
+                                    <option value="" disabled>Select Semester...</option>
+                                </select>
+                                <span asp-validation-for="EditModel.SemesterId" class="text-danger small d-block mt-1"></span>
+                            </div>
+
+                            <div class="col-12">
+                                <label asp-for="EditModel.TeacherId" class="form-label small fw-bold text-secondary mb-1">
+                                    Assigned Instructor (Teacher) <span class="text-danger">*</span>
+                                </label>
+                                <select asp-for="EditModel.TeacherId" id="editCourseTeacherId" asp-items="Model.EditModel.TeacherOptions" class="form-select" required>
+                                    <option value="" disabled>Select Assigned Instructor...</option>
+                                </select>
+                                <span asp-validation-for="EditModel.TeacherId" class="text-danger small d-block mt-1"></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 3. Cover Image & Status -->
+                    <div class="mb-2">
+                        <div class="modal-section-title">
+                            <i class="bi bi-image text-primary"></i>
+                            <span>Media & Visibility Status</span>
+                        </div>
+
+                        <div class="row g-3">
+                            <div class="col-md-8">
+                                <label asp-for="EditModel.Thumbnail" class="form-label small fw-bold text-secondary mb-1">
+                                    Cover Image URL / Path <span class="text-muted fw-normal">(Optional)</span>
+                                </label>
+                                <input asp-for="EditModel.Thumbnail" id="editCourseThumbnail" class="form-control" placeholder="assets/images/course_webdev.jpg or /uploads/..." />
+                                <small class="text-muted">Leave empty to use automatic subject gradient.</small>
+                            </div>
+
+                            <div class="col-md-4">
+                                <label asp-for="EditModel.Status" class="form-label small fw-bold text-secondary mb-1">
+                                    Status
+                                </label>
+                                <select asp-for="EditModel.Status" id="editCourseStatus" asp-items="Html.GetEnumSelectList<AUBDigitalAcademy.Models.Enums.CourseStatus>()" class="form-select"></select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Modal Footer -->
+                <div class="modal-footer bg-light px-4 py-3 d-flex justify-content-end gap-2 border-top">
+                    <button type="button" class="btn btn-outline-secondary px-3 py-2 fw-medium" data-bs-dismiss="modal">
+                        Cancel
+                    </button>
+                    <button type="submit" class="btn btn-primary-aub px-4 py-2 fw-medium" id="btnSaveCourseChanges">
+                        <i class="bi bi-check2-circle me-1"></i> Save Changes
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            // Auto open Create modal if create validation failed
+            @if (ViewBag.OpenCreateModal == true)
+            {
+                <text>
+                var createModalEl = document.getElementById('createCourseModal');
+                if (createModalEl) {
+                    var modal = new bootstrap.Modal(createModalEl);
+                    modal.show();
+                }
+                </text>
+            }
+
+            // Auto open Edit modal if edit validation failed
+            @if (ViewBag.OpenEditModal == true)
+            {
+                <text>
+                var editModalEl = document.getElementById('editCourseModal');
+                if (editModalEl) {
+                    var modal = new bootstrap.Modal(editModalEl);
+                    modal.show();
+                }
+                </text>
+            }
+
+            // Edit button click handlers - populate Edit Modal
+            var editButtons = document.querySelectorAll('.edit-course-btn');
+            editButtons.forEach(function (btn) {
+                btn.addEventListener('click', function () {
+                    var id = this.getAttribute('data-id');
+                    var title = this.getAttribute('data-title') || '';
+                    var code = this.getAttribute('data-code') || '';
+                    var desc = this.getAttribute('data-desc') || '';
+                    var majorId = this.getAttribute('data-major') || '';
+                    var semesterId = this.getAttribute('data-semester') || '';
+                    var teacherId = this.getAttribute('data-teacher') || '';
+                    var thumbnail = this.getAttribute('data-thumbnail') || '';
+                    var status = this.getAttribute('data-status') || '0';
+
+                    document.getElementById('editCourseId').value = id;
+                    document.getElementById('editCourseTitle').value = title;
+                    document.getElementById('editCourseCode').value = code;
+                    document.getElementById('editCourseDescription').value = desc;
+                    document.getElementById('editCourseThumbnail').value = thumbnail;
+
+                    if (majorId) document.getElementById('editCourseMajorId').value = majorId;
+                    if (semesterId) document.getElementById('editCourseSemesterId').value = semesterId;
+                    if (teacherId) document.getElementById('editCourseTeacherId').value = teacherId;
+                    if (status) document.getElementById('editCourseStatus').value = status;
+
+                    var editModalEl = document.getElementById('editCourseModal');
+                    if (editModalEl) {
+                        var modal = new bootstrap.Modal(editModalEl);
+                        modal.show();
+                    }
+                });
+            });
+
+            // Real-time table search & filtering
+            const searchInput = document.getElementById('courseSearchInput');
+            const categoryFilter = document.getElementById('courseCategoryFilter');
+            const segmentTabs = document.querySelectorAll('.course-segment-tab');
+            const rows = document.querySelectorAll('#courseTableBody .course-row');
+
+            let currentFilter = 'all';
+
+            function filterTable() {
+                const searchVal = (searchInput ? searchInput.value : '').toLowerCase().trim();
+                const catVal = (categoryFilter ? categoryFilter.value : '').toLowerCase().trim();
+
+                rows.forEach(row => {
+                    const rowStatus = row.getAttribute('data-status') || '';
+                    const rowTitle = row.getAttribute('data-title') || '';
+                    const rowCode = row.getAttribute('data-code') || '';
+                    const rowMajor = row.getAttribute('data-major') || '';
+                    const rowCategory = row.getAttribute('data-category') || '';
+
+                    const matchesStatus = (currentFilter === 'all' || rowStatus === currentFilter);
+                    const matchesCategory = (!catVal || rowCategory.includes(catVal) || rowMajor.includes(catVal));
+                    const matchesSearch = (!searchVal || rowTitle.includes(searchVal) || rowCode.includes(searchVal) || rowMajor.includes(searchVal) || rowCategory.includes(searchVal));
+
+                    if (matchesStatus && matchesCategory && matchesSearch) {
+                        row.style.display = '';
+                    } else {
+                        row.style.display = 'none';
+                    }
+                });
+            }
+
+            if (searchInput) {
+                searchInput.addEventListener('input', filterTable);
+            }
+
+            if (categoryFilter) {
+                categoryFilter.addEventListener('change', filterTable);
+            }
+
+            segmentTabs.forEach(tab => {
+                tab.addEventListener('click', function () {
+                    segmentTabs.forEach(t => t.classList.remove('active'));
+                    this.classList.add('active');
+                    currentFilter = this.getAttribute('data-filter') || 'all';
+                    filterTable();
+                });
+            });
+        });
+    </script>
+}

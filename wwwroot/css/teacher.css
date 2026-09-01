@@ -1,1 +1,751 @@
+/* ==========================================================================
+   Teacher / Faculty Dashboard Styles - AUB Digital Academy
+   Clean, Focused, Academic Administration Design System
+   ========================================================================== */
 
+/* 1. Header Styles */
+.teacher-header {
+    background: transparent;
+    padding-bottom: 0.5rem;
+}
+
+.teacher-title {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--aub-gray-900);
+    letter-spacing: -0.02em;
+    margin-bottom: 0.25rem;
+}
+
+[data-bs-theme="dark"] .teacher-title {
+    color: #f1f5f9;
+}
+
+.teacher-subtitle {
+    font-size: 0.875rem;
+    color: var(--aub-gray-600);
+    margin-bottom: 0;
+}
+
+[data-bs-theme="dark"] .teacher-subtitle {
+    color: #94a3b8;
+}
+
+.term-select {
+    min-width: 190px;
+    height: 38px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    background-color: var(--aub-white);
+    border: 1px solid var(--aub-gray-300);
+    border-radius: 8px;
+    color: var(--aub-gray-800);
+    padding-left: 0.75rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+[data-bs-theme="dark"] .term-select {
+    background-color: #1e1e2e;
+    border-color: #334155;
+    color: #e2e8f0;
+}
+
+.term-select:focus {
+    border-color: var(--aub-navy);
+    box-shadow: 0 0 0 3px rgba(0, 51, 102, 0.12);
+}
+
+.btn-create-assignment {
+    height: 38px;
+    background: var(--aub-navy);
+    color: #ffffff;
+    font-size: 0.85rem;
+    font-weight: 600;
+    border-radius: 8px;
+    padding: 0 1rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    border: 1px solid transparent;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+    text-decoration: none;
+}
+
+.btn-create-assignment:hover {
+    background: var(--aub-navy-light);
+    color: #ffffff;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 51, 102, 0.25);
+}
+
+[data-bs-theme="dark"] .btn-create-assignment {
+    background: #2563eb;
+}
+
+[data-bs-theme="dark"] .btn-create-assignment:hover {
+    background: #1d4ed8;
+}
+
+/* 2. Compact Quick Stats Cards */
+.teacher-stat-card {
+    background: var(--aub-white);
+    border: 1px solid var(--aub-gray-200);
+    border-radius: 12px;
+    padding: 1.15rem 1.25rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+[data-bs-theme="dark"] .teacher-stat-card {
+    background: #1e1e2e;
+    border-color: #2d2d44;
+}
+
+.teacher-stat-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.05);
+}
+
+[data-bs-theme="dark"] .teacher-stat-card:hover {
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
+}
+
+.teacher-stat-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.25rem;
+    flex-shrink: 0;
+}
+
+.teacher-stat-icon.courses {
+    background-color: rgba(0, 51, 102, 0.08);
+    color: var(--aub-navy);
+}
+
+[data-bs-theme="dark"] .teacher-stat-icon.courses {
+    background-color: rgba(59, 130, 246, 0.15);
+    color: #60a5fa;
+}
+
+.teacher-stat-icon.reviews {
+    background-color: rgba(217, 119, 6, 0.1);
+    color: #d97706;
+}
+
+[data-bs-theme="dark"] .teacher-stat-icon.reviews {
+    background-color: rgba(245, 158, 11, 0.15);
+    color: #fbbf24;
+}
+
+.teacher-stat-icon.sessions {
+    background-color: rgba(14, 116, 144, 0.1);
+    color: #0e7490;
+}
+
+[data-bs-theme="dark"] .teacher-stat-icon.sessions {
+    background-color: rgba(6, 182, 212, 0.15);
+    color: #22d3ee;
+}
+
+.teacher-stat-info {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.teacher-stat-value {
+    font-size: 1.65rem;
+    font-weight: 700;
+    line-height: 1.1;
+    color: var(--aub-gray-900);
+    letter-spacing: -0.02em;
+}
+
+[data-bs-theme="dark"] .teacher-stat-value {
+    color: #f8fafc;
+}
+
+.teacher-stat-title {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--aub-gray-800);
+    margin-top: 2px;
+}
+
+[data-bs-theme="dark"] .teacher-stat-title {
+    color: #cbd5e1;
+}
+
+.teacher-stat-sub {
+    font-size: 0.725rem;
+    color: var(--aub-gray-500);
+    font-weight: 400;
+}
+
+[data-bs-theme="dark"] .teacher-stat-sub {
+    color: #94a3b8;
+}
+
+/* 3. Section Containers & Headers */
+.dashboard-card {
+    background: var(--aub-white);
+    border: 1px solid var(--aub-gray-200);
+    border-radius: 12px;
+    overflow: hidden;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
+[data-bs-theme="dark"] .dashboard-card {
+    background: #1e1e2e;
+    border-color: #2d2d44;
+}
+
+.dashboard-card-header {
+    padding: 1.1rem 1.25rem 0.9rem;
+    border-bottom: 1px solid var(--aub-gray-200);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: transparent;
+}
+
+[data-bs-theme="dark"] .dashboard-card-header {
+    border-bottom-color: #2d2d44;
+}
+
+.dashboard-card-title {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--aub-gray-900);
+    margin-bottom: 0.15rem;
+    letter-spacing: -0.01em;
+}
+
+[data-bs-theme="dark"] .dashboard-card-title {
+    color: #f1f5f9;
+}
+
+.dashboard-card-subtitle {
+    font-size: 0.775rem;
+    color: var(--aub-gray-500);
+    margin-bottom: 0;
+}
+
+[data-bs-theme="dark"] .dashboard-card-subtitle {
+    color: #94a3b8;
+}
+
+.dashboard-link {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--aub-navy);
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    transition: color 0.15s ease;
+}
+
+.dashboard-link:hover {
+    color: var(--aub-navy-light);
+    text-decoration: underline;
+}
+
+[data-bs-theme="dark"] .dashboard-link {
+    color: #60a5fa;
+}
+
+[data-bs-theme="dark"] .dashboard-link:hover {
+    color: #93c5fd;
+}
+
+/* 4. Needs Your Attention List */
+.attention-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.attention-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid var(--aub-gray-200);
+    transition: background-color 0.15s ease;
+    gap: 1rem;
+}
+
+[data-bs-theme="dark"] .attention-item {
+    border-bottom-color: #2d2d44;
+}
+
+.attention-item:last-child {
+    border-bottom: none;
+}
+
+.attention-item:hover {
+    background-color: var(--aub-gray-50);
+}
+
+[data-bs-theme="dark"] .attention-item:hover {
+    background-color: #252536;
+}
+
+.attention-main {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    flex: 1;
+}
+
+.attention-title {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: var(--aub-gray-900);
+    margin-bottom: 0.25rem;
+    text-overflow: ellipsis;
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+[data-bs-theme="dark"] .attention-title {
+    color: #f1f5f9;
+}
+
+.attention-meta {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    font-size: 0.8125rem;
+}
+
+.attention-course-name {
+    color: var(--aub-gray-600);
+    font-weight: 400;
+}
+
+[data-bs-theme="dark"] .attention-course-name {
+    color: #94a3b8;
+}
+
+.attention-meta-dot {
+    width: 3px;
+    height: 3px;
+    border-radius: 50%;
+    background-color: var(--aub-gray-400);
+    display: inline-block;
+}
+
+.pending-badge {
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0.2rem 0.6rem;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+}
+
+.pending-badge.urgent {
+    background-color: #fee2e2;
+    color: #b91c1c;
+}
+
+[data-bs-theme="dark"] .pending-badge.urgent {
+    background-color: rgba(239, 68, 68, 0.2);
+    color: #fca5a5;
+}
+
+.pending-badge.normal {
+    background-color: #e0f2fe;
+    color: #0369a1;
+}
+
+[data-bs-theme="dark"] .pending-badge.normal {
+    background-color: rgba(14, 165, 233, 0.2);
+    color: #7dd3fc;
+}
+
+.btn-review {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    padding: 0.35rem 0.9rem;
+    border-radius: 6px;
+    color: var(--aub-navy);
+    border: 1px solid rgba(0, 51, 102, 0.3);
+    background-color: transparent;
+    text-decoration: none;
+    white-space: nowrap;
+    transition: all 0.15s ease;
+}
+
+.btn-review:hover {
+    background-color: var(--aub-navy);
+    color: #ffffff;
+    border-color: var(--aub-navy);
+}
+
+[data-bs-theme="dark"] .btn-review {
+    color: #60a5fa;
+    border-color: rgba(96, 165, 250, 0.3);
+}
+
+[data-bs-theme="dark"] .btn-review:hover {
+    background-color: #2563eb;
+    color: #ffffff;
+    border-color: #2563eb;
+}
+
+/* 5. Today's Schedule List */
+.schedule-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.schedule-item {
+    display: flex;
+    flex-direction: column;
+    padding: 1.1rem 1.25rem;
+    border-bottom: 1px solid var(--aub-gray-200);
+    transition: background-color 0.15s ease;
+    gap: 0.85rem;
+}
+
+[data-bs-theme="dark"] .schedule-item {
+    border-bottom-color: #2d2d44;
+}
+
+.schedule-item:last-child {
+    border-bottom: none;
+}
+
+.schedule-item:hover {
+    background-color: var(--aub-gray-50);
+}
+
+[data-bs-theme="dark"] .schedule-item:hover {
+    background-color: #252536;
+}
+
+.schedule-person {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.student-avatar {
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--aub-navy), var(--aub-navy-light));
+    color: #ffffff;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    letter-spacing: 0.05em;
+}
+
+.schedule-details {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.schedule-student-name {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: var(--aub-gray-900);
+    line-height: 1.2;
+}
+
+[data-bs-theme="dark"] .schedule-student-name {
+    color: #f1f5f9;
+}
+
+.schedule-topic {
+    font-size: 0.8125rem;
+    color: var(--aub-gray-600);
+    margin-top: 0.15rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+[data-bs-theme="dark"] .schedule-topic {
+    color: #94a3b8;
+}
+
+.schedule-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding-top: 0.25rem;
+}
+
+.schedule-time-badge {
+    font-size: 0.775rem;
+    color: var(--aub-gray-700);
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+[data-bs-theme="dark"] .schedule-time-badge {
+    color: #cbd5e1;
+}
+
+.btn-view-session {
+    font-size: 0.775rem;
+    font-weight: 600;
+    padding: 0.3rem 0.75rem;
+    border-radius: 6px;
+    background-color: var(--aub-gray-100);
+    color: var(--aub-gray-800);
+    border: 1px solid var(--aub-gray-300);
+    text-decoration: none;
+    white-space: nowrap;
+    transition: all 0.15s ease;
+}
+
+.btn-view-session:hover {
+    background-color: var(--aub-gray-200);
+    color: var(--aub-gray-900);
+}
+
+[data-bs-theme="dark"] .btn-view-session {
+    background-color: #252536;
+    color: #e2e8f0;
+    border-color: #3d3d55;
+}
+
+[data-bs-theme="dark"] .btn-view-session:hover {
+    background-color: #2e2e42;
+    color: #ffffff;
+}
+
+/* 6. Simplified Course Cards */
+.teacher-course-card {
+    background: var(--aub-white);
+    border: 1px solid var(--aub-gray-200);
+    border-radius: 12px;
+    overflow: hidden;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+[data-bs-theme="dark"] .teacher-course-card {
+    background: #1e1e2e;
+    border-color: #2d2d44;
+}
+
+.teacher-course-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.06);
+}
+
+[data-bs-theme="dark"] .teacher-course-card:hover {
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+}
+
+.course-cover-wrapper {
+    height: 120px;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.course-cover-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.course-cover-placeholder {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+}
+
+.course-gradient-1 {
+    background: linear-gradient(135deg, #003366 0%, #0055a5 100%);
+    color: #ffffff;
+}
+
+.course-gradient-2 {
+    background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+    color: #ffffff;
+}
+
+.course-gradient-3 {
+    background: linear-gradient(135deg, #0f4c5c 0%, #1982c4 100%);
+    color: #ffffff;
+}
+
+.course-placeholder-icon {
+    font-size: 2.5rem;
+    opacity: 0.85;
+}
+
+.course-card-body {
+    padding: 1.15rem 1.25rem;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    justify-content: space-between;
+}
+
+.course-card-title {
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--aub-gray-900);
+    margin-bottom: 0.5rem;
+    line-height: 1.35;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+[data-bs-theme="dark"] .course-card-title {
+    color: #f1f5f9;
+}
+
+.course-card-stats {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    font-size: 0.8125rem;
+    color: var(--aub-gray-600);
+    margin-bottom: 1.1rem;
+}
+
+[data-bs-theme="dark"] .course-card-stats {
+    color: #94a3b8;
+}
+
+.course-card-stat-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-weight: 500;
+}
+
+.course-card-stat-item i {
+    font-size: 0.9rem;
+    color: var(--aub-gray-500);
+}
+
+[data-bs-theme="dark"] .course-card-stat-item i {
+    color: #64748b;
+}
+
+.btn-manage-course {
+    width: 100%;
+    padding: 0.45rem 1rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    border-radius: 8px;
+    background-color: var(--aub-gray-50);
+    color: var(--aub-navy);
+    border: 1px solid var(--aub-gray-300);
+    text-align: center;
+    text-decoration: none;
+    transition: all 0.15s ease;
+    display: block;
+}
+
+.btn-manage-course:hover {
+    background-color: var(--aub-navy);
+    color: #ffffff;
+    border-color: var(--aub-navy);
+}
+
+[data-bs-theme="dark"] .btn-manage-course {
+    background-color: #252536;
+    color: #60a5fa;
+    border-color: #3d3d55;
+}
+
+[data-bs-theme="dark"] .btn-manage-course:hover {
+    background-color: #2563eb;
+    color: #ffffff;
+    border-color: #2563eb;
+}
+
+/* 7. Section Titles for Full Rows */
+.section-header-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1rem;
+}
+
+.section-main-title {
+    font-size: 1.125rem;
+    font-weight: 700;
+    color: var(--aub-gray-900);
+    margin-bottom: 0;
+    letter-spacing: -0.01em;
+}
+
+[data-bs-theme="dark"] .section-main-title {
+    color: #f1f5f9;
+}
+
+/* Responsive adjustments */
+@media (max-width: 767.98px) {
+    .teacher-header {
+        flex-direction: column;
+        align-items: flex-start !important;
+        gap: 0.75rem;
+    }
+
+    .teacher-header-actions {
+        width: 100%;
+        flex-direction: column;
+        align-items: stretch !important;
+    }
+
+    .term-select {
+        width: 100%;
+    }
+
+    .btn-create-assignment {
+        justify-content: center;
+    }
+
+    .attention-item {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .btn-review {
+        width: 100%;
+        text-align: center;
+    }
+}

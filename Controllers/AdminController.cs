@@ -1,4 +1,28 @@
-// AdminController.cs
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+
 namespace AUBDigitalAcademy.Controllers;
 
-public class AdminController : Microsoft.AspNetCore.Mvc.Controller { }
+[Authorize(Roles = "Admin")]
+public class AdminController : Controller
+{
+    [HttpGet]
+    public IActionResult Index()
+    {
+        ViewData["Title"] = "Admin Dashboard";
+        ViewData["ActivePage"] = "Dashboard";
+        return View();
+    }
+
+    [HttpGet]
+    public IActionResult Dashboard()
+    {
+        return RedirectToAction(nameof(Index));
+    }
+
+    [HttpGet]
+    public IActionResult Courses()
+    {
+        return RedirectToAction("Course", "Academic");
+    }
+}

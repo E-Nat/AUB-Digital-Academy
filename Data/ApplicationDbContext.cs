@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
+using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using AUBDigitalAcademy.Models;
 
@@ -170,7 +170,7 @@ public class ApplicationDbContext : IdentityDbContext<User>
             entity.HasOne(e => e.Course)
                 .WithMany(c => c.Enrollments)
                 .HasForeignKey(e => e.CourseId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         // CourseProgress
@@ -195,7 +195,7 @@ public class ApplicationDbContext : IdentityDbContext<User>
             entity.HasOne(qs => qs.Student)
                 .WithMany(u => u.QuizSubmissions)
                 .HasForeignKey(qs => qs.StudentId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         // AssignmentSubmission
@@ -209,7 +209,7 @@ public class ApplicationDbContext : IdentityDbContext<User>
             entity.HasOne(asub => asub.Student)
                 .WithMany(u => u.AssignmentSubmissions)
                 .HasForeignKey(asub => asub.StudentId)
-                .OnDelete(DeleteBehavior.Cascade);
+                .OnDelete(DeleteBehavior.Restrict);
 
             entity.HasOne(asub => asub.GradedBy)
                 .WithMany(u => u.GradedSubmissions)

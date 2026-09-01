@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using AUBDigitalAcademy.Data;
 using AUBDigitalAcademy.Models;
@@ -53,6 +53,9 @@ if (!string.IsNullOrEmpty(googleClientId) && !string.IsNullOrEmpty(googleClientS
 
 builder.Services.AddControllersWithViews();
 
+// Application Services
+builder.Services.AddScoped<AUBDigitalAcademy.Services.Interfaces.ICourseService, AUBDigitalAcademy.Services.Implementations.CourseService>();
+
 var app = builder.Build();
 
 // Seed roles and default users
@@ -68,6 +71,12 @@ using (var scope = app.Services.CreateScope())
         var logger = services.GetRequiredService<ILogger<Program>>();
         logger.LogError(ex, "An error occurred while seeding the database.");
     }
+}
+
+if (args.Contains("--test-course-creation"))
+{
+    await CourseCreationTestRunner.RunTestsAsync(app.Services);
+    return;
 }
 
 // Configure the HTTP request pipeline.
