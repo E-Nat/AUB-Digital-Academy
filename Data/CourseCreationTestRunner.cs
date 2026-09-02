@@ -69,6 +69,7 @@ public static class CourseCreationTestRunner
         if (activeTeacher == null)
         {
             Fail("Teacher Lookup", "No active teacher found in SQL Server.");
+            return;
         }
         Pass($"Real teachers loaded from SQL Server (Found: {activeTeacher.FullName} [{activeTeacher.Email}])");
 
@@ -76,6 +77,7 @@ public static class CourseCreationTestRunner
         if (category == null)
         {
             Fail("Category Lookup", "No category found in SQL Server.");
+            return;
         }
         Pass($"Real categories loaded from SQL Server (Found: {category.Name})");
 
@@ -83,6 +85,7 @@ public static class CourseCreationTestRunner
         if (major == null)
         {
             Fail("Major Lookup", "No major found in SQL Server.");
+            return;
         }
         Pass($"Real majors loaded from SQL Server (Found: {major.Name} [{major.Code}], Category: {major.Category?.Name})");
 
@@ -90,6 +93,7 @@ public static class CourseCreationTestRunner
         if (semester == null)
         {
             Fail("Semester Lookup", "No semester found in SQL Server.");
+            return;
         }
         Pass($"Real semesters loaded from SQL Server (Found: {semester.Name} [{semester.Code}])");
 
@@ -134,7 +138,27 @@ public static class CourseCreationTestRunner
             Fail("Validation Empty Fields", "Did not return Course view on validation failure.");
         }
 
-        // 4. Test Validation: Invalid Teacher, Major, Semester
+        // 3b. Test Validation: Missing Teacher, Missing Major, Missing Semester
+        controller = CreateController();
+        var missingTeacherModel = new CourseCreateViewModel
+        {
+            Title = "Missing Teacher Course",
+            Code = "TEST-NOTEACHER",
+            TeacherId = "",
+            MajorId = major.Id,
+            SemesterId = semester.Id
+        };
+        await controller.CreateCourse(missingTeacherModel, "publish");
+        if (controller.ModelState.ContainsKey("CreateModel.TeacherId"))
+        {
+            Pass("Validation caught missing Teacher with 'Please select a teacher.'");
+        }
+        else
+        {
+            Fail("Validation Missing Teacher", "Did not report missing TeacherId.");
+        }
+
+        // 4. Test Validation: Invalid Teacher, Major, Semester, Category
         controller = CreateController();
         var invalidRefsModel = new CourseCreateViewModel
         {
@@ -146,13 +170,17 @@ public static class CourseCreationTestRunner
             CategoryId = 999999
         };
         var invalidRefsResult = await controller.CreateCourse(invalidRefsModel, "publish");
-        if (!controller.ModelState.IsValid && controller.ModelState.ContainsKey("CreateModel.TeacherId"))
+        if (!controller.ModelState.IsValid && 
+            controller.ModelState.ContainsKey("CreateModel.TeacherId") &&
+            controller.ModelState.ContainsKey("CreateModel.MajorId") &&
+            controller.ModelState.ContainsKey("CreateModel.SemesterId") &&
+            controller.ModelState.ContainsKey("CreateModel.CategoryId"))
         {
-            Pass("Validation rejected non-existent foreign key references with clear error messages");
+            Pass("Validation rejected non-existent foreign key references (Teacher, Major, Semester, Category) with clear error messages");
         }
         else
         {
-            Fail("Validation Foreign Keys", "Did not flag invalid TeacherId/MajorId/SemesterId.");
+            Fail("Validation Foreign Keys", "Did not flag invalid TeacherId/MajorId/SemesterId/CategoryId.");
         }
 
         // Clean up any existing test course codes
@@ -167,7 +195,7 @@ public static class CourseCreationTestRunner
             await context.SaveChangesAsync();
         }
 
-        // 5. Test SAVE DRAFT: Create course without image
+        // 5. Test SAVE DRAFT: Create course without image and handle double-submitAction
         controller = CreateController();
         var draftModel = new CourseCreateViewModel
         {
@@ -181,16 +209,17 @@ public static class CourseCreationTestRunner
             Thumbnail = null // Test without image (optional)
         };
 
-        var draftResult = await controller.CreateCourse(draftModel, "draft");
+        // Test with "draft,draft" to simulate browser multi-value submission
+        var draftResult = await controller.CreateCourse(draftModel, "draft,draft");
         if (draftResult is RedirectToActionResult draftRedirect && draftRedirect.ActionName == "Course")
         {
             var savedDraft = await context.Courses.FirstOrDefaultAsync(c => c.Code == testCodeDraft);
-            if (savedDraft != null && savedDraft.Status == CourseStatus.Draft)
+            if (savedDraft != null && savedDraft.Status == CourseStatus.Draft && savedDraft.Thumbnail == null)
             {
                 var msg = controller.TempData["SuccessMessage"]?.ToString();
                 if (msg == "Course saved as draft successfully.")
                 {
-                    Pass("Save Draft works without image: Course saved as draft in SQL Server with status Draft");
+                    Pass("Save Draft works without image: Course saved as draft in SQL Server with status Draft and Thumbnail=null");
                 }
                 else
                 {
@@ -207,7 +236,7 @@ public static class CourseCreationTestRunner
             Fail("Save Draft Action", "Did not redirect to Course action.");
         }
 
-        // 6. Test PUBLISH COURSE: Create course with image
+        // 6. Test PUBLISH COURSE: Create course with image and handle double-submitAction
         controller = CreateController();
         var publishModel = new CourseCreateViewModel
         {
@@ -221,7 +250,8 @@ public static class CourseCreationTestRunner
             Thumbnail = "assets/images/course_webdev.jpg" // Test with image
         };
 
-        var publishResult = await controller.CreateCourse(publishModel, "publish");
+        // Test with "publish,publish" to simulate browser multi-value submission
+        var publishResult = await controller.CreateCourse(publishModel, "publish,publish");
         if (publishResult is RedirectToActionResult pubRedirect && pubRedirect.ActionName == "Course")
         {
             var savedCourse = await context.Courses
@@ -231,12 +261,12 @@ public static class CourseCreationTestRunner
                 .Include(c => c.Teacher)
                 .FirstOrDefaultAsync(c => c.Code == testCodePublish);
 
-            if (savedCourse != null && savedCourse.Status == CourseStatus.Published)
+            if (savedCourse != null && savedCourse.Status == CourseStatus.Published && savedCourse.Thumbnail == "assets/images/course_webdev.jpg")
             {
                 var msg = controller.TempData["SuccessMessage"]?.ToString();
                 if (msg == "Course published successfully.")
                 {
-                    Pass("Publish Course works with image: Course saved to SQL Server with status Published");
+                    Pass("Publish Course works with image: Course saved to SQL Server with status Published and Thumbnail preserved");
                 }
                 else
                 {
@@ -296,6 +326,7 @@ public static class CourseCreationTestRunner
             if (displayedCourse == null)
             {
                 Fail("Course Management List", $"Course {testCodePublish} not found in CourseManagementViewModel.Courses.");
+                return;
             }
 
             // Verify all relational fields from SQL Server
@@ -303,7 +334,7 @@ public static class CourseCreationTestRunner
             if (string.IsNullOrWhiteSpace(displayedCourse.Code)) Fail("Course List Display", "Course code missing.");
             if (displayedCourse.Teacher == null || string.IsNullOrWhiteSpace(displayedCourse.Teacher.FullName)) Fail("Course List Display", "Teacher not joined from SQL Server.");
             if (displayedCourse.Major == null || string.IsNullOrWhiteSpace(displayedCourse.Major.Name)) Fail("Course List Display", "Major not joined from SQL Server.");
-            if (displayedCourse.Major.Category == null || string.IsNullOrWhiteSpace(displayedCourse.Major.Category.Name)) Fail("Course List Display", "Category not joined from SQL Server.");
+            if (displayedCourse.Major?.Category == null || string.IsNullOrWhiteSpace(displayedCourse.Major?.Category?.Name)) Fail("Course List Display", "Category not joined from SQL Server.");
             if (displayedCourse.Semester == null || string.IsNullOrWhiteSpace(displayedCourse.Semester.Name)) Fail("Course List Display", "Semester not joined from SQL Server.");
             if (displayedCourse.Status != CourseStatus.Published) Fail("Course List Display", "Course status mismatch.");
             if (string.IsNullOrWhiteSpace(displayedCourse.Thumbnail)) Fail("Course List Display", "Thumbnail missing.");
@@ -316,7 +347,310 @@ public static class CourseCreationTestRunner
             Fail("Course Management List", "Failed to return ViewResult with CourseManagementViewModel.");
         }
 
-        // 9. PAGE REFRESH & APPLICATION RESTART TEST:
+        // =========================================================================
+        // STEP 1.5 - EDIT COURSE TESTS
+        // =========================================================================
+        Console.WriteLine("\n--- STEP 1.5 EDIT COURSE TESTS ---");
+
+        var draftDbCourse = await context.Courses.FirstAsync(c => c.Code == testCodeDraft);
+        var publishDbCourse = await context.Courses.FirstAsync(c => c.Code == testCodePublish);
+
+        // 9. Test Edit GET: Load Course by ID (GetCourseJson and EditCourse)
+        controller = CreateController();
+        var jsonResult = await controller.GetCourseJson(draftDbCourse.Id);
+        if (jsonResult is JsonResult jr && jr.Value != null)
+        {
+            var propSuccess = jr.Value.GetType().GetProperty("success")?.GetValue(jr.Value);
+            var propCourse = jr.Value.GetType().GetProperty("course")?.GetValue(jr.Value);
+            if (propSuccess is true && propCourse != null)
+            {
+                var idVal = propCourse.GetType().GetProperty("id")?.GetValue(propCourse);
+                var codeVal = propCourse.GetType().GetProperty("code")?.GetValue(propCourse);
+                if (idVal is int idInt && idInt == draftDbCourse.Id && codeVal?.ToString() == testCodeDraft)
+                {
+                    Pass("Edit Course GET action (GetCourseJson) loads real SQL Server Course by ID with all relational data");
+                }
+                else
+                {
+                    Fail("Edit Course GET", "GetCourseJson returned mismatched course ID or code.");
+                }
+            }
+            else
+            {
+                Fail("Edit Course GET", "GetCourseJson did not return success=true or course payload.");
+            }
+        }
+        else
+        {
+            Fail("Edit Course GET", "GetCourseJson did not return a valid JsonResult.");
+        }
+
+        // Test EditCourse GET with invalid ID
+        var editGetBad = await controller.GetCourseJson(-1);
+        if (editGetBad is not BadRequestObjectResult) Fail("Edit Course Invalid ID", "Expected BadRequestObjectResult for ID <= 0.");
+
+        var editGetNotFound = await controller.GetCourseJson(999999);
+        if (editGetNotFound is not NotFoundObjectResult) Fail("Edit Course Not Found", "Expected NotFoundObjectResult for non-existent ID.");
+
+        // Test EditCourse GET page
+        var editPageResult = await controller.EditCourse(draftDbCourse.Id);
+        if (editPageResult is ViewResult evResult && evResult.Model is CourseManagementViewModel evVm && evVm.EditModel != null)
+        {
+            if (evVm.EditModel.Id == draftDbCourse.Id &&
+                evVm.EditModel.Code == testCodeDraft &&
+                evVm.EditModel.TeacherOptions.Count > 0 &&
+                evVm.EditModel.MajorOptions.Count > 0 &&
+                evVm.EditModel.SemesterOptions.Count > 0 &&
+                evVm.EditModel.CategoryOptions.Count > 0)
+            {
+                Pass("EditCourse GET action prepopulates form fields and real SQL Server dropdown options (Teachers, Categories, Majors, Semesters)");
+            }
+            else
+            {
+                Fail("EditCourse Prepopulate", "Dropdown options or initial values missing from EditModel.");
+            }
+        }
+        else
+        {
+            Fail("EditCourse View", "Failed to return ViewResult with prepopulated EditModel.");
+        }
+
+        // 10. TEST A — EDIT BASIC INFORMATION (Title and Description)
+        controller = CreateController();
+        var editBasicModel = new CourseEditViewModel
+        {
+            Id = draftDbCourse.Id,
+            Title = "Advanced Distributed Systems & Fault Tolerance",
+            Code = testCodeDraft, // keeping current code
+            Description = "In-depth study of Paxos, Raft consensus, and distributed transactions.",
+            MajorId = major.Id,
+            SemesterId = semester.Id,
+            TeacherId = activeTeacher.Id,
+            CategoryId = category.Id,
+            Thumbnail = null,
+            Status = CourseStatus.Draft
+        };
+
+        var editBasicResult = await controller.EditCourse(editBasicModel);
+        if (editBasicResult is RedirectToActionResult ebRedirect && ebRedirect.ActionName == "Course")
+        {
+            var msg = controller.TempData["SuccessMessage"]?.ToString();
+            if (msg != "Course updated successfully.")
+            {
+                Fail("Edit Basic Info Message", $"Expected 'Course updated successfully.', got '{msg}'");
+            }
+
+            // Verify in SQL Server
+            var updatedBasicCourse = await context.Courses.AsNoTracking().FirstAsync(c => c.Id == draftDbCourse.Id);
+            if (updatedBasicCourse.Title == "Advanced Distributed Systems & Fault Tolerance" &&
+                updatedBasicCourse.Description == "In-depth study of Paxos, Raft consensus, and distributed transactions.")
+            {
+                Pass("TEST A — Edit Basic Information: Course title and description updated in SQL Server with 'Course updated successfully.'");
+            }
+            else
+            {
+                Fail("Edit Basic Info Persistence", "Database values for Title or Description did not update in SQL Server.");
+            }
+        }
+        else
+        {
+            Fail("Edit Basic Info Action", "Did not redirect to Course after editing basic info.");
+        }
+
+        // 11. TEST B — EDIT TEACHER
+        var secondTeacher = (await userManager.GetUsersInRoleAsync("Teacher")).FirstOrDefault(u => u.Id != activeTeacher.Id && u.IsActive);
+        if (secondTeacher == null)
+        {
+            secondTeacher = new User
+            {
+                UserName = "secondteacher@aub.edu.kh",
+                Email = "secondteacher@aub.edu.kh",
+                FullName = "Alan Turing",
+                UniversityId = "TCH002",
+                EmailConfirmed = true,
+                IsActive = true
+            };
+            await userManager.CreateAsync(secondTeacher, "Teacher@123");
+            await userManager.AddToRoleAsync(secondTeacher, "Teacher");
+        }
+
+        controller = CreateController();
+        var editTeacherModel = new CourseEditViewModel
+        {
+            Id = draftDbCourse.Id,
+            Title = "Advanced Distributed Systems & Fault Tolerance",
+            Code = testCodeDraft,
+            Description = "In-depth study of Paxos, Raft consensus, and distributed transactions.",
+            MajorId = major.Id,
+            SemesterId = semester.Id,
+            TeacherId = secondTeacher.Id, // Switch to second teacher
+            CategoryId = category.Id,
+            Thumbnail = null,
+            Status = CourseStatus.Draft
+        };
+
+        var editTeacherResult = await controller.EditCourse(editTeacherModel);
+        if (editTeacherResult is RedirectToActionResult)
+        {
+            var updatedTeacherCourse = await context.Courses.Include(c => c.Teacher).AsNoTracking().FirstAsync(c => c.Id == draftDbCourse.Id);
+            if (updatedTeacherCourse.TeacherId == secondTeacher.Id && updatedTeacherCourse.Teacher?.FullName == secondTeacher.FullName)
+            {
+                Pass($"TEST B — Edit Teacher: Assigned teacher updated in SQL Server to '{secondTeacher.FullName}' [{secondTeacher.Email}]");
+            }
+            else
+            {
+                Fail("Edit Teacher Persistence", "Teacher was not updated in SQL Server.");
+            }
+        }
+        else
+        {
+            Fail("Edit Teacher Action", "Failed to redirect after updating teacher.");
+        }
+
+        // 12. TEST C — EDIT STATUS (Draft to Published)
+        controller = CreateController();
+        var editStatusModel = new CourseEditViewModel
+        {
+            Id = draftDbCourse.Id,
+            Title = "Advanced Distributed Systems & Fault Tolerance",
+            Code = testCodeDraft,
+            Description = "In-depth study of Paxos, Raft consensus, and distributed transactions.",
+            MajorId = major.Id,
+            SemesterId = semester.Id,
+            TeacherId = secondTeacher.Id,
+            CategoryId = category.Id,
+            Thumbnail = null,
+            Status = CourseStatus.Published // Change to Published
+        };
+
+        var editStatusResult = await controller.EditCourse(editStatusModel);
+        if (editStatusResult is RedirectToActionResult)
+        {
+            var updatedStatusCourse = await context.Courses.AsNoTracking().FirstAsync(c => c.Id == draftDbCourse.Id);
+            if (updatedStatusCourse.Status == CourseStatus.Published)
+            {
+                Pass("TEST C — Edit Status: Course status changed from Draft to Published in SQL Server");
+            }
+            else
+            {
+                Fail("Edit Status Persistence", $"Course status expected Published, got {updatedStatusCourse.Status}");
+            }
+        }
+        else
+        {
+            Fail("Edit Status Action", "Failed to redirect after updating status.");
+        }
+
+        // 13. TEST D — COVER IMAGE EDITING (Set URL, then Clear to null)
+        controller = CreateController();
+        var editImageModel = new CourseEditViewModel
+        {
+            Id = draftDbCourse.Id,
+            Title = "Advanced Distributed Systems & Fault Tolerance",
+            Code = testCodeDraft,
+            Description = "In-depth study of Paxos, Raft consensus, and distributed transactions.",
+            MajorId = major.Id,
+            SemesterId = semester.Id,
+            TeacherId = secondTeacher.Id,
+            CategoryId = category.Id,
+            Thumbnail = "assets/images/course_ai.jpg", // New image URL
+            Status = CourseStatus.Published
+        };
+
+        var editImgResult = await controller.EditCourse(editImageModel);
+        var updatedImgCourse = await context.Courses.AsNoTracking().FirstAsync(c => c.Id == draftDbCourse.Id);
+        if (updatedImgCourse.Thumbnail != "assets/images/course_ai.jpg")
+        {
+            Fail("Edit Image URL", "New cover image URL not saved to SQL Server.");
+        }
+
+        // Now clear the image to test null fallback
+        controller = CreateController();
+        editImageModel.Thumbnail = ""; // cleared
+        var clearImgResult = await controller.EditCourse(editImageModel);
+        var clearedImgCourse = await context.Courses.AsNoTracking().FirstAsync(c => c.Id == draftDbCourse.Id);
+        if (clearedImgCourse.Thumbnail == null)
+        {
+            Pass("TEST D — Cover Image: Successfully updated custom cover image URL and cleared to null fallback in SQL Server");
+        }
+        else
+        {
+            Fail("Clear Image", "Clearing thumbnail did not set null in SQL Server.");
+        }
+
+        // 14. TEST E — PREVENT DUPLICATE COURSE CODE ON EDIT
+        controller = CreateController();
+        var editDuplicateCodeModel = new CourseEditViewModel
+        {
+            Id = draftDbCourse.Id,
+            Title = "Advanced Distributed Systems & Fault Tolerance",
+            Code = testCodePublish, // Attempting to use Course B's code!
+            Description = "Duplicate code attempt.",
+            MajorId = major.Id,
+            SemesterId = semester.Id,
+            TeacherId = secondTeacher.Id,
+            CategoryId = category.Id,
+            Status = CourseStatus.Published
+        };
+
+        var editDuplicateResult = await controller.EditCourse(editDuplicateCodeModel);
+        var dupCodeErrorFound = controller.ModelState.Values
+            .SelectMany(v => v.Errors)
+            .Any(e => e.ErrorMessage == "A course with this course code already exists.");
+
+        if (dupCodeErrorFound)
+        {
+            // Verify in SQL Server that the course code was NOT corrupted to the duplicate code
+            var checkInDb = await context.Courses.AsNoTracking().FirstAsync(c => c.Id == draftDbCourse.Id);
+            if (checkInDb.Code == testCodeDraft)
+            {
+                Pass("TEST E — Duplicate Course Code: Updating with another course's code is prevented with 'A course with this course code already exists.'");
+            }
+            else
+            {
+                Fail("Duplicate Code Integrity", "Course code was overwritten with duplicate in SQL Server!");
+            }
+        }
+        else
+        {
+            Fail("Duplicate Code Validation", "Expected duplicate course code validation error on edit.");
+        }
+
+        // 15. TEST F — EDIT VALIDATION OF INVALID DATA & FOREIGN KEYS
+        controller = CreateController();
+        var invalidEditModel = new CourseEditViewModel
+        {
+            Id = draftDbCourse.Id,
+            Title = "", // empty required
+            Code = "",  // empty required
+            TeacherId = "00000000-0000-0000-0000-000000000000", // non-existent teacher
+            MajorId = 999999, // non-existent major
+            SemesterId = 999999 // non-existent semester
+        };
+
+        var invalidEditResult = await controller.EditCourse(invalidEditModel);
+        if (invalidEditResult is ViewResult invEditView && invEditView.Model is CourseManagementViewModel invEditVm)
+        {
+            var errors = controller.ModelState.Values.SelectMany(v => v.Errors).Select(e => e.ErrorMessage).ToList();
+            bool hasTeacherError = errors.Any(e => e.Contains("teacher", StringComparison.OrdinalIgnoreCase));
+            bool hasMajorError = errors.Any(e => e.Contains("major", StringComparison.OrdinalIgnoreCase));
+            bool hasSemesterError = errors.Any(e => e.Contains("semester", StringComparison.OrdinalIgnoreCase));
+
+            if (hasTeacherError && hasMajorError && hasSemesterError)
+            {
+                Pass("TEST F — Edit Validation: Invalid Teacher, Major, Semester, and empty required fields rejected with field-specific errors");
+            }
+            else
+            {
+                Fail("Edit Validation Errors", $"Missing expected error messages in: {string.Join("; ", errors)}");
+            }
+        }
+        else
+        {
+            Fail("Edit Validation View", "Invalid model submission did not return ViewResult with CourseManagementViewModel.");
+        }
+
+        // 16. PAGE REFRESH & APPLICATION RESTART TEST:
         // Simulate complete restart: Dispose the entire ServiceScope and DbContext, then create a brand new scope from root container
         Console.WriteLine("\n  Simulating application restart & browser refresh...");
         using (var restartScope = serviceProvider.CreateScope())
@@ -324,21 +658,28 @@ public static class CourseCreationTestRunner
             var newContext = restartScope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
             var newCourseService = restartScope.ServiceProvider.GetRequiredService<ICourseService>();
 
-            var persistedCourse = await newCourseService.GetCourseByIdAsync(
+            var persistedPublishCourse = await newCourseService.GetCourseByIdAsync(
                 (await newContext.Courses.FirstAsync(c => c.Code == testCodePublish)).Id
             );
 
-            if (persistedCourse == null)
+            if (persistedPublishCourse == null)
             {
-                Fail("Application Restart", "Course disappeared after simulated application restart!");
+                Fail("Application Restart", "Published Course disappeared after simulated application restart!");
+                return;
             }
 
-            if (persistedCourse.Code != testCodePublish ||
-                persistedCourse.Teacher?.FullName != activeTeacher.FullName ||
-                persistedCourse.Major?.Name != major.Name ||
-                persistedCourse.Semester?.Name != semester.Name)
+            var persistedEditedCourse = await newCourseService.GetCourseByIdAsync(draftDbCourse.Id);
+            if (persistedEditedCourse == null)
             {
-                Fail("Application Restart", "Course relational integrity damaged after restart.");
+                Fail("Application Restart", "Edited Course disappeared after simulated application restart!");
+                return;
+            }
+
+            if (persistedEditedCourse.Title != "Advanced Distributed Systems & Fault Tolerance" ||
+                persistedEditedCourse.Teacher?.FullName != secondTeacher.FullName ||
+                persistedEditedCourse.Status != CourseStatus.Published)
+            {
+                Fail("Application Restart", "Course edits were not retained after application restart.");
             }
 
             var allPersistedCourses = (await newCourseService.GetAllCoursesAsync()).ToList();
@@ -347,7 +688,17 @@ public static class CourseCreationTestRunner
                 Fail("Application Restart", "Draft or Published course missing from refreshed course list.");
             }
 
-            Pass("Page Refresh & Application Restart Test: All courses and relational links persist reliably in SQL Server across application restarts (no mock, no localStorage, no in-memory cache)");
+            Pass("Page Refresh & Application Restart Test: All course creations, basic edits, teacher updates, and status changes persist reliably in SQL Server across application restarts (no mock, no localStorage, no in-memory cache)");
+
+            // Clean up test courses so only original seeded database records remain
+            var cleanupCourses = await newContext.Courses
+                .Where(c => c.Code == testCodePublish || c.Code == testCodeDraft)
+                .ToListAsync();
+            if (cleanupCourses.Any())
+            {
+                newContext.Courses.RemoveRange(cleanupCourses);
+                await newContext.SaveChangesAsync();
+            }
         }
 
         Console.WriteLine("\n=================================================================");

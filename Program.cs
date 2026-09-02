@@ -79,6 +79,12 @@ if (args.Contains("--test-course-creation"))
     return;
 }
 
+if (args.Contains("--test-course-delete"))
+{
+    await CourseDeleteTestRunner.RunTestsAsync(app.Services);
+    return;
+}
+
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {

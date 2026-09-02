@@ -8,6 +8,6 @@ public interface ICourseService
     Task<Course?> GetCourseByIdAsync(int id);
     Task<Course> CreateCourseAsync(Course course);
     Task<bool> UpdateCourseAsync(Course course);
-    Task<bool> DeleteCourseAsync(int id);
+    Task<CourseDeleteResult> DeleteCourseAsync(int id);
     Task<bool> CourseCodeExistsAsync(string code, int? excludeCourseId = null);
 }

@@ -59,13 +59,16 @@ public class AcademicController : Controller
         bool isAjax = Request.Headers["X-Requested-With"] == "XMLHttpRequest";
 
         // Determine status based on action button clicked (Save Draft vs Publish)
-        if (string.Equals(submitAction, "publish", StringComparison.OrdinalIgnoreCase))
-        {
-            createModel.Status = CourseStatus.Published;
-        }
-        else if (string.Equals(submitAction, "draft", StringComparison.OrdinalIgnoreCase))
+        bool isPublish = submitAction?.Split(',', StringSplitOptions.TrimEntries).Any(s => string.Equals(s, "publish", StringComparison.OrdinalIgnoreCase)) == true;
+        bool isDraft = submitAction?.Split(',', StringSplitOptions.TrimEntries).Any(s => string.Equals(s, "draft", StringComparison.OrdinalIgnoreCase)) == true;
+
+        if (isDraft)
         {
             createModel.Status = CourseStatus.Draft;
+        }
+        else if (isPublish)
+        {
+            createModel.Status = CourseStatus.Published;
         }
 
         // Validate duplicate course code
@@ -221,6 +224,11 @@ public class AcademicController : Controller
     [HttpGet]
     public async Task<IActionResult> GetCourseJson(int id)
     {
+        if (id <= 0)
+        {
+            return BadRequest(new { success = false, message = "Invalid course ID." });
+        }
+
         var course = await _courseService.GetCourseByIdAsync(id);
         if (course == null)
         {
@@ -252,6 +260,12 @@ public class AcademicController : Controller
     {
         ViewData["Title"] = "Edit Course";
         ViewData["ActivePage"] = "Courses";
+
+        if (id <= 0)
+        {
+            TempData["ErrorMessage"] = "Invalid course ID.";
+            return RedirectToAction(nameof(Course));
+        }
 
         var course = await _courseService.GetCourseByIdAsync(id);
         if (course == null)
@@ -285,14 +299,22 @@ public class AcademicController : Controller
     {
         bool isAjax = Request.Headers["X-Requested-With"] == "XMLHttpRequest";
 
-        // Determine status based on button clicked if specified
-        if (string.Equals(submitAction, "publish", StringComparison.OrdinalIgnoreCase))
+        if (editModel.Id <= 0)
         {
-            editModel.Status = CourseStatus.Published;
+            ModelState.AddModelError(string.Empty, "Invalid course ID.");
         }
-        else if (string.Equals(submitAction, "draft", StringComparison.OrdinalIgnoreCase))
+
+        // Determine status based on button clicked if specified
+        bool isPublish = submitAction?.Split(',', StringSplitOptions.TrimEntries).Any(s => string.Equals(s, "publish", StringComparison.OrdinalIgnoreCase)) == true;
+        bool isDraft = submitAction?.Split(',', StringSplitOptions.TrimEntries).Any(s => string.Equals(s, "draft", StringComparison.OrdinalIgnoreCase)) == true;
+
+        if (isDraft)
         {
             editModel.Status = CourseStatus.Draft;
+        }
+        else if (isPublish)
+        {
+            editModel.Status = CourseStatus.Published;
         }
 
         // Validate duplicate course code (excluding current course ID)
@@ -300,6 +322,65 @@ public class AcademicController : Controller
         {
             ModelState.AddModelError("EditModel.Code", "A course with this course code already exists.");
             ModelState.AddModelError(nameof(editModel.Code), "A course with this course code already exists.");
+        }
+
+        // Validate Teacher exists
+        if (string.IsNullOrWhiteSpace(editModel.TeacherId))
+        {
+            ModelState.AddModelError("EditModel.TeacherId", "Please select a teacher.");
+            ModelState.AddModelError(nameof(editModel.TeacherId), "Please select a teacher.");
+        }
+        else
+        {
+            var teacherExists = await _context.Users.AnyAsync(u => u.Id == editModel.TeacherId);
+            if (!teacherExists)
+            {
+                ModelState.AddModelError("EditModel.TeacherId", "The selected teacher does not exist.");
+                ModelState.AddModelError(nameof(editModel.TeacherId), "The selected teacher does not exist.");
+            }
+        }
+
+        // Validate Major exists
+        if (editModel.MajorId <= 0)
+        {
+            ModelState.AddModelError("EditModel.MajorId", "Please select a major.");
+            ModelState.AddModelError(nameof(editModel.MajorId), "Please select a major.");
+        }
+        else
+        {
+            var majorExists = await _context.Majors.AnyAsync(m => m.Id == editModel.MajorId);
+            if (!majorExists)
+            {
+                ModelState.AddModelError("EditModel.MajorId", "The selected major does not exist.");
+                ModelState.AddModelError(nameof(editModel.MajorId), "The selected major does not exist.");
+            }
+        }
+
+        // Validate Semester exists
+        if (editModel.SemesterId <= 0)
+        {
+            ModelState.AddModelError("EditModel.SemesterId", "Please select a semester.");
+            ModelState.AddModelError(nameof(editModel.SemesterId), "Please select a semester.");
+        }
+        else
+        {
+            var semesterExists = await _context.Semesters.AnyAsync(s => s.Id == editModel.SemesterId);
+            if (!semesterExists)
+            {
+                ModelState.AddModelError("EditModel.SemesterId", "The selected semester does not exist.");
+                ModelState.AddModelError(nameof(editModel.SemesterId), "The selected semester does not exist.");
+            }
+        }
+
+        // Validate Category exists if provided
+        if (editModel.CategoryId.HasValue && editModel.CategoryId.Value > 0)
+        {
+            var categoryExists = await _context.Categories.AnyAsync(c => c.Id == editModel.CategoryId.Value);
+            if (!categoryExists)
+            {
+                ModelState.AddModelError("EditModel.CategoryId", "The selected category does not exist.");
+                ModelState.AddModelError(nameof(editModel.CategoryId), "The selected category does not exist.");
+            }
         }
 
         if (!ModelState.IsValid)
@@ -325,7 +406,7 @@ public class AcademicController : Controller
                 Code = editModel.Code.Trim().ToUpper(),
                 Title = editModel.Title.Trim(),
                 Description = editModel.Description?.Trim(),
-                Thumbnail = editModel.Thumbnail?.Trim(),
+                Thumbnail = string.IsNullOrWhiteSpace(editModel.Thumbnail) ? null : editModel.Thumbnail.Trim(),
                 Status = editModel.Status,
                 MajorId = editModel.MajorId,
                 SemesterId = editModel.SemesterId,
@@ -359,6 +440,11 @@ public class AcademicController : Controller
         }
         catch (InvalidOperationException ex)
         {
+            if (ex.Message.Contains("already exists", StringComparison.OrdinalIgnoreCase))
+            {
+                ModelState.AddModelError("EditModel.Code", "A course with this course code already exists.");
+                ModelState.AddModelError(nameof(editModel.Code), "A course with this course code already exists.");
+            }
             ModelState.AddModelError(string.Empty, ex.Message);
             if (isAjax)
             {
@@ -383,6 +469,102 @@ public class AcademicController : Controller
             var vm = await BuildCourseManagementViewModelAsync(existingEditModel: editModel);
             ViewBag.OpenEditModal = true;
             return View("Course", vm);
+        }
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> DeleteCourse(int id)
+    {
+        bool isAjax = Request.Headers["X-Requested-With"] == "XMLHttpRequest";
+
+        if (id <= 0)
+        {
+            var invalidMsg = "Invalid course ID.";
+            if (isAjax)
+            {
+                return BadRequest(new { success = false, message = invalidMsg });
+            }
+            TempData["ErrorMessage"] = invalidMsg;
+            return RedirectToAction(nameof(Course));
+        }
+
+        try
+        {
+            var result = await _courseService.DeleteCourseAsync(id);
+
+            switch (result.Status)
+            {
+                case CourseDeleteStatus.Success:
+                    var successMsg = string.IsNullOrWhiteSpace(result.Message)
+                        ? "Course deleted successfully."
+                        : result.Message;
+
+                    if (isAjax)
+                    {
+                        return Json(new
+                        {
+                            success = true,
+                            message = successMsg,
+                            courseId = id,
+                            redirectUrl = Url?.Action("Course", "Academic") ?? "/Academic/Course"
+                        });
+                    }
+
+                    TempData["SuccessMessage"] = successMsg;
+                    return RedirectToAction(nameof(Course));
+
+                case CourseDeleteStatus.NotFound:
+                    if (isAjax)
+                    {
+                        return NotFound(new { success = false, message = result.Message });
+                    }
+
+                    TempData["ErrorMessage"] = result.Message;
+                    return RedirectToAction(nameof(Course));
+
+                case CourseDeleteStatus.BlockedByStudentData:
+                    if (isAjax)
+                    {
+                        return Json(new
+                        {
+                            success = false,
+                            blocked = true,
+                            message = result.Message,
+                            courseId = id,
+                            enrollments = result.EnrollmentCount,
+                            progress = result.ProgressCount,
+                            quizSubmissions = result.QuizSubmissionCount,
+                            assignmentSubmissions = result.AssignmentSubmissionCount
+                        });
+                    }
+
+                    TempData["ErrorMessage"] = result.Message;
+                    return RedirectToAction(nameof(Course));
+
+                case CourseDeleteStatus.Failed:
+                default:
+                    if (isAjax)
+                    {
+                        return Json(new { success = false, message = result.Message });
+                    }
+
+                    TempData["ErrorMessage"] = result.Message;
+                    return RedirectToAction(nameof(Course));
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error deleting course ID {CourseId}", id);
+            var errorMsg = "An unexpected error occurred while deleting the course. Please try again.";
+
+            if (isAjax)
+            {
+                return Json(new { success = false, message = errorMsg });
+            }
+
+            TempData["ErrorMessage"] = errorMsg;
+            return RedirectToAction(nameof(Course));
         }
     }
 

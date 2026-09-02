@@ -215,10 +215,7 @@ public class CourseService : ICourseService
         existingCourse.MajorId = course.MajorId;
         existingCourse.SemesterId = course.SemesterId;
         existingCourse.TeacherId = course.TeacherId;
-        if (course.Thumbnail != null)
-        {
-            existingCourse.Thumbnail = string.IsNullOrWhiteSpace(course.Thumbnail) ? null : course.Thumbnail.Trim();
-        }
+        existingCourse.Thumbnail = string.IsNullOrWhiteSpace(course.Thumbnail) ? null : course.Thumbnail.Trim();
         existingCourse.UpdatedAt = DateTime.UtcNow;
 
         try
@@ -234,25 +231,96 @@ public class CourseService : ICourseService
         }
     }
 
-    public async Task<bool> DeleteCourseAsync(int id)
+    public async Task<CourseDeleteResult> DeleteCourseAsync(int id)
     {
-        var course = await _context.Courses.FindAsync(id);
-        if (course == null)
+        if (id <= 0)
         {
-            return false;
+            return CourseDeleteResult.Failed("Invalid course ID.");
         }
 
+        // 1. Find Course with curriculum dependencies loaded for safe cascade tracking
+        var course = await _context.Courses
+            .Include(c => c.Chapters)
+                .ThenInclude(ch => ch.CourseItems)
+                    .ThenInclude(ci => ci.Lesson)
+            .Include(c => c.Chapters)
+                .ThenInclude(ch => ch.CourseItems)
+                    .ThenInclude(ci => ci.Book)
+            .Include(c => c.Chapters)
+                .ThenInclude(ch => ch.CourseItems)
+                    .ThenInclude(ci => ci.Quiz!)
+                        .ThenInclude(q => q.Questions)
+                            .ThenInclude(qu => qu.Options)
+            .Include(c => c.Chapters)
+                .ThenInclude(ch => ch.CourseItems)
+                    .ThenInclude(ci => ci.Assignment)
+            .FirstOrDefaultAsync(c => c.Id == id);
+
+        // 2. Check if Course exists
+        if (course == null)
+        {
+            _logger.LogWarning("Safe delete course: Course ID {CourseId} not found.", id);
+            return CourseDeleteResult.NotFound("Course not found.");
+        }
+
+        // 3. Check student activity dependencies
+        // 3a. Student Enrollments
+        var enrollmentCount = await _context.Enrollments
+            .CountAsync(e => e.CourseId == id);
+
+        // 3b. Student CourseProgress
+        var progressCount = await _context.CourseProgresses
+            .CountAsync(cp => cp.CourseItem.Chapter.CourseId == id);
+
+        // 3c. Student Quiz Submissions
+        var quizSubmissionCount = await _context.QuizSubmissions
+            .CountAsync(qs => qs.Quiz.CourseItem.Chapter.CourseId == id);
+
+        // 3d. Student Assignment Submissions
+        var assignmentSubmissionCount = await _context.AssignmentSubmissions
+            .CountAsync(asub => asub.Assignment.CourseItem.Chapter.CourseId == id);
+
+        // 4. Determine whether deletion is allowed
+        if (enrollmentCount > 0 || progressCount > 0 || quizSubmissionCount > 0 || assignmentSubmissionCount > 0)
+        {
+            var reasons = new List<string>();
+            if (enrollmentCount > 0) reasons.Add($"{enrollmentCount} student enrollment{(enrollmentCount > 1 ? "s" : "")}");
+            if (progressCount > 0) reasons.Add($"{progressCount} student progress record{(progressCount > 1 ? "s" : "")}");
+            if (quizSubmissionCount > 0) reasons.Add($"{quizSubmissionCount} quiz submission{(quizSubmissionCount > 1 ? "s" : "")}");
+            if (assignmentSubmissionCount > 0) reasons.Add($"{assignmentSubmissionCount} assignment submission{(assignmentSubmissionCount > 1 ? "s" : "")}");
+
+            var details = string.Join(", ", reasons);
+            var blockedMessage = $"This course cannot be deleted because it contains student enrollment or learning records ({details}).";
+
+            _logger.LogWarning("Safe delete blocked for course ID {CourseId} ('{Title}'): {Details}", id, course.Title, details);
+
+            return CourseDeleteResult.BlockedByStudentData(
+                course.Id,
+                course.Title,
+                blockedMessage,
+                enrollmentCount,
+                progressCount,
+                quizSubmissionCount,
+                assignmentSubmissionCount);
+        }
+
+        // 5. Safe delete allowed: Remove course (and let EF Core cascade delete curriculum)
         try
         {
             _context.Courses.Remove(course);
             await _context.SaveChangesAsync();
-            _logger.LogInformation("Course ID {CourseId} deleted.", id);
-            return true;
+            _logger.LogInformation("Course ID {CourseId} ('{Title}') and its curriculum were safely deleted.", id, course.Title);
+            return CourseDeleteResult.Success(id, course.Title, "Course deleted successfully.");
+        }
+        catch (DbUpdateException ex)
+        {
+            _logger.LogError(ex, "Database update error during safe delete of course ID {CourseId}.", id);
+            return CourseDeleteResult.Failed("A database constraint prevented the course from being deleted.");
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error deleting course ID {CourseId}.", id);
-            throw;
+            _logger.LogError(ex, "Unexpected error deleting course ID {CourseId}.", id);
+            return CourseDeleteResult.Failed("An unexpected error occurred while deleting the course. Please try again.");
         }
     }
 }

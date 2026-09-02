@@ -182,6 +182,7 @@
                                                 data-title="@course.Title"
                                                 data-code="@course.Code"
                                                 data-desc="@course.Description"
+                                                data-category="@(course.Major?.CategoryId ?? 0)"
                                                 data-major="@course.MajorId"
                                                 data-semester="@course.SemesterId"
                                                 data-teacher="@course.TeacherId"
@@ -193,6 +194,13 @@
                                         <a href="/Teacher/Courses" class="btn btn-sm btn-link text-primary p-1" title="View Course Details">
                                             <i class="bi bi-eye"></i>
                                         </a>
+                                        <button type="button" class="btn btn-sm btn-outline-danger p-1 delete-course-btn"
+                                                data-id="@course.Id"
+                                                data-title="@course.Title"
+                                                data-code="@course.Code"
+                                                title="Delete Course">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
                                     </div>
                                 </td>
                             </tr>
@@ -353,10 +361,10 @@
                     <button type="button" class="btn btn-outline-secondary px-3 py-2 fw-medium" data-bs-dismiss="modal">
                         Cancel
                     </button>
-                    <button type="submit" name="submitAction" value="draft" class="btn btn-outline-primary px-3 py-2 fw-medium" onclick="document.getElementById('createCourseSubmitAction').value='draft';">
+                    <button type="submit" class="btn btn-outline-primary px-3 py-2 fw-medium" onclick="document.getElementById('createCourseSubmitAction').value='draft';">
                         <i class="bi bi-file-earmark me-1"></i> Save as Draft
                     </button>
-                    <button type="submit" name="submitAction" value="publish" class="btn btn-primary-aub px-4 py-2 fw-medium" onclick="document.getElementById('createCourseSubmitAction').value='publish';">
+                    <button type="submit" class="btn btn-primary-aub px-4 py-2 fw-medium" onclick="document.getElementById('createCourseSubmitAction').value='publish';">
                         <i class="bi bi-check2-circle me-1"></i> Publish Course
                     </button>
                 </div>
@@ -429,6 +437,16 @@
 
                         <div class="row g-3">
                             <div class="col-md-6">
+                                <label asp-for="EditModel.CategoryId" class="form-label small fw-bold text-secondary mb-1">
+                                    Category <span class="text-muted fw-normal">(Optional)</span>
+                                </label>
+                                <select asp-for="EditModel.CategoryId" id="editCourseCategoryId" asp-items="Model.EditModel.CategoryOptions" class="form-select">
+                                    <option value="">Select Category...</option>
+                                </select>
+                                <span asp-validation-for="EditModel.CategoryId" class="text-danger small d-block mt-1"></span>
+                            </div>
+
+                            <div class="col-md-6">
                                 <label asp-for="EditModel.MajorId" class="form-label small fw-bold text-secondary mb-1">
                                     Major <span class="text-danger">*</span>
                                 </label>
@@ -448,7 +466,7 @@
                                 <span asp-validation-for="EditModel.SemesterId" class="text-danger small d-block mt-1"></span>
                             </div>
 
-                            <div class="col-12">
+                            <div class="col-md-6">
                                 <label asp-for="EditModel.TeacherId" class="form-label small fw-bold text-secondary mb-1">
                                     Assigned Instructor (Teacher) <span class="text-danger">*</span>
                                 </label>
@@ -500,6 +518,63 @@
     </div>
 </div>
 
+<!-- ============================================================ -->
+<!-- 3. DELETE COURSE CONFIRMATION MODAL                          -->
+<!-- ============================================================ -->
+<div class="modal fade" id="deleteCourseModal" tabindex="-1" aria-labelledby="deleteCourseModalTitle" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content shadow-lg border-0">
+            <div class="modal-course-header d-flex align-items-center justify-content-between">
+                <div class="d-flex align-items-center gap-2">
+                    <div class="rounded-circle bg-danger-subtle p-2 text-danger d-flex align-items-center justify-content-center" style="width:38px;height:38px;">
+                        <i class="bi bi-exclamation-triangle-fill fs-5"></i>
+                    </div>
+                    <div>
+                        <h5 class="modal-title fw-bold text-dark mb-0" id="deleteCourseModalTitle">Delete Course?</h5>
+                        <small class="text-muted">Permanent deletion confirmation</small>
+                    </div>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+
+            <form asp-controller="Academic" asp-action="DeleteCourse" method="post" id="deleteCourseForm">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="id" id="deleteCourseId" value="" />
+
+                <div class="modal-body p-4">
+                    <p class="mb-2 text-secondary">
+                        Are you sure you want to delete:
+                    </p>
+                    <div class="p-3 bg-light rounded border mb-3">
+                        <div class="fw-bold text-dark fs-6" id="deleteCourseTitleDisplay">Web Development Fundamentals</div>
+                        <span class="course-code-badge mt-1" id="deleteCourseCodeDisplay">SE101</span>
+                    </div>
+
+                    <div class="alert alert-warning py-2 px-3 small d-flex align-items-start gap-2 mb-0" role="alert">
+                        <i class="bi bi-info-circle-fill text-warning fs-5 flex-shrink-0"></i>
+                        <span>This action may remove course curriculum data. Courses with enrolled students or submitted learning activity cannot be deleted.</span>
+                    </div>
+
+                    <div id="deleteModalError" class="alert alert-danger py-2 px-3 small mt-3 d-none" role="alert">
+                        <i class="bi bi-x-circle-fill me-1"></i>
+                        <span id="deleteModalErrorText"></span>
+                    </div>
+                </div>
+
+                <div class="modal-footer bg-light px-4 py-3 d-flex justify-content-end gap-2 border-top">
+                    <button type="button" class="btn btn-outline-secondary px-3 py-2 fw-medium" data-bs-dismiss="modal" id="cancelDeleteCourseBtn">
+                        Cancel
+                    </button>
+                    <button type="submit" class="btn btn-danger px-4 py-2 fw-medium d-inline-flex align-items-center gap-1" id="confirmDeleteCourseBtn">
+                        <i class="bi bi-trash me-1"></i>
+                        <span>Delete Course</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 @section Scripts {
     <partial name="_ValidationScriptsPartial" />
     <script>
@@ -528,38 +603,174 @@
                 </text>
             }
 
-            // Edit button click handlers - populate Edit Modal
+            // Edit button click handlers - load Course by ID from server & populate Edit Modal
             var editButtons = document.querySelectorAll('.edit-course-btn');
             editButtons.forEach(function (btn) {
                 btn.addEventListener('click', function () {
                     var id = this.getAttribute('data-id');
-                    var title = this.getAttribute('data-title') || '';
+                    if (!id) return;
+
+                    // Fetch fresh course data by ID from SQL Server via AcademicController.GetCourseJson
+                    fetch('/Academic/GetCourseJson?id=' + encodeURIComponent(id), {
+                        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                    })
+                    .then(function (response) {
+                        if (!response.ok) throw new Error('Network response was not ok');
+                        return response.json();
+                    })
+                    .then(function (data) {
+                        if (data && data.success && data.course) {
+                            var c = data.course;
+                            document.getElementById('editCourseId').value = c.id;
+                            document.getElementById('editCourseTitle').value = c.title || '';
+                            document.getElementById('editCourseCode').value = c.code || '';
+                            document.getElementById('editCourseDescription').value = c.description || '';
+                            document.getElementById('editCourseThumbnail').value = c.thumbnail || '';
+
+                            var catEl = document.getElementById('editCourseCategoryId');
+                            if (catEl) catEl.value = (c.categoryId && c.categoryId > 0) ? String(c.categoryId) : '';
+
+                            var majorEl = document.getElementById('editCourseMajorId');
+                            if (majorEl && c.majorId) majorEl.value = String(c.majorId);
+
+                            var semEl = document.getElementById('editCourseSemesterId');
+                            if (semEl && c.semesterId) semEl.value = String(c.semesterId);
+
+                            var teacherEl = document.getElementById('editCourseTeacherId');
+                            if (teacherEl && c.teacherId) teacherEl.value = String(c.teacherId);
+
+                            var statusEl = document.getElementById('editCourseStatus');
+                            if (statusEl) statusEl.value = String(c.status);
+
+                            var editModalEl = document.getElementById('editCourseModal');
+                            if (editModalEl) {
+                                var modal = bootstrap.Modal.getInstance(editModalEl) || new bootstrap.Modal(editModalEl);
+                                modal.show();
+                            }
+                        }
+                    })
+                    .catch(function (err) {
+                        console.warn('Could not fetch course by ID, falling back to data attributes:', err);
+                        // Fallback to data attributes if fetch fails
+                        var fallbackId = btn.getAttribute('data-id');
+                        document.getElementById('editCourseId').value = fallbackId;
+                        document.getElementById('editCourseTitle').value = btn.getAttribute('data-title') || '';
+                        document.getElementById('editCourseCode').value = btn.getAttribute('data-code') || '';
+                        document.getElementById('editCourseDescription').value = btn.getAttribute('data-desc') || '';
+                        document.getElementById('editCourseThumbnail').value = btn.getAttribute('data-thumbnail') || '';
+
+                        var catId = btn.getAttribute('data-category');
+                        var majorId = btn.getAttribute('data-major');
+                        var semesterId = btn.getAttribute('data-semester');
+                        var teacherId = btn.getAttribute('data-teacher');
+                        var status = btn.getAttribute('data-status') || '0';
+
+                        var catEl = document.getElementById('editCourseCategoryId');
+                        if (catEl) catEl.value = (catId && catId !== '0') ? catId : '';
+
+                        if (majorId) document.getElementById('editCourseMajorId').value = majorId;
+                        if (semesterId) document.getElementById('editCourseSemesterId').value = semesterId;
+                        if (teacherId) document.getElementById('editCourseTeacherId').value = teacherId;
+                        if (status) document.getElementById('editCourseStatus').value = status;
+
+                        var editModalEl = document.getElementById('editCourseModal');
+                        if (editModalEl) {
+                            var modal = bootstrap.Modal.getInstance(editModalEl) || new bootstrap.Modal(editModalEl);
+                            modal.show();
+                        }
+                    });
+                });
+            });
+
+            // Delete Course Modal & Form Handler
+            var deleteButtons = document.querySelectorAll('.delete-course-btn');
+            var deleteModalEl = document.getElementById('deleteCourseModal');
+            var deleteModal = deleteModalEl ? new bootstrap.Modal(deleteModalEl) : null;
+
+            deleteButtons.forEach(function (btn) {
+                btn.addEventListener('click', function () {
+                    var id = this.getAttribute('data-id');
+                    var title = this.getAttribute('data-title') || 'Selected Course';
                     var code = this.getAttribute('data-code') || '';
-                    var desc = this.getAttribute('data-desc') || '';
-                    var majorId = this.getAttribute('data-major') || '';
-                    var semesterId = this.getAttribute('data-semester') || '';
-                    var teacherId = this.getAttribute('data-teacher') || '';
-                    var thumbnail = this.getAttribute('data-thumbnail') || '';
-                    var status = this.getAttribute('data-status') || '0';
 
-                    document.getElementById('editCourseId').value = id;
-                    document.getElementById('editCourseTitle').value = title;
-                    document.getElementById('editCourseCode').value = code;
-                    document.getElementById('editCourseDescription').value = desc;
-                    document.getElementById('editCourseThumbnail').value = thumbnail;
+                    var idInput = document.getElementById('deleteCourseId');
+                    var titleDisplay = document.getElementById('deleteCourseTitleDisplay');
+                    var codeDisplay = document.getElementById('deleteCourseCodeDisplay');
 
-                    if (majorId) document.getElementById('editCourseMajorId').value = majorId;
-                    if (semesterId) document.getElementById('editCourseSemesterId').value = semesterId;
-                    if (teacherId) document.getElementById('editCourseTeacherId').value = teacherId;
-                    if (status) document.getElementById('editCourseStatus').value = status;
+                    if (idInput) idInput.value = id;
+                    if (titleDisplay) titleDisplay.textContent = title;
+                    if (codeDisplay) codeDisplay.textContent = code;
 
-                    var editModalEl = document.getElementById('editCourseModal');
-                    if (editModalEl) {
-                        var modal = new bootstrap.Modal(editModalEl);
-                        modal.show();
+                    var errBox = document.getElementById('deleteModalError');
+                    if (errBox) errBox.classList.add('d-none');
+
+                    if (deleteModal) {
+                        deleteModal.show();
                     }
                 });
             });
+
+            var deleteForm = document.getElementById('deleteCourseForm');
+            if (deleteForm) {
+                deleteForm.addEventListener('submit', function (e) {
+                    e.preventDefault();
+
+                    var submitBtn = document.getElementById('confirmDeleteCourseBtn');
+                    var originalBtnHtml = submitBtn ? submitBtn.innerHTML : '';
+                    if (submitBtn) {
+                        submitBtn.disabled = true;
+                        submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"></span> Deleting...';
+                    }
+
+                    var errBox = document.getElementById('deleteModalError');
+                    var errText = document.getElementById('deleteModalErrorText');
+                    if (errBox) errBox.classList.add('d-none');
+
+                    var formData = new FormData(deleteForm);
+
+                    fetch(deleteForm.action || '/Academic/DeleteCourse', {
+                        method: 'POST',
+                        body: formData,
+                        headers: {
+                            'X-Requested-With': 'XMLHttpRequest'
+                        }
+                    })
+                    .then(function (response) {
+                        return response.json().catch(function () {
+                            throw new Error('Server returned an unexpected response.');
+                        });
+                    })
+                    .then(function (data) {
+                        if (data.success) {
+                            if (deleteModal) deleteModal.hide();
+                            window.location.reload();
+                        } else {
+                            if (submitBtn) {
+                                submitBtn.disabled = false;
+                                submitBtn.innerHTML = originalBtnHtml;
+                            }
+                            if (errBox && errText) {
+                                errText.textContent = data.message || 'This course cannot be deleted.';
+                                errBox.classList.remove('d-none');
+                            } else {
+                                alert(data.message || 'This course cannot be deleted.');
+                            }
+                        }
+                    })
+                    .catch(function (error) {
+                        if (submitBtn) {
+                            submitBtn.disabled = false;
+                            submitBtn.innerHTML = originalBtnHtml;
+                        }
+                        if (errBox && errText) {
+                            errText.textContent = error.message || 'An error occurred while deleting the course.';
+                            errBox.classList.remove('d-none');
+                        } else {
+                            alert(error.message || 'An error occurred while deleting the course.');
+                        }
+                    });
+                });
+            }
 
             // Real-time table search & filtering
             const searchInput = document.getElementById('courseSearchInput');

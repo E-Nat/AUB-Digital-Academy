@@ -83,6 +83,28 @@ public static class SeedData
             }
         }
 
+        // 3b. Create second sample Teacher for multi-teacher assignment & edit testing
+        var teacher2Email = "alanturing@aub.edu.kh";
+        var teacher2User = await userManager.FindByEmailAsync(teacher2Email);
+        if (teacher2User == null)
+        {
+            teacher2User = new User
+            {
+                UserName = teacher2Email,
+                Email = teacher2Email,
+                FullName = "Alan Turing",
+                UniversityId = "TCH002",
+                EmailConfirmed = true,
+                IsActive = true
+            };
+
+            var result = await userManager.CreateAsync(teacher2User, "Teacher@123");
+            if (result.Succeeded)
+            {
+                await userManager.AddToRoleAsync(teacher2User, "Teacher");
+            }
+        }
+
         // 4. Create a sample Student
         var studentEmail = "student@aub.edu.kh";
         var studentUser = await userManager.FindByEmailAsync(studentEmail);
