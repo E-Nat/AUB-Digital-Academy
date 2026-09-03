@@ -31,9 +31,9 @@ builder.Services.AddIdentity<User, IdentityRole>(options =>
 // Configure cookie authentication
 builder.Services.ConfigureApplicationCookie(options =>
 {
-    options.LoginPath = "/Auth/Login";
-    options.LogoutPath = "/Auth/Logout";
-    options.AccessDeniedPath = "/Auth/AccessDenied";
+    options.LoginPath = "/Account/Login";
+    options.LogoutPath = "/Account/Logout";
+    options.AccessDeniedPath = "/Account/AccessDenied";
     options.SlidingExpiration = true;
     options.ExpireTimeSpan = TimeSpan.FromHours(24);
 });
@@ -85,6 +85,12 @@ if (args.Contains("--test-course-delete"))
     return;
 }
 
+if (args.Contains("--test-course-integration"))
+{
+    await CourseIntegrationTestRunner.RunTestsAsync(app.Services);
+    return;
+}
+
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
@@ -103,6 +109,12 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapStaticAssets();
+
+// Auth compatibility route alias (maps /Auth/* requests to AccountController)
+app.MapControllerRoute(
+    name: "auth_alias",
+    pattern: "Auth/{action=Login}/{id?}",
+    defaults: new { controller = "Account" });
 
 // Area routing (must come before default route)
 app.MapControllerRoute(

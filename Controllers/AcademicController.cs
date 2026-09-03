@@ -172,6 +172,8 @@ public class AcademicController : Controller
                 ? "Course published successfully."
                 : "Course saved as draft successfully.";
 
+            TempData["SuccessMessage"] = successMessage;
+
             if (isAjax)
             {
                 return Json(new
@@ -184,7 +186,6 @@ public class AcademicController : Controller
                 });
             }
 
-            TempData["SuccessMessage"] = successMessage;
             return RedirectToAction(nameof(Course));
         }
         catch (InvalidOperationException ex)
@@ -424,6 +425,8 @@ public class AcademicController : Controller
 
             var successMessage = "Course updated successfully.";
 
+            TempData["SuccessMessage"] = successMessage;
+
             if (isAjax)
             {
                 return Json(new
@@ -435,7 +438,6 @@ public class AcademicController : Controller
                 });
             }
 
-            TempData["SuccessMessage"] = successMessage;
             return RedirectToAction(nameof(Course));
         }
         catch (InvalidOperationException ex)
@@ -500,6 +502,8 @@ public class AcademicController : Controller
                         ? "Course deleted successfully."
                         : result.Message;
 
+                    TempData["SuccessMessage"] = successMsg;
+
                     if (isAjax)
                     {
                         return Json(new
@@ -511,7 +515,6 @@ public class AcademicController : Controller
                         });
                     }
 
-                    TempData["SuccessMessage"] = successMsg;
                     return RedirectToAction(nameof(Course));
 
                 case CourseDeleteStatus.NotFound:

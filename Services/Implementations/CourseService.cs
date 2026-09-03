@@ -20,19 +20,7 @@ public class CourseService : ICourseService
     public async Task<IEnumerable<Course>> GetAllCoursesAsync()
     {
         return await _context.Courses
-            .Include(c => c.Major)
-                .ThenInclude(m => m.Category)
-            .Include(c => c.Semester)
-            .Include(c => c.Teacher)
-            .Include(c => c.Chapters)
-            .Include(c => c.Enrollments)
-            .OrderByDescending(c => c.CreatedAt)
-            .ToListAsync();
-    }
-
-    public async Task<Course?> GetCourseByIdAsync(int id)
-    {
-        return await _context.Courses
+            .AsNoTracking()
             .Include(c => c.Major)
                 .ThenInclude(m => m.Category)
             .Include(c => c.Semester)
@@ -40,6 +28,23 @@ public class CourseService : ICourseService
             .Include(c => c.Chapters)
                 .ThenInclude(ch => ch.CourseItems)
             .Include(c => c.Enrollments)
+            .AsSplitQuery()
+            .OrderByDescending(c => c.CreatedAt)
+            .ToListAsync();
+    }
+
+    public async Task<Course?> GetCourseByIdAsync(int id)
+    {
+        return await _context.Courses
+            .AsNoTracking()
+            .Include(c => c.Major)
+                .ThenInclude(m => m.Category)
+            .Include(c => c.Semester)
+            .Include(c => c.Teacher)
+            .Include(c => c.Chapters)
+                .ThenInclude(ch => ch.CourseItems)
+            .Include(c => c.Enrollments)
+            .AsSplitQuery()
             .FirstOrDefaultAsync(c => c.Id == id);
     }
 
@@ -254,6 +259,7 @@ public class CourseService : ICourseService
             .Include(c => c.Chapters)
                 .ThenInclude(ch => ch.CourseItems)
                     .ThenInclude(ci => ci.Assignment)
+            .AsSplitQuery()
             .FirstOrDefaultAsync(c => c.Id == id);
 
         // 2. Check if Course exists

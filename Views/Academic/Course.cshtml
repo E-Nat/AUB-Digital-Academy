@@ -205,13 +205,21 @@
                                 </td>
                             </tr>
                         }
+
+                        <tr id="noMatchingCoursesRow" style="display:none;">
+                            <td colspan="7" class="p-5 text-center text-muted">
+                                <i class="bi bi-search fs-2 d-block mb-2 text-secondary opacity-50"></i>
+                                <h6 class="fw-bold text-dark mb-1">No courses found</h6>
+                                <p class="text-muted small mb-0">No courses match your search or filter criteria.</p>
+                            </td>
+                        </tr>
                     }
                     else
                     {
                         <tr>
                             <td colspan="7" class="p-5 text-center text-muted">
                                 <i class="bi bi-journal-x fs-1 d-block mb-3 text-secondary opacity-50"></i>
-                                <h5 class="fw-bold text-dark mb-1">No courses yet</h5>
+                                <h5 class="fw-bold text-dark mb-1">No courses found</h5>
                                 <p class="text-muted small mb-3">Create your first academic course to start building your catalog.</p>
                                 <button class="btn btn-primary-aub btn-sm" data-bs-toggle="modal" data-bs-target="#createCourseModal" type="button">
                                     <i class="bi bi-plus-lg me-1"></i> Add New Course
@@ -546,8 +554,8 @@
                         Are you sure you want to delete:
                     </p>
                     <div class="p-3 bg-light rounded border mb-3">
-                        <div class="fw-bold text-dark fs-6" id="deleteCourseTitleDisplay">Web Development Fundamentals</div>
-                        <span class="course-code-badge mt-1" id="deleteCourseCodeDisplay">SE101</span>
+                        <div class="fw-bold text-dark fs-6" id="deleteCourseTitleDisplay">Course Title</div>
+                        <span class="course-code-badge mt-1" id="deleteCourseCodeDisplay">CODE</span>
                     </div>
 
                     <div class="alert alert-warning py-2 px-3 small d-flex align-items-start gap-2 mb-0" role="alert">
@@ -752,8 +760,6 @@
                             if (errBox && errText) {
                                 errText.textContent = data.message || 'This course cannot be deleted.';
                                 errBox.classList.remove('d-none');
-                            } else {
-                                alert(data.message || 'This course cannot be deleted.');
                             }
                         }
                     })
@@ -765,8 +771,6 @@
                         if (errBox && errText) {
                             errText.textContent = error.message || 'An error occurred while deleting the course.';
                             errBox.classList.remove('d-none');
-                        } else {
-                            alert(error.message || 'An error occurred while deleting the course.');
                         }
                     });
                 });
@@ -777,12 +781,14 @@
             const categoryFilter = document.getElementById('courseCategoryFilter');
             const segmentTabs = document.querySelectorAll('.course-segment-tab');
             const rows = document.querySelectorAll('#courseTableBody .course-row');
+            const noMatchRow = document.getElementById('noMatchingCoursesRow');
 
             let currentFilter = 'all';
 
             function filterTable() {
                 const searchVal = (searchInput ? searchInput.value : '').toLowerCase().trim();
                 const catVal = (categoryFilter ? categoryFilter.value : '').toLowerCase().trim();
+                let visibleCount = 0;
 
                 rows.forEach(row => {
                     const rowStatus = row.getAttribute('data-status') || '';
@@ -797,10 +803,15 @@
 
                     if (matchesStatus && matchesCategory && matchesSearch) {
                         row.style.display = '';
+                        visibleCount++;
                     } else {
                         row.style.display = 'none';
                     }
                 });
+
+                if (noMatchRow) {
+                    noMatchRow.style.display = (visibleCount === 0 && rows.length > 0) ? '' : 'none';
+                }
             }
 
             if (searchInput) {
