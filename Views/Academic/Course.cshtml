@@ -165,9 +165,9 @@
                                     </div>
                                 </td>
                                 <td class="text-center">
-                                    <span class="badge bg-light text-dark border">
-                                        @(course.Chapters?.Count ?? 0) Modules
-                                    </span>
+                                    <a href="@Url.Action("Curriculum", "Academic", new { id = course.Id })" class="badge bg-light text-dark border text-decoration-none shadow-sm" title="Manage Curriculum">
+                                        <i class="bi bi-diagram-3 me-1 text-primary"></i>@(course.Chapters?.Count ?? 0) Modules
+                                    </a>
                                 </td>
                                 <td>
                                     <span class="badge-course-status @statusClass">
@@ -177,6 +177,9 @@
                                 </td>
                                 <td class="text-end pe-3">
                                     <div class="d-flex align-items-center justify-content-end gap-1">
+                                        <a href="@Url.Action("Curriculum", "Academic", new { id = course.Id })" class="btn btn-sm btn-outline-primary p-1" title="Manage Curriculum">
+                                            <i class="bi bi-diagram-3"></i>
+                                        </a>
                                         <button type="button" class="btn btn-sm btn-outline-secondary p-1 edit-course-btn"
                                                 data-id="@course.Id"
                                                 data-title="@course.Title"
@@ -191,9 +194,6 @@
                                                 title="Edit Course">
                                             <i class="bi bi-pencil"></i>
                                         </button>
-                                        <a href="/Teacher/Courses" class="btn btn-sm btn-link text-primary p-1" title="View Course Details">
-                                            <i class="bi bi-eye"></i>
-                                        </a>
                                         <button type="button" class="btn btn-sm btn-outline-danger p-1 delete-course-btn"
                                                 data-id="@course.Id"
                                                 data-title="@course.Title"

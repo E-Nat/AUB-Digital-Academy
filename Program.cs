@@ -55,6 +55,7 @@ builder.Services.AddControllersWithViews();
 
 // Application Services
 builder.Services.AddScoped<AUBDigitalAcademy.Services.Interfaces.ICourseService, AUBDigitalAcademy.Services.Implementations.CourseService>();
+builder.Services.AddScoped<AUBDigitalAcademy.Services.Interfaces.ICurriculumService, AUBDigitalAcademy.Services.Implementations.CurriculumService>();
 
 var app = builder.Build();
 
@@ -88,6 +89,18 @@ if (args.Contains("--test-course-delete"))
 if (args.Contains("--test-course-integration"))
 {
     await CourseIntegrationTestRunner.RunTestsAsync(app.Services);
+    return;
+}
+
+if (args.Contains("--test-module-crud"))
+{
+    await ModuleCrudTestRunner.RunTestsAsync(app.Services);
+    return;
+}
+
+if (args.Contains("--test-module-ui"))
+{
+    await ModuleUiIntegrationTestRunner.RunTestsAsync(app.Services);
     return;
 }
 

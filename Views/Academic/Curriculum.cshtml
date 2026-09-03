@@ -1,0 +1,658 @@
+@model AUBDigitalAcademy.Models.ViewModels.CourseCurriculumViewModel
+@{
+    ViewData["Title"] = $"{Model.CourseTitle} - Curriculum";
+    ViewData["ActivePage"] = "Courses";
+    var statusClass = Model.Status.ToString().ToLowerInvariant();
+}
+
+@section Styles {
+    <link rel="stylesheet" href="~/css/admin.css" asp-append-version="true" />
+    <style>
+        .curriculum-hero {
+            background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+            color: #fff;
+            border-radius: 14px;
+            padding: 1.5rem 1.75rem;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+        }
+        .curriculum-hero-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: #fff;
+            letter-spacing: -0.01em;
+            margin-bottom: 0.25rem;
+        }
+        .module-card {
+            background: var(--aub-white, #fff);
+            border: 1px solid var(--aub-gray-200, #e2e8f0);
+            border-radius: 12px;
+            margin-bottom: 1rem;
+            overflow: hidden;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+        .module-card:hover {
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
+            border-color: #cbd5e1;
+        }
+        [data-bs-theme="dark"] .module-card {
+            background: #1e1e2e;
+            border-color: #2d2d44;
+        }
+        .module-header {
+            padding: 1rem 1.25rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+            background: var(--aub-gray-50, #f8fafc);
+            border-bottom: 1px solid var(--aub-gray-200, #e2e8f0);
+            flex-wrap: wrap;
+        }
+        [data-bs-theme="dark"] .module-header {
+            background: #252538;
+            border-color: #2d2d44;
+        }
+        .module-num-badge {
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            padding: 0.25rem 0.6rem;
+            border-radius: 6px;
+            background: #EFF6FF;
+            color: #2563EB;
+            border: 1px solid #DBEAFE;
+        }
+        [data-bs-theme="dark"] .module-num-badge {
+            background: rgba(37, 99, 235, 0.2);
+            color: #93c5fd;
+            border-color: rgba(37, 99, 235, 0.3);
+        }
+        .item-list-row {
+            padding: 0.75rem 1.25rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid var(--aub-gray-100, #f1f5f9);
+            gap: 0.75rem;
+        }
+        .item-list-row:last-child {
+            border-bottom: none;
+        }
+        .item-type-icon {
+            width: 32px;
+            height: 32px;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.95rem;
+            flex-shrink: 0;
+        }
+        .item-type-lesson { background: #EFF6FF; color: #2563EB; }
+        .item-type-book { background: #ECFDF5; color: #059669; }
+        .item-type-quiz { background: #FFFBEB; color: #D97706; }
+        .item-type-assignment { background: #F5F3FF; color: #7C3AED; }
+    </style>
+}
+
+<div class="container-fluid p-0">
+    <!-- Breadcrumbs -->
+    <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb small mb-0">
+            <li class="breadcrumb-item"><a href="/Academic/Course" class="text-decoration-none">Courses</a></li>
+            <li class="breadcrumb-item"><a href="/Academic/Course" class="text-decoration-none">@Model.CourseCode</a></li>
+            <li class="breadcrumb-item active" aria-current="page">Curriculum</li>
+        </ol>
+    </nav>
+
+    <!-- TempData Alerts -->
+    @if (TempData["SuccessMessage"] != null)
+    {
+        <div class="alert alert-success alert-dismissible fade show d-flex align-items-center gap-2 mb-3 shadow-sm" role="alert">
+            <i class="bi bi-check-circle-fill fs-5"></i>
+            <div>@TempData["SuccessMessage"]</div>
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+    }
+    @if (TempData["ErrorMessage"] != null)
+    {
+        <div class="alert alert-danger alert-dismissible fade show d-flex align-items-center gap-2 mb-3 shadow-sm" role="alert">
+            <i class="bi bi-exclamation-triangle-fill fs-5"></i>
+            <div>@TempData["ErrorMessage"]</div>
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+    }
+
+    <!-- Hero Course Banner -->
+    <div class="curriculum-hero">
+        <div class="d-flex justify-content-between align-items-start flex-wrap gap-3">
+            <div>
+                <div class="d-flex align-items-center gap-2 mb-1">
+                    <span class="badge bg-primary">@Model.CourseCode</span>
+                    <span class="badge-course-status @statusClass text-white" style="border: 1px solid rgba(255,255,255,0.2);">
+                        <i class="bi bi-circle-fill" style="font-size: 0.45rem;"></i>
+                        @Model.Status
+                    </span>
+                    @if (!string.IsNullOrEmpty(Model.SemesterName))
+                    {
+                        <span class="badge bg-secondary bg-opacity-50">@Model.SemesterName</span>
+                    }
+                </div>
+                <h1 class="curriculum-hero-title">@Model.CourseTitle</h1>
+                <p class="text-light opacity-75 small mb-0">
+                    <i class="bi bi-person-fill me-1"></i> Instructor: <strong>@(Model.TeacherName ?? "Unassigned")</strong>
+                    @if (!string.IsNullOrEmpty(Model.MajorName))
+                    {
+                        <span class="mx-2">•</span>
+                        <i class="bi bi-mortarboard-fill me-1"></i>
+                        <span>@Model.MajorName (@Model.MajorCode)</span>
+                    }
+                </p>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+                <a href="/Academic/Course" class="btn btn-sm btn-outline-light d-inline-flex align-items-center gap-1 shadow-sm">
+                    <i class="bi bi-arrow-left"></i>
+                    <span>Back to Courses</span>
+                </a>
+                <button class="btn btn-sm btn-primary d-inline-flex align-items-center gap-1 shadow-sm" data-bs-toggle="modal" data-bs-target="#createModuleModal" type="button" id="openAddModuleModalBtn">
+                    <i class="bi bi-plus-lg"></i>
+                    <span>Add Module</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Curriculum KPIs -->
+    <div class="admin-kpi-grid mb-4">
+        <div class="kpi-card">
+            <div class="kpi-icon-wrap" style="background:#EFF6FF;color:#2563EB;">
+                <i class="bi bi-collection-fill"></i>
+            </div>
+            <div class="kpi-info">
+                <span class="kpi-label">Modules</span>
+                <div class="kpi-value" id="kpiModuleCount">@Model.TotalModules</div>
+                <span class="kpi-subtext">Syllabus units</span>
+            </div>
+        </div>
+
+        <div class="kpi-card">
+            <div class="kpi-icon-wrap" style="background:#ECFDF5;color:#059669;">
+                <i class="bi bi-play-btn-fill"></i>
+            </div>
+            <div class="kpi-info">
+                <span class="kpi-label">Lessons</span>
+                <div class="kpi-value">@Model.TotalLessons</div>
+                <span class="kpi-subtext">Lectures & readings</span>
+            </div>
+        </div>
+
+        <div class="kpi-card">
+            <div class="kpi-icon-wrap" style="background:#F5F3FF;color:#7C3AED;">
+                <i class="bi bi-journal-check"></i>
+            </div>
+            <div class="kpi-info">
+                <span class="kpi-label">Total Items</span>
+                <div class="kpi-value">@Model.TotalItems</div>
+                <span class="kpi-subtext">All curriculum resources</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modules List Section -->
+    <div class="d-flex align-items-center justify-content-between mb-3">
+        <div>
+            <h5 class="fw-bold text-dark mb-0">Course Curriculum Modules</h5>
+            <small class="text-muted">Organize chapters and learning syllabus for students</small>
+        </div>
+        @if (Model.Modules != null && Model.Modules.Any())
+        {
+            <button class="btn btn-sm btn-outline-primary d-inline-flex align-items-center gap-1" data-bs-toggle="modal" data-bs-target="#createModuleModal" type="button">
+                <i class="bi bi-plus-lg"></i>
+                <span>Add Module</span>
+            </button>
+        }
+    </div>
+
+    <div id="moduleListContainer">
+        @if (Model.Modules != null && Model.Modules.Any())
+        {
+            @for (int i = 0; i < Model.Modules.Count; i++)
+            {
+                var mod = Model.Modules[i];
+                var displayPosition = mod.Position > 0 ? mod.Position : (i + 1);
+
+                <div class="module-card" id="module-card-@mod.Id" data-module-id="@mod.Id">
+                    <!-- Module Header -->
+                    <div class="module-header">
+                        <div class="d-flex align-items-center gap-3">
+                            <span class="module-num-badge">Module @displayPosition</span>
+                            <div>
+                                <h6 class="fw-bold text-dark mb-0 module-title-text">@mod.Title</h6>
+                                <small class="text-muted">@mod.Items.Count items (@mod.LessonCount lessons)</small>
+                            </div>
+                        </div>
+                        <div class="d-flex align-items-center gap-1">
+                            <button type="button" class="btn btn-sm btn-outline-secondary p-1 edit-module-btn"
+                                    data-id="@mod.Id"
+                                    data-title="@mod.Title"
+                                    data-position="@mod.Position"
+                                    data-courseid="@mod.CourseId"
+                                    data-bs-toggle="modal"
+                                    data-bs-target="#editModuleModal"
+                                    title="Edit Module">
+                                <i class="bi bi-pencil"></i>
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-danger p-1 delete-module-btn"
+                                    data-id="@mod.Id"
+                                    data-title="@mod.Title"
+                                    data-courseid="@mod.CourseId"
+                                    data-itemcount="@mod.Items.Count"
+                                    data-bs-toggle="modal"
+                                    data-bs-target="#deleteModuleModal"
+                                    title="Delete Module">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Items in Module -->
+                    <div class="module-body">
+                        @if (mod.Items != null && mod.Items.Any())
+                        {
+                            @foreach (var item in mod.Items)
+                            {
+                                var typeClass = item.Type switch
+                                {
+                                    AUBDigitalAcademy.Models.Enums.ItemType.Lesson => "item-type-lesson",
+                                    AUBDigitalAcademy.Models.Enums.ItemType.Book => "item-type-book",
+                                    AUBDigitalAcademy.Models.Enums.ItemType.Quiz => "item-type-quiz",
+                                    _ => "item-type-assignment"
+                                };
+
+                                var typeIcon = item.Type switch
+                                {
+                                    AUBDigitalAcademy.Models.Enums.ItemType.Lesson => "bi-play-circle-fill",
+                                    AUBDigitalAcademy.Models.Enums.ItemType.Book => "bi-book-fill",
+                                    AUBDigitalAcademy.Models.Enums.ItemType.Quiz => "bi-patch-question-fill",
+                                    _ => "bi-journal-text"
+                                };
+
+                                <div class="item-list-row">
+                                    <div class="d-flex align-items-center gap-3">
+                                        <div class="item-type-icon @typeClass">
+                                            <i class="bi @typeIcon"></i>
+                                        </div>
+                                        <div>
+                                            <div class="fw-semibold text-dark small">@item.Title</div>
+                                            <div class="d-flex align-items-center gap-2 small text-muted">
+                                                <span>@item.Type</span>
+                                                @if (item.HasVideo)
+                                                {
+                                                    <span class="badge bg-light text-primary border" style="font-size: 0.65rem;">
+                                                        <i class="bi bi-camera-video-fill me-0.5"></i> Video
+                                                    </span>
+                                                }
+                                                @if (item.HasContent)
+                                                {
+                                                    <span class="badge bg-light text-secondary border" style="font-size: 0.65rem;">
+                                                        <i class="bi bi-file-text-fill me-0.5"></i> Article
+                                                    </span>
+                                                }
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <span class="badge bg-light text-muted border">Position @item.Position</span>
+                                    </div>
+                                </div>
+                            }
+                        }
+                        else
+                        {
+                            <div class="p-4 text-center text-muted small">
+                                <i class="bi bi-journal-text fs-4 d-block mb-1 opacity-50"></i>
+                                <span>No items in this module yet.</span>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+        }
+        else
+        {
+            <!-- Empty State -->
+            <div class="card border-0 shadow-sm text-center py-5" id="emptyCurriculumCard">
+                <div class="card-body">
+                    <div class="kpi-icon-wrap mx-auto mb-3" style="width:64px;height:64px;background:#F8FAFC;color:#64748B;font-size:2rem;border:1px dashed #CBD5E1;">
+                        <i class="bi bi-collection"></i>
+                    </div>
+                    <h5 class="fw-bold text-dark mb-1">No modules have been added yet</h5>
+                    <p class="text-muted small mb-4" style="max-width: 420px; margin: 0 auto;">
+                        Start structuring the syllabus for <strong>@Model.CourseTitle</strong> by creating the first module.
+                    </p>
+                    <button class="btn btn-primary-aub d-inline-flex align-items-center gap-2 shadow-sm" data-bs-toggle="modal" data-bs-target="#createModuleModal" type="button">
+                        <i class="bi bi-plus-lg"></i>
+                        <span>Add First Module</span>
+                    </button>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+<!-- ==========================================
+     CREATE MODULE MODAL
+     ========================================== -->
+<div class="modal fade" id="createModuleModal" tabindex="-1" aria-labelledby="createModuleModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header border-bottom">
+                <div class="d-flex align-items-center gap-2">
+                    <div class="rounded-2 d-flex align-items-center justify-content-center text-primary" style="width:36px;height:36px;background:#EFF6FF;">
+                        <i class="bi bi-collection-fill"></i>
+                    </div>
+                    <div>
+                        <h6 class="modal-title fw-bold text-dark mb-0" id="createModuleModalLabel">Add New Module</h6>
+                        <small class="text-muted">Create a syllabus section under @Model.CourseCode</small>
+                    </div>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form asp-controller="Academic" asp-action="CreateModule" method="post" id="createModuleForm">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="CourseId" value="@Model.CourseId" />
+
+                <div class="modal-body p-4">
+                    <div class="mb-3">
+                        <label for="createModuleTitle" class="form-label fw-bold small text-dark">Module Title <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="createModuleTitle" name="Title" placeholder="e.g. Module 1: Introduction to Web Development" required maxlength="200" autocomplete="off" />
+                        <span class="text-danger small" id="createModuleTitleError"></span>
+                    </div>
+
+                    <div class="mb-2">
+                        <label for="createModulePosition" class="form-label fw-bold small text-dark">Position / Sequence</label>
+                        <input type="number" class="form-control" id="createModulePosition" name="Position" placeholder="@(Model.TotalModules + 1)" min="1" max="1000" />
+                        <div class="form-text small text-muted">Leave empty to place automatically at the end of the syllabus.</div>
+                    </div>
+                </div>
+
+                <div class="modal-footer border-top bg-light">
+                    <button type="button" class="btn btn-light border" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary-aub d-inline-flex align-items-center gap-2" id="submitCreateModuleBtn">
+                        <i class="bi bi-check-lg"></i>
+                        <span>Save Module</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- ==========================================
+     EDIT MODULE MODAL
+     ========================================== -->
+<div class="modal fade" id="editModuleModal" tabindex="-1" aria-labelledby="editModuleModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header border-bottom">
+                <div class="d-flex align-items-center gap-2">
+                    <div class="rounded-2 d-flex align-items-center justify-content-center text-primary" style="width:36px;height:36px;background:#EFF6FF;">
+                        <i class="bi bi-pencil-square"></i>
+                    </div>
+                    <div>
+                        <h6 class="modal-title fw-bold text-dark mb-0" id="editModuleModalLabel">Edit Module</h6>
+                        <small class="text-muted">Update module title or sequence order</small>
+                    </div>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form asp-controller="Academic" asp-action="EditModule" method="post" id="editModuleForm">
+                @Html.AntiForgeryToken()
+                <input type="hidden" id="editModuleId" name="Id" value="" />
+                <input type="hidden" id="editModuleCourseId" name="CourseId" value="@Model.CourseId" />
+
+                <div class="modal-body p-4">
+                    <div class="mb-3">
+                        <label for="editModuleTitle" class="form-label fw-bold small text-dark">Module Title <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="editModuleTitle" name="Title" required maxlength="200" autocomplete="off" />
+                        <span class="text-danger small" id="editModuleTitleError"></span>
+                    </div>
+
+                    <div class="mb-2">
+                        <label for="editModulePosition" class="form-label fw-bold small text-dark">Position / Sequence <span class="text-danger">*</span></label>
+                        <input type="number" class="form-control" id="editModulePosition" name="Position" required min="1" max="1000" />
+                        <div class="form-text small text-muted">Sequence position determines ordering in the student syllabus.</div>
+                    </div>
+                </div>
+
+                <div class="modal-footer border-top bg-light">
+                    <button type="button" class="btn btn-light border" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary-aub d-inline-flex align-items-center gap-2" id="submitEditModuleBtn">
+                        <i class="bi bi-check-lg"></i>
+                        <span>Save Changes</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- ==========================================
+     DELETE MODULE CONFIRMATION MODAL
+     ========================================== -->
+<div class="modal fade" id="deleteModuleModal" tabindex="-1" aria-labelledby="deleteModuleModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header border-bottom">
+                <div class="d-flex align-items-center gap-2 text-danger">
+                    <div class="rounded-2 d-flex align-items-center justify-content-center bg-danger bg-opacity-10 text-danger" style="width:36px;height:36px;">
+                        <i class="bi bi-exclamation-triangle-fill"></i>
+                    </div>
+                    <div>
+                        <h6 class="modal-title fw-bold text-danger mb-0" id="deleteModuleModalLabel">Delete Module</h6>
+                        <small class="text-muted">Confirm deletion of this syllabus module</small>
+                    </div>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form asp-controller="Academic" asp-action="DeleteModule" method="post" id="deleteModuleForm">
+                @Html.AntiForgeryToken()
+                <input type="hidden" id="deleteModuleId" name="id" value="" />
+                <input type="hidden" id="deleteModuleCourseId" name="courseId" value="@Model.CourseId" />
+
+                <div class="modal-body p-4">
+                    <p class="text-dark mb-2">Are you sure you want to delete module:</p>
+                    <div class="p-3 bg-light rounded-3 border mb-3">
+                        <strong class="text-dark" id="deleteModuleName"></strong>
+                    </div>
+                    <div class="alert alert-warning small mb-0 d-flex align-items-start gap-2">
+                        <i class="bi bi-info-circle-fill flex-shrink-0 mt-0.5"></i>
+                        <div>
+                            Deleting this module will also remove any lessons, readings, or assignments created inside it. If students have already recorded activity, deletion will be blocked safely.
+                        </div>
+                    </div>
+                    <div id="deleteBlockedWarningContainer" class="mt-3" style="display:none;">
+                        <div class="alert alert-danger small mb-0 d-flex align-items-start gap-2">
+                            <i class="bi bi-shield-slash-fill flex-shrink-0 mt-0.5"></i>
+                            <div id="deleteBlockedWarningText"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="modal-footer border-top bg-light">
+                    <button type="button" class="btn btn-light border" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-danger d-inline-flex align-items-center gap-2" id="confirmDeleteModuleBtn">
+                        <i class="bi bi-trash"></i>
+                        <span>Delete Module</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            // Edit Module Button Click
+            document.querySelectorAll('.edit-module-btn').forEach(btn => {
+                btn.addEventListener('click', function () {
+                    const id = this.getAttribute('data-id');
+                    const title = this.getAttribute('data-title');
+                    const position = this.getAttribute('data-position');
+                    const courseId = this.getAttribute('data-courseid');
+
+                    document.getElementById('editModuleId').value = id;
+                    document.getElementById('editModuleCourseId').value = courseId;
+                    document.getElementById('editModuleTitle').value = title;
+                    document.getElementById('editModulePosition').value = position;
+                    document.getElementById('editModuleTitleError').textContent = '';
+                });
+            });
+
+            // Delete Module Button Click
+            document.querySelectorAll('.delete-module-btn').forEach(btn => {
+                btn.addEventListener('click', function () {
+                    const id = this.getAttribute('data-id');
+                    const title = this.getAttribute('data-title');
+                    const courseId = this.getAttribute('data-courseid');
+
+                    document.getElementById('deleteModuleId').value = id;
+                    document.getElementById('deleteModuleCourseId').value = courseId;
+                    document.getElementById('deleteModuleName').textContent = title;
+                    document.getElementById('deleteBlockedWarningContainer').style.display = 'none';
+                    document.getElementById('confirmDeleteModuleBtn').disabled = false;
+                });
+            });
+
+            // AJAX handling for Create Module Form
+            const createForm = document.getElementById('createModuleForm');
+            if (createForm) {
+                createForm.addEventListener('submit', function (e) {
+                    e.preventDefault();
+                    const submitBtn = document.getElementById('submitCreateModuleBtn');
+                    const titleInput = document.getElementById('createModuleTitle');
+                    const titleError = document.getElementById('createModuleTitleError');
+
+                    if (!titleInput.value.trim()) {
+                        titleError.textContent = 'Module title is required.';
+                        return;
+                    }
+
+                    submitBtn.disabled = true;
+                    submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"></span> Saving...';
+
+                    const formData = new FormData(createForm);
+
+                    fetch('/Academic/CreateModule', {
+                        method: 'POST',
+                        body: formData,
+                        headers: {
+                            'X-Requested-With': 'XMLHttpRequest'
+                        }
+                    })
+                    .then(r => r.json())
+                    .then(data => {
+                        if (data.success) {
+                            window.location.reload();
+                        } else {
+                            titleError.textContent = data.message || 'Failed to create module.';
+                            submitBtn.disabled = false;
+                            submitBtn.innerHTML = '<i class="bi bi-check-lg"></i> <span>Save Module</span>';
+                        }
+                    })
+                    .catch(() => {
+                        createForm.submit();
+                    });
+                });
+            }
+
+            // AJAX handling for Edit Module Form
+            const editForm = document.getElementById('editModuleForm');
+            if (editForm) {
+                editForm.addEventListener('submit', function (e) {
+                    e.preventDefault();
+                    const submitBtn = document.getElementById('submitEditModuleBtn');
+                    const titleInput = document.getElementById('editModuleTitle');
+                    const titleError = document.getElementById('editModuleTitleError');
+
+                    if (!titleInput.value.trim()) {
+                        titleError.textContent = 'Module title is required.';
+                        return;
+                    }
+
+                    submitBtn.disabled = true;
+                    submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"></span> Updating...';
+
+                    const formData = new FormData(editForm);
+
+                    fetch('/Academic/EditModule', {
+                        method: 'POST',
+                        body: formData,
+                        headers: {
+                            'X-Requested-With': 'XMLHttpRequest'
+                        }
+                    })
+                    .then(r => r.json())
+                    .then(data => {
+                        if (data.success) {
+                            window.location.reload();
+                        } else {
+                            titleError.textContent = data.message || 'Failed to update module.';
+                            submitBtn.disabled = false;
+                            submitBtn.innerHTML = '<i class="bi bi-check-lg"></i> <span>Save Changes</span>';
+                        }
+                    })
+                    .catch(() => {
+                        editForm.submit();
+                    });
+                });
+            }
+
+            // AJAX handling for Delete Module Form
+            const deleteForm = document.getElementById('deleteModuleForm');
+            if (deleteForm) {
+                deleteForm.addEventListener('submit', function (e) {
+                    e.preventDefault();
+                    const submitBtn = document.getElementById('confirmDeleteModuleBtn');
+                    const blockedAlert = document.getElementById('deleteBlockedWarningContainer');
+                    const blockedText = document.getElementById('deleteBlockedWarningText');
+
+                    submitBtn.disabled = true;
+                    submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"></span> Deleting...';
+
+                    const formData = new FormData(deleteForm);
+
+                    fetch('/Academic/DeleteModule', {
+                        method: 'POST',
+                        body: formData,
+                        headers: {
+                            'X-Requested-With': 'XMLHttpRequest'
+                        }
+                    })
+                    .then(r => r.json())
+                    .then(data => {
+                        if (data.success) {
+                            window.location.reload();
+                        } else if (data.blocked) {
+                            blockedAlert.style.display = 'block';
+                            blockedText.textContent = data.message;
+                            submitBtn.disabled = true;
+                            submitBtn.innerHTML = '<i class="bi bi-shield-x"></i> <span>Deletion Blocked</span>';
+                        } else {
+                            alert(data.message || 'Failed to delete module.');
+                            submitBtn.disabled = false;
+                            submitBtn.innerHTML = '<i class="bi bi-trash"></i> <span>Delete Module</span>';
+                        }
+                    })
+                    .catch(() => {
+                        deleteForm.submit();
+                    });
+                });
+            }
+        });
+    </script>
+}
