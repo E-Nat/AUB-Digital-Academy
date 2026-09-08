@@ -6,7 +6,8 @@ public enum CurriculumOperationStatus
     NotFound,
     ValidationError,
     BlockedByStudentData,
-    Failed
+    Failed,
+    Forbidden
 }
 
 public class CurriculumOperationResult
@@ -17,17 +18,36 @@ public class CurriculumOperationResult
     public int? EntityId { get; set; }
     public string? EntityTitle { get; set; }
     public int? ParentId { get; set; }
+    public int? SecondaryId { get; set; }
     public List<string> Errors { get; set; } = new();
     public int ProgressCount { get; set; }
     public int SubmissionCount { get; set; }
 
-    public static CurriculumOperationResult Success(int id, string title, string message = "Operation completed successfully.", int? parentId = null) =>
+    public static CurriculumOperationResult Ok(string message = "Operation completed successfully.", int? id = null) =>
+        new()
+        {
+            Status = CurriculumOperationStatus.Success,
+            EntityId = id,
+            Message = message
+        };
+
+    public static CurriculumOperationResult Fail(string message) => Failed(message);
+
+    public static CurriculumOperationResult Forbidden(string message = "Access denied.") =>
+        new()
+        {
+            Status = CurriculumOperationStatus.Forbidden,
+            Message = message
+        };
+
+    public static CurriculumOperationResult Success(int id, string title, string message = "Operation completed successfully.", int? parentId = null, int? secondaryId = null) =>
         new()
         {
             Status = CurriculumOperationStatus.Success,
             EntityId = id,
             EntityTitle = title,
             ParentId = parentId,
+            SecondaryId = secondaryId,
             Message = message
         };
 

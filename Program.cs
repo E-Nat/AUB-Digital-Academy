@@ -56,6 +56,7 @@ builder.Services.AddControllersWithViews();
 // Application Services
 builder.Services.AddScoped<AUBDigitalAcademy.Services.Interfaces.ICourseService, AUBDigitalAcademy.Services.Implementations.CourseService>();
 builder.Services.AddScoped<AUBDigitalAcademy.Services.Interfaces.ICurriculumService, AUBDigitalAcademy.Services.Implementations.CurriculumService>();
+builder.Services.AddScoped<AUBDigitalAcademy.Services.Interfaces.IEnrollmentService, AUBDigitalAcademy.Services.Implementations.EnrollmentService>();
 
 var app = builder.Build();
 
@@ -103,6 +104,55 @@ if (args.Contains("--test-module-ui"))
     await ModuleUiIntegrationTestRunner.RunTestsAsync(app.Services);
     return;
 }
+
+if (args.Contains("--test-lesson-crud"))
+{
+    await LessonCrudTestRunner.RunTestsAsync(app.Services);
+    return;
+}
+
+if (args.Contains("--test-curriculum-e2e"))
+{
+    await CurriculumEndToEndIntegrationTestRunner.RunTestsAsync(app.Services);
+    return;
+}
+
+if (args.Contains("--test-enrollment-backend"))
+{
+    await EnrollmentBackendTestRunner.RunTestsAsync(app.Services);
+    return;
+}
+
+if (args.Contains("--test-enrollment-ui"))
+{
+    await EnrollmentUiIntegrationTestRunner.RunTestsAsync(app.Services);
+    return;
+}
+
+if (args.Contains("--test-student-flow"))
+{
+    await StudentFlowIntegrationTestRunner.RunTestsAsync(app.Services);
+    return;
+}
+
+if (args.Contains("--test-student-player"))
+{
+    await StudentPlayerIntegrationTestRunner.RunTestsAsync(app.Services);
+    return;
+}
+
+if (args.Contains("--test-student-progress"))
+{
+    await StudentProgressIntegrationTestRunner.RunTestsAsync(app.Services);
+    return;
+}
+
+if (args.Contains("--test-quiz"))
+{
+    await QuizIntegrationTestRunner.RunTestsAsync(app.Services);
+    return;
+}
+
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())

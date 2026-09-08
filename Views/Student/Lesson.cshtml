@@ -1,0 +1,420 @@
+@model AUBDigitalAcademy.Models.ViewModels.StudentLessonPlayerViewModel
+@{
+    ViewData["Title"] = $"{Model.LessonTitle} - {Model.CourseTitle}";
+    ViewData["ActivePage"] = "Courses";
+
+    // Helper to extract YouTube video embed URL
+    string? youtubeEmbedUrl = null;
+    if (!string.IsNullOrWhiteSpace(Model.VideoUrl))
+    {
+        var match = System.Text.RegularExpressions.Regex.Match(
+            Model.VideoUrl,
+            @"(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+        if (match.Success)
+        {
+            youtubeEmbedUrl = $"https://www.youtube-nocookie.com/embed/{match.Groups[1].Value}";
+        }
+    }
+
+    bool isDirectVideoFile = !string.IsNullOrWhiteSpace(Model.VideoUrl) &&
+        (Model.VideoUrl.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase) ||
+         Model.VideoUrl.EndsWith(".webm", StringComparison.OrdinalIgnoreCase) ||
+         Model.VideoUrl.EndsWith(".ogg", StringComparison.OrdinalIgnoreCase));
+
+}
+
+@section Styles {
+    <link rel="stylesheet" href="~/css/student.css" asp-append-version="true" />
+}
+
+<div class="container-fluid p-0">
+    <!-- Breadcrumb Navigation -->
+    <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb mb-0 small">
+            <li class="breadcrumb-item"><a href="/Student/Dashboard" class="text-decoration-none">Dashboard</a></li>
+            <li class="breadcrumb-item"><a href="/Student/Courses" class="text-decoration-none">My Courses</a></li>
+            <li class="breadcrumb-item"><a href="/Student/Course/@Model.CourseId" class="text-decoration-none">@Model.CourseTitle</a></li>
+            <li class="breadcrumb-item active" aria-current="page">@Model.LessonTitle</li>
+        </ol>
+    </nav>
+
+    <!-- Lesson Top Action Banner -->
+    <div class="card border-0 shadow-sm rounded-3 mb-4 overflow-hidden" style="background: linear-gradient(135deg, #003366 0%, #004080 100%); color: white;">
+        <div class="card-body p-3 p-md-4">
+            <div class="d-flex align-items-center justify-content-between flex-wrap gap-3">
+                <div>
+                    <div class="d-flex align-items-center gap-2 mb-1 flex-wrap">
+                        <span class="badge bg-white text-dark font-monospace">@Model.CourseCode</span>
+                        <span class="badge bg-light text-dark opacity-75">Module @Model.ModulePosition: @Model.ModuleTitle</span>
+                        <span class="badge bg-primary-subtle text-primary border border-primary-subtle">Lesson @Model.CurrentLessonIndex of @Model.TotalLessonsCount</span>
+                        <span class="badge bg-success-subtle text-success border border-success-subtle">Course Progress: <span class="course-progress-pct">@Model.CourseProgressPercentage%</span></span>
+                        @if (Model.IsCompleted)
+                        {
+                            <span class="badge bg-success text-white" id="headerCompletedBadge"><i class="bi bi-check-circle-fill me-1"></i>Completed</span>
+                        }
+                    </div>
+                    <h3 class="fw-bold mb-0 text-white">@Model.LessonTitle</h3>
+                </div>
+                <div>
+                    <a href="/Student/Course/@Model.CourseId" class="btn btn-light d-inline-flex align-items-center gap-2 shadow-sm text-primary fw-semibold">
+                        <i class="bi bi-grid-3x3-gap"></i>
+                        <span>Course Overview</span>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Lesson Player Content Row -->
+    <div class="row g-4">
+        <!-- Left / Center Column: Video & Lesson Content -->
+        <div class="col-lg-8">
+            <!-- Video Player Section (Rendered only when VideoUrl exists) -->
+            @if (Model.HasVideo)
+            {
+                <div class="card border rounded-3 bg-dark text-white shadow-sm mb-4 overflow-hidden">
+                    <div class="card-body p-0">
+                        @if (!string.IsNullOrEmpty(youtubeEmbedUrl))
+                        {
+                            <div class="ratio ratio-16x9">
+                                <iframe src="@youtubeEmbedUrl" title="@Model.LessonTitle" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
+                            </div>
+                        }
+                        else if (isDirectVideoFile)
+                        {
+                            <div class="p-2 bg-black">
+                                <video controls class="w-100 rounded" style="max-height: 500px;" preload="metadata">
+                                    <source src="@Model.VideoUrl" />
+                                    Your browser does not support the video tag.
+                                </video>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="p-4 text-center bg-dark">
+                                <i class="bi bi-camera-reels text-warning fs-1 d-block mb-3"></i>
+                                <h5 class="fw-bold text-white mb-2">Video Lecture Available</h5>
+                                <p class="text-secondary small mb-3">This lesson includes an external streaming video resource.</p>
+                                <a href="@Model.VideoUrl" target="_blank" rel="noopener noreferrer" class="btn btn-primary btn-sm px-4">
+                                    <i class="bi bi-box-arrow-up-right me-1"></i> Open Video Resource
+                                </a>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+
+            <!-- Lesson Notes & Reading Content Section -->
+            <div class="card border rounded-3 p-4 bg-white shadow-sm mb-4">
+                <div class="d-flex align-items-center justify-content-between border-bottom pb-3 mb-3">
+                    <h5 class="fw-bold text-dark mb-0 d-flex align-items-center gap-2">
+                        <i class="bi bi-book text-primary"></i>
+                        <span>Lecture Content & Notes</span>
+                    </h5>
+                    <div class="d-flex align-items-center gap-2">
+                        @if (Model.IsCompleted)
+                        {
+                            <span class="badge bg-success-subtle text-success border border-success-subtle">
+                                <i class="bi bi-check-circle-fill text-success me-1"></i> Completed
+                            </span>
+                        }
+                        @if (Model.HasVideo)
+                        {
+                            <span class="badge bg-light text-muted border">
+                                <i class="bi bi-check-circle text-success me-1"></i> Video Attached
+                            </span>
+                        }
+                    </div>
+                </div>
+
+                <div class="lesson-content-body">
+                    @if (Model.HasContent)
+                    {
+                        @Html.Raw(Model.ContentHtml)
+                    }
+                    else
+                    {
+                        <div class="text-muted p-4 text-center border rounded-3 bg-light">
+                            <i class="bi bi-journal-text fs-3 d-block mb-2 text-secondary opacity-50"></i>
+                            <p class="mb-0 small">No written lecture notes provided for this lesson.</p>
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <!-- Bottom Navigation Bar & Completion Controls -->
+            <div class="card border rounded-3 p-3 bg-white shadow-sm mb-4">
+                <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+                    <!-- Previous Button -->
+                    @if (Model.HasPrevious && Model.PreviousLesson != null)
+                    {
+                        <a href="/Student/Course/@Model.CourseId/Lesson/@Model.PreviousLesson.CourseItemId"
+                           class="btn btn-outline-primary d-inline-flex align-items-center gap-2"
+                           title="@Model.PreviousLesson.Title">
+                            <i class="bi bi-arrow-left"></i>
+                            <span>Previous Lesson</span>
+                        </a>
+                    }
+                    else
+                    {
+                        <button class="btn btn-outline-secondary opacity-50 d-inline-flex align-items-center gap-2" disabled aria-disabled="true">
+                            <i class="bi bi-arrow-left"></i>
+                            <span>Previous Lesson</span>
+                        </button>
+                    }
+
+                    <!-- Center: Mark as Complete / Completed Action -->
+                    <div class="d-flex align-items-center gap-2" id="completionActionContainer">
+                        @if (Model.IsCompleted)
+                        {
+                            <button type="button" class="btn btn-success d-inline-flex align-items-center gap-2" disabled aria-disabled="true">
+                                <i class="bi bi-check-circle-fill"></i>
+                                <span>Completed</span>
+                            </button>
+                        }
+                        else
+                        {
+                            <form asp-controller="Student" asp-action="CompleteLesson" method="post" id="completeLessonForm" class="d-inline">
+                                @Html.AntiForgeryToken()
+                                <input type="hidden" name="courseId" value="@Model.CourseId" />
+                                <input type="hidden" name="courseItemId" value="@Model.CourseItemId" />
+                                <button type="submit" id="btnMarkComplete" class="btn btn-primary d-inline-flex align-items-center gap-2 shadow-sm">
+                                    <i class="bi bi-check-circle"></i>
+                                    <span>Mark as Complete</span>
+                                </button>
+                            </form>
+                        }
+                    </div>
+
+                    <!-- Next Button -->
+                    @if (Model.HasNext && Model.NextLesson != null)
+                    {
+                        <a href="/Student/Course/@Model.CourseId/Lesson/@Model.NextLesson.CourseItemId"
+                           class="btn btn-primary d-inline-flex align-items-center gap-2"
+                           title="@Model.NextLesson.Title">
+                            <span>Next Lesson</span>
+                            <i class="bi bi-arrow-right"></i>
+                        </a>
+                    }
+                    else
+                    {
+                        <button class="btn btn-outline-secondary opacity-50 d-inline-flex align-items-center gap-2" disabled aria-disabled="true">
+                            <span>Next Lesson</span>
+                            <i class="bi bi-arrow-right"></i>
+                        </button>
+                    }
+                </div>
+                <div class="text-center mt-2 pt-2 border-top">
+                    <small class="text-muted">
+                        Lesson @Model.CurrentLessonIndex of @Model.TotalLessonsCount &bull; Course Progress: <strong class="text-primary course-progress-pct">@Model.CourseProgressPercentage%</strong> (<span class="course-completed-count">@Model.CompletedLessonsCount</span>/@Model.TotalLessonsCount Completed)
+                    </small>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Column: Course Curriculum Sidebar Navigation -->
+        <div class="col-lg-4">
+            <div class="card border rounded-3 bg-white shadow-sm overflow-hidden sticky-lg-top" style="top: 1.5rem; z-index: 10;">
+                <div class="p-3 border-bottom bg-light">
+                    <div class="d-flex align-items-center justify-content-between mb-2">
+                        <div class="d-flex align-items-center gap-2">
+                            <i class="bi bi-collection-play-fill text-primary"></i>
+                            <h6 class="fw-bold mb-0 text-dark">Course Curriculum</h6>
+                        </div>
+                        <span class="badge bg-primary-subtle text-primary border border-primary-subtle rounded-pill">
+                            <span class="course-completed-count">@Model.CompletedLessonsCount</span>/@Model.TotalLessonsCount Completed
+                        </span>
+                    </div>
+                    <div class="progress" style="height: 6px;">
+                        <div class="progress-bar bg-success course-progress-bar" role="progressbar" style="width: @(Model.CourseProgressPercentage)%;" aria-valuenow="@Model.CourseProgressPercentage" aria-valuemin="0" aria-valuemax="100"></div>
+                    </div>
+                </div>
+
+                <div class="p-3" style="max-height: calc(100vh - 200px); overflow-y: auto;">
+                    @if (Model.Modules.Count == 0)
+                    {
+                        <div class="p-4 text-center text-muted small">
+                            No modules in this course.
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="accordion" id="curriculumPlayerAccordion">
+                            @foreach (var mod in Model.Modules.OrderBy(m => m.Position))
+                            {
+                                var collapseId = $"collapsePlayerMod{mod.ModuleId}";
+                                var headingId = $"headingPlayerMod{mod.ModuleId}";
+                                var isExpanded = mod.IsCurrentModule;
+
+                                <div class="player-module-card mb-2">
+                                    <div class="player-module-header @(isExpanded ? "active-module" : "")" id="@headingId">
+                                        <div class="d-flex align-items-center gap-2 flex-grow-1 me-2 text-truncate">
+                                            <span class="badge @(isExpanded ? "bg-primary text-white" : "bg-light text-dark border") rounded-pill px-2 py-1 small">
+                                                M@mod.Position
+                                            </span>
+                                            <span class="fw-semibold text-dark text-truncate small" title="@mod.Title">
+                                                @mod.Title
+                                            </span>
+                                        </div>
+                                        <div class="d-flex align-items-center gap-1">
+                                            <span class="small text-muted" style="font-size: 0.75rem;">@mod.CompletedCount/@mod.LessonCount</span>
+                                            <button class="btn btn-sm btn-link text-secondary p-0" type="button" data-bs-toggle="collapse" data-bs-target="#@collapseId" aria-expanded="@(isExpanded ? "true" : "false")" aria-controls="@collapseId">
+                                                <i class="bi bi-chevron-down small"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div id="@collapseId" class="collapse @(isExpanded ? "show" : "")" aria-labelledby="@headingId">
+                                        @if (mod.Lessons.Count == 0)
+                                        {
+                                            <div class="p-2 text-muted small text-center fst-italic">
+                                                No lessons in this module.
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            @foreach (var lesson in mod.Lessons.OrderBy(l => l.Position))
+                                            {
+                                                var isQuiz = lesson.Type == AUBDigitalAcademy.Models.Enums.ItemType.Quiz;
+                                                var itemUrl = isQuiz
+                                                    ? $"/Student/Course/{Model.CourseId}/Quiz/{lesson.CourseItemId}"
+                                                    : $"/Student/Course/{Model.CourseId}/Lesson/{lesson.CourseItemId}";
+
+                                                <a href="@itemUrl"
+                                                   class="player-lesson-link d-flex align-items-center gap-2 text-decoration-none @(lesson.IsCurrent ? "current-lesson" : "")"
+                                                   title="@lesson.Title"
+                                                   data-item-id="@lesson.CourseItemId">
+                                                    @if (lesson.IsCompleted || lesson.HasPassedQuiz)
+                                                    {
+                                                        <i class="bi bi-check-circle-fill text-success fs-6 flex-shrink-0" title="Completed"></i>
+                                                    }
+                                                    else if (lesson.IsCurrent)
+                                                    {
+                                                        <i class="bi @(isQuiz ? "bi-patch-question-fill" : "bi-play-circle-fill") text-primary fs-6 flex-shrink-0" title="@(isQuiz ? "Current Quiz" : "Current Lesson")"></i>
+                                                    }
+                                                    else if (isQuiz)
+                                                    {
+                                                        <i class="bi bi-patch-question-fill text-warning fs-6 flex-shrink-0" title="Quiz"></i>
+                                                    }
+                                                    else
+                                                    {
+                                                        <i class="bi bi-circle text-secondary opacity-50 fs-6 flex-shrink-0" title="Not Completed"></i>
+                                                    }
+
+                                                    <div class="flex-grow-1 text-truncate">
+                                                        <div class="small fw-medium @(lesson.IsCurrent ? "text-primary fw-bold" : "text-dark") text-truncate">
+                                                            @lesson.Title
+                                                        </div>
+                                                        <span class="text-muted" style="font-size: 0.75rem;">
+                                                            @(isQuiz ? "Quiz" : "Lesson") @lesson.Position
+                                                        </span>
+                                                    </div>
+
+                                                    @if (lesson.IsCurrent)
+                                                    {
+                                                        <span class="badge bg-primary text-white rounded-pill px-2 py-1 flex-shrink-0" style="font-size: 0.65rem;">
+                                                            ▶ Current
+                                                        </span>
+                                                    }
+                                                    @if (lesson.IsCompleted || lesson.HasPassedQuiz)
+                                                    {
+                                                        <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-2 py-1 flex-shrink-0 badge-completed" style="font-size: 0.65rem;">
+                                                            ✓ @(isQuiz ? "Passed" : "Completed")
+                                                        </span>
+                                                    }
+                                                    else if (isQuiz)
+                                                    {
+                                                        <span class="badge bg-warning-subtle text-dark border border-warning-subtle rounded-pill px-2 py-1 flex-shrink-0" style="font-size: 0.65rem;">
+                                                            Quiz
+                                                        </span>
+                                                    }
+                                                </a>
+                                            }
+                                        }
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        document.getElementById('completeLessonForm')?.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const form = this;
+            const btn = document.getElementById('btnMarkComplete');
+            if (!btn || btn.disabled) return;
+
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span> Saving...';
+
+            try {
+                const formData = new FormData(form);
+                const response = await fetch(form.action, {
+                    method: 'POST',
+                    body: formData,
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest'
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.success) {
+                        // Replace form with Completed button
+                        const container = document.getElementById('completionActionContainer');
+                        if (container) {
+                            container.innerHTML = '<button type="button" class="btn btn-success d-inline-flex align-items-center gap-2" disabled aria-disabled="true"><i class="bi bi-check-circle-fill"></i><span>Completed</span></button>';
+                        }
+
+                        // Add badge to header if not present
+                        if (!document.getElementById('headerCompletedBadge')) {
+                            const badge = document.createElement('span');
+                            badge.id = 'headerCompletedBadge';
+                            badge.className = 'badge bg-success text-white';
+                            badge.innerHTML = '<i class="bi bi-check-circle-fill me-1"></i>Completed';
+                            document.querySelector('.card-body .d-flex.align-items-center.gap-2')?.appendChild(badge);
+                        }
+
+                        // Update progress indicators on page
+                        if (data.progressPercentage !== undefined) {
+                            document.querySelectorAll('.course-progress-pct').forEach(el => el.textContent = data.progressPercentage + '%');
+                            document.querySelectorAll('.course-progress-bar').forEach(el => {
+                                el.style.width = data.progressPercentage + '%';
+                                el.setAttribute('aria-valuenow', data.progressPercentage);
+                            });
+                            document.querySelectorAll('.course-completed-count').forEach(el => el.textContent = data.completedLessons);
+                        }
+
+                        // Update current lesson icon & badge in sidebar
+                        const currentLessonEl = document.querySelector('.player-lesson-link.current-lesson');
+                        if (currentLessonEl) {
+                            const icon = currentLessonEl.querySelector('i');
+                            if (icon) {
+                                icon.className = 'bi bi-check-circle-fill text-success fs-6 flex-shrink-0';
+                            }
+                            if (!currentLessonEl.querySelector('.badge-completed')) {
+                                const badge = document.createElement('span');
+                                badge.className = 'badge bg-success-subtle text-success border border-success-subtle rounded-pill px-2 py-1 flex-shrink-0 badge-completed';
+                                badge.style.fontSize = '0.65rem';
+                                badge.textContent = '✓ Completed';
+                                currentLessonEl.appendChild(badge);
+                            }
+                        }
+                        return;
+                    }
+                }
+            } catch (err) {
+                console.error('AJAX completion error, falling back to full post:', err);
+            }
+            form.submit();
+        });
+    </script>
+}

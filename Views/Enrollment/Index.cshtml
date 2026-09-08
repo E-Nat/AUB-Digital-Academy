@@ -1,1 +1,410 @@
-<!-- Index.cshtml -->
+@model AUBDigitalAcademy.Models.ViewModels.AdminStudentEnrollmentsViewModel
+@{
+    ViewData["Title"] = "Enrollment Management";
+    ViewData["ActivePage"] = "Enrollments";
+}
+
+@section Styles {
+    <link rel="stylesheet" href="~/css/admin.css" asp-append-version="true" />
+}
+
+<div class="container-fluid p-0">
+    <!-- Page Header -->
+    <div class="admin-page-header">
+        <div>
+            <h1 class="admin-page-title">Enrollment Management</h1>
+            <p class="admin-page-subtitle">Manage student course enrollments, registrations, and academic schedules.</p>
+        </div>
+        @if (!string.IsNullOrEmpty(Model.SelectedStudentId))
+        {
+            <div class="d-flex align-items-center gap-2">
+                <button class="btn btn-primary-aub d-inline-flex align-items-center gap-2 shadow-sm" data-bs-toggle="modal" data-bs-target="#enrollCourseModal" type="button" id="openEnrollModalBtn">
+                    <i class="bi bi-plus-lg"></i>
+                    <span>Enroll in Course</span>
+                </button>
+            </div>
+        }
+    </div>
+
+    <!-- Alert Notifications -->
+    @if (TempData["SuccessMessage"] != null)
+    {
+        <div class="alert alert-success alert-dismissible fade show d-flex align-items-center gap-2 shadow-sm mb-4" role="alert">
+            <i class="bi bi-check-circle-fill fs-5 text-success"></i>
+            <div>@TempData["SuccessMessage"]</div>
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+    }
+    @if (TempData["ErrorMessage"] != null)
+    {
+        <div class="alert alert-danger alert-dismissible fade show d-flex align-items-center gap-2 shadow-sm mb-4" role="alert">
+            <i class="bi bi-exclamation-triangle-fill fs-5 text-danger"></i>
+            <div>@TempData["ErrorMessage"]</div>
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+    }
+
+    <!-- KPI Summary Cards -->
+    <div class="admin-kpi-grid mb-4">
+        <div class="kpi-card">
+            <div class="kpi-icon-wrap" style="background:#EFF6FF;color:#2563EB;">
+                <i class="bi bi-people-fill"></i>
+            </div>
+            <div class="kpi-info">
+                <span class="kpi-label">Total Students</span>
+                <div class="kpi-value">@Model.TotalStudentsCount</div>
+                <span class="kpi-subtext">Registered in academy</span>
+            </div>
+        </div>
+
+        <div class="kpi-card">
+            <div class="kpi-icon-wrap" style="background:#ECFDF5;color:#059669;">
+                <i class="bi bi-mortarboard-fill"></i>
+            </div>
+            <div class="kpi-info">
+                <span class="kpi-label">Active Enrollments</span>
+                <div class="kpi-value">@Model.TotalActiveEnrollmentsCount</div>
+                <span class="kpi-subtext">Across all courses</span>
+            </div>
+        </div>
+
+        <div class="kpi-card">
+            <div class="kpi-icon-wrap" style="background:#F5F3FF;color:#7C3AED;">
+                <i class="bi bi-journal-check"></i>
+            </div>
+            <div class="kpi-info">
+                <span class="kpi-label">Student Courses</span>
+                <div class="kpi-value">@Model.SelectedStudentEnrollmentCount</div>
+                <span class="kpi-subtext">For selected student</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Student Selection & Filter Card -->
+    <div class="course-table-card mb-4 p-3 bg-white border rounded-3 shadow-sm">
+        <div class="row align-items-center g-3">
+            <div class="col-md-3">
+                <label for="studentSelector" class="form-label small fw-bold text-secondary mb-1">
+                    <i class="bi bi-person-badge me-1 text-primary"></i> Select Student:
+                </label>
+            </div>
+            <div class="col-md-9">
+                <div class="d-flex align-items-center gap-2">
+                    <select id="studentSelector" class="form-select" onchange="if(this.value) window.location.href = '/Enrollment?studentId=' + this.value;">
+                        @if (Model.AllStudents.Count == 0)
+                        {
+                            <option value="">No students found in system</option>
+                        }
+                        else
+                        {
+                            @foreach (var student in Model.AllStudents)
+                            {
+                                if (student.Id == Model.SelectedStudentId)
+                                {
+                                    <option value="@student.Id" selected="selected">
+                                        @student.FullName (@(student.UniversityId ?? student.Email)) — @student.EnrolledCoursesCount Courses
+                                    </option>
+                                }
+                                else
+                                {
+                                    <option value="@student.Id">
+                                        @student.FullName (@(student.UniversityId ?? student.Email)) — @student.EnrolledCoursesCount Courses
+                                    </option>
+                                }
+                            }
+                        }
+                    </select>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (string.IsNullOrEmpty(Model.SelectedStudentId))
+    {
+        <!-- Empty System State -->
+        <div class="course-table-card text-center p-5 bg-white border rounded-3 shadow-sm">
+            <i class="bi bi-people fs-1 text-muted d-block mb-3 opacity-50"></i>
+            <h5 class="fw-bold text-dark mb-1">No Students Found</h5>
+            <p class="text-muted small mb-0">Register student accounts in User Management to manage course enrollments.</p>
+        </div>
+    }
+    else
+    {
+        <!-- Selected Student Profile Banner -->
+        <div class="card border-0 shadow-sm rounded-3 mb-4 overflow-hidden" style="background: linear-gradient(135deg, #1E3A8A 0%, #2563EB 100%); color: white;">
+            <div class="card-body p-4">
+                <div class="d-flex align-items-center justify-content-between flex-wrap gap-3">
+                    <div class="d-flex align-items-center gap-3">
+                        <div class="rounded-circle d-flex align-items-center justify-content-center fw-bold shadow-sm" style="width: 56px; height: 56px; background: rgba(255,255,255,0.2); font-size: 1.5rem;">
+                            @(string.IsNullOrEmpty(Model.StudentName) ? "S" : Model.StudentName.Substring(0, 1).ToUpper())
+                        </div>
+                        <div>
+                            <div class="d-flex align-items-center gap-2">
+                                <h4 class="fw-bold mb-0 text-white">@Model.StudentName</h4>
+                                @if (Model.IsActive)
+                                {
+                                    <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-2 py-1 small">Active</span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-danger-subtle text-danger border border-danger-subtle rounded-pill px-2 py-1 small">Inactive</span>
+                                }
+                            </div>
+                            <div class="d-flex align-items-center gap-3 mt-1 small" style="color: rgba(255,255,255,0.85);">
+                                <span><i class="bi bi-card-text me-1"></i> ID: <strong>@(Model.UniversityId ?? "N/A")</strong></span>
+                                <span><i class="bi bi-envelope me-1"></i> @Model.StudentEmail</span>
+                                <span><i class="bi bi-journal-bookmark me-1"></i> <strong>@Model.SelectedStudentEnrollmentCount</strong> Enrolled Courses</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                        <button class="btn btn-light d-inline-flex align-items-center gap-2 shadow-sm text-primary fw-semibold" data-bs-toggle="modal" data-bs-target="#enrollCourseModal" type="button">
+                            <i class="bi bi-plus-circle-fill"></i>
+                            <span>Enroll in Course</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Enrolled Courses Table Card -->
+        <div class="course-table-card bg-white border rounded-3 shadow-sm overflow-hidden mb-4">
+            <div class="p-3 border-bottom d-flex align-items-center justify-content-between bg-light">
+                <div class="d-flex align-items-center gap-2">
+                    <i class="bi bi-collection-play-fill text-primary"></i>
+                    <h6 class="fw-bold mb-0 text-dark">Enrolled Courses</h6>
+                    <span class="badge bg-primary rounded-pill">@Model.SelectedStudentEnrollmentCount</span>
+                </div>
+            </div>
+
+            @if (Model.EnrolledCourses.Count == 0)
+            {
+                <!-- Clean Empty State -->
+                <div class="p-5 text-center">
+                    <i class="bi bi-journal-x fs-1 d-block mb-3 text-secondary opacity-50"></i>
+                    <h5 class="fw-bold text-dark mb-1">This student is not enrolled in any courses yet.</h5>
+                    <p class="text-muted small mb-3">Assign this student to academic courses to begin their curriculum tracking.</p>
+                    <button class="btn btn-primary-aub btn-sm shadow-sm" data-bs-toggle="modal" data-bs-target="#enrollCourseModal" type="button">
+                        <i class="bi bi-plus-lg me-1"></i> Enroll in Course
+                    </button>
+                </div>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table course-table mb-0 align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th style="min-width: 260px;">Course</th>
+                                <th>Instructor</th>
+                                <th>Academic Unit</th>
+                                <th>Enrolled Date</th>
+                                <th>Learning Activity</th>
+                                <th class="text-end pe-3" style="min-width: 100px;">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var enrollment in Model.EnrolledCourses)
+                            {
+                                <tr>
+                                    <td>
+                                        <div class="d-flex align-items-center gap-2">
+                                            <div class="course-icon-box bg-light text-primary border rounded-2 d-flex align-items-center justify-content-center" style="width: 36px; height: 36px;">
+                                                <i class="bi bi-book"></i>
+                                            </div>
+                                            <div>
+                                                <div class="fw-bold text-dark">@enrollment.CourseTitle</div>
+                                                <span class="badge bg-secondary-subtle text-secondary font-monospace" style="font-size: 0.75rem;">@enrollment.CourseCode</span>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <div class="d-flex align-items-center gap-2">
+                                            <i class="bi bi-person-video3 text-muted"></i>
+                                            <span class="small fw-medium text-dark">@enrollment.TeacherName</span>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <div class="small text-dark">@enrollment.MajorName</div>
+                                        <small class="text-muted">@enrollment.SemesterName</small>
+                                    </td>
+                                    <td>
+                                        <span class="small text-dark">@enrollment.EnrolledAt.ToString("MMM dd, yyyy")</span>
+                                    </td>
+                                    <td>
+                                        @if (enrollment.HasLearningActivity)
+                                        {
+                                            <span class="badge bg-info-subtle text-info border border-info-subtle d-inline-flex align-items-center gap-1">
+                                                <i class="bi bi-check2-circle"></i> Activity Recorded
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-light text-secondary border d-inline-flex align-items-center gap-1">
+                                                <i class="bi bi-dash-circle"></i> No Activity Yet
+                                            </span>
+                                        }
+                                    </td>
+                                    <td class="text-end pe-3">
+                                        <button type="button" class="btn btn-sm btn-outline-danger d-inline-flex align-items-center gap-1 remove-enrollment-btn"
+                                                data-id="@enrollment.EnrollmentId"
+                                                data-course-id="@enrollment.CourseId"
+                                                data-course-title="@enrollment.CourseTitle"
+                                                data-student-name="@Model.StudentName"
+                                                data-student-id="@Model.SelectedStudentId"
+                                                data-has-activity="@(enrollment.HasLearningActivity ? "true" : "false")"
+                                                title="Remove Enrollment">
+                                            <i class="bi bi-trash"></i>
+                                            <span>Remove</span>
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+<!-- ============================================================ -->
+<!-- 1. ENROLL STUDENT IN COURSE MODAL                            -->
+<!-- ============================================================ -->
+<div class="modal fade" id="enrollCourseModal" tabindex="-1" aria-labelledby="enrollCourseModalTitle" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content shadow-lg border-0">
+            <div class="modal-header border-bottom py-3 px-4">
+                <h5 class="modal-title fw-bold text-dark mb-0" id="enrollCourseModalTitle">
+                    <i class="bi bi-person-plus-fill text-primary me-2"></i> Enroll Student in Course
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+
+            <form asp-controller="Enrollment" asp-action="Enroll" method="post" id="enrollCourseForm">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="studentId" value="@Model.SelectedStudentId" />
+                <input type="hidden" name="returnUrl" value="/Enrollment?studentId=@Model.SelectedStudentId" />
+
+                <div class="modal-body p-4">
+                    <!-- Preselected Student Info -->
+                    <div class="mb-3 p-3 bg-light rounded-3 border">
+                        <label class="form-label small text-muted text-uppercase fw-bold mb-1">Student (Preselected)</label>
+                        <div class="fw-bold text-dark fs-6">@Model.StudentName</div>
+                        <div class="small text-muted">ID: @(Model.UniversityId ?? "N/A") &bull; @Model.StudentEmail</div>
+                    </div>
+
+                    <!-- Course Selector -->
+                    <div class="mb-3">
+                        <label for="courseSelect" class="form-label small fw-bold text-secondary mb-1">
+                            Select Course <span class="text-danger">*</span>
+                        </label>
+                        <select name="courseId" id="courseSelect" class="form-select" required>
+                            <option value="">-- Choose an available course --</option>
+                            @foreach (var course in Model.AvailableCourses)
+                            {
+                                if (course.IsAlreadyEnrolled)
+                                {
+                                    <option value="@course.CourseId" disabled="disabled" class="text-muted">
+                                        @course.Title (@course.Code) — (Already Enrolled)
+                                    </option>
+                                }
+                                else
+                                {
+                                    <option value="@course.CourseId">
+                                        @course.Title (@course.Code) — @course.TeacherName
+                                    </option>
+                                }
+                            }
+                        </select>
+                        <div class="form-text small text-muted mt-1">Courses already enrolled by this student are disabled to prevent duplicate enrollments.</div>
+                    </div>
+                </div>
+
+                <div class="modal-footer border-top p-3 bg-light">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary-aub px-4 shadow-sm" id="confirmEnrollSubmitBtn">
+                        <i class="bi bi-check-lg me-1"></i> Enroll Student
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- 2. SAFE REMOVE ENROLLMENT CONFIRMATION MODAL                 -->
+<!-- ============================================================ -->
+<div class="modal fade" id="removeEnrollmentModal" tabindex="-1" aria-labelledby="removeEnrollmentModalTitle" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content shadow-lg border-0">
+            <div class="modal-header border-bottom py-3 px-4 bg-danger-subtle">
+                <h5 class="modal-title fw-bold text-danger mb-0" id="removeEnrollmentModalTitle">
+                    <i class="bi bi-exclamation-triangle-fill text-danger me-2"></i> Remove Enrollment?
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+
+            <form asp-controller="Enrollment" asp-action="Unenroll" method="post" id="removeEnrollmentForm">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="enrollmentId" id="removeModalEnrollmentId" value="" />
+                <input type="hidden" name="courseId" id="removeModalCourseId" value="" />
+                <input type="hidden" name="studentId" id="removeModalStudentId" value="" />
+                <input type="hidden" name="returnUrl" value="/Enrollment?studentId=@Model.SelectedStudentId" />
+
+                <div class="modal-body p-4">
+                    <p class="mb-3">Are you sure you want to remove:</p>
+                    <div class="p-3 bg-light border rounded-3 mb-3">
+                        <div class="fw-bold text-dark fs-6" id="removeModalStudentName">Student Name</div>
+                        <div class="small text-muted mt-1">From course: <strong class="text-primary" id="removeModalCourseTitle">Course Title</strong></div>
+                    </div>
+
+                    <div class="alert alert-warning py-2 px-3 small mb-0 d-flex align-items-center gap-2" id="removeWarningBox">
+                        <i class="bi bi-shield-lock-fill fs-5 text-warning"></i>
+                        <div>
+                            <strong>Academic Protection Guard:</strong> If this student has recorded learning progress, quiz submissions, or assignments, removal will be blocked to preserve student academic history.
+                        </div>
+                    </div>
+                </div>
+
+                <div class="modal-footer border-top p-3 bg-light">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-danger px-4 shadow-sm" id="confirmRemoveSubmitBtn">
+                        <i class="bi bi-trash me-1"></i> Remove Enrollment
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            // Setup remove buttons to populate confirmation modal
+            const removeButtons = document.querySelectorAll('.remove-enrollment-btn');
+            const removeModalEl = document.getElementById('removeEnrollmentModal');
+            const removeModal = removeModalEl ? new bootstrap.Modal(removeModalEl) : null;
+
+            removeButtons.forEach(btn => {
+                btn.addEventListener('click', function () {
+                    const enrollmentId = this.getAttribute('data-id');
+                    const courseId = this.getAttribute('data-course-id');
+                    const courseTitle = this.getAttribute('data-course-title');
+                    const studentName = this.getAttribute('data-student-name');
+                    const studentId = this.getAttribute('data-student-id');
+
+                    document.getElementById('removeModalEnrollmentId').value = enrollmentId;
+                    document.getElementById('removeModalCourseId').value = courseId;
+                    document.getElementById('removeModalStudentId').value = studentId;
+                    document.getElementById('removeModalStudentName').textContent = studentName;
+                    document.getElementById('removeModalCourseTitle').textContent = courseTitle;
+
+                    if (removeModal) {
+                        removeModal.show();
+                    }
+                });
+            });
+        });
+    </script>
+}

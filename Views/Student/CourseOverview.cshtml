@@ -1,0 +1,297 @@
+@model AUBDigitalAcademy.Models.ViewModels.StudentCourseOverviewViewModel
+@{
+    ViewData["Title"] = $"{Model.Title} - Course Overview";
+    ViewData["ActivePage"] = "Courses";
+}
+
+@section Styles {
+    <link rel="stylesheet" href="~/css/student.css" asp-append-version="true" />
+}
+
+<div class="container-fluid p-0">
+    <!-- Breadcrumb Navigation -->
+    <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb mb-0 small">
+            <li class="breadcrumb-item"><a href="/Student/Dashboard" class="text-decoration-none">Dashboard</a></li>
+            <li class="breadcrumb-item"><a href="/Student/Courses" class="text-decoration-none">My Courses</a></li>
+            <li class="breadcrumb-item active" aria-current="page">@Model.Title</li>
+        </ol>
+    </nav>
+
+    <!-- Course Overview Header Banner -->
+    <div class="card border-0 shadow-sm rounded-3 mb-4 overflow-hidden" style="background: linear-gradient(135deg, #003366 0%, #004080 100%); color: white;">
+        <div class="card-body p-4">
+            <div class="d-flex align-items-start justify-content-between flex-wrap gap-3">
+                <div style="max-width: 800px;">
+                    <div class="d-flex align-items-center gap-2 mb-2">
+                        <span class="badge bg-white text-dark font-monospace">@Model.Code</span>
+                        <span class="badge bg-light text-dark opacity-75">@Model.MajorName</span>
+                        <span class="badge bg-light text-dark opacity-75">@Model.SemesterName</span>
+                    </div>
+                    <h2 class="fw-bold mb-2 text-white">@Model.Title</h2>
+                    <div class="d-flex align-items-center gap-3 flex-wrap small" style="color: rgba(255,255,255,0.85);">
+                        <span><i class="bi bi-person-video3 me-1"></i> Instructor: <strong>@Model.TeacherName</strong></span>
+                        <span><i class="bi bi-calendar-check me-1"></i> Enrolled: @Model.EnrolledAt.ToString("MMMM dd, yyyy")</span>
+                        <span><i class="bi bi-collection-play me-1"></i> <strong>@Model.TotalModules</strong> Modules &bull; <strong>@Model.TotalLessons</strong> Lessons</span>
+                        <span><i class="bi bi-check2-circle me-1"></i> <strong>@Model.CompletedLessons</strong> / <strong>@Model.TotalLessons</strong> Completed (@Model.ProgressPercentage%)</span>
+                    </div>
+                    <div class="mt-3" style="max-width: 420px;">
+                        <div class="d-flex align-items-center justify-content-between small mb-1" style="color: rgba(255,255,255,0.9);">
+                            <span>Course Progress</span>
+                            <span class="fw-bold">@Model.ProgressPercentage%</span>
+                        </div>
+                        <div class="progress" style="height: 8px; background: rgba(255,255,255,0.25);">
+                            <div class="progress-bar @(Model.ProgressPercentage == 100 ? "bg-success" : "bg-warning")" role="progressbar" style="width: @Model.ProgressPercentage%;" aria-valuenow="@Model.ProgressPercentage" aria-valuemin="0" aria-valuemax="100"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="d-flex align-items-center gap-2 flex-wrap">
+                    @if (Model.FirstCourseItemId.HasValue)
+                    {
+                        <a href="/Student/Course/@Model.CourseId/Lesson/@Model.FirstCourseItemId" class="btn btn-warning d-inline-flex align-items-center gap-2 shadow-sm fw-bold text-dark px-3 py-2">
+                            <i class="bi bi-play-fill fs-5"></i>
+                            <span>@(Model.CompletedLessons > 0 ? "Continue Learning" : "Start Learning")</span>
+                        </a>
+                    }
+                    else
+                    {
+                        <span class="badge bg-white text-secondary py-2 px-3 border shadow-sm">
+                            <i class="bi bi-clock me-1"></i> Content Coming Soon
+                        </span>
+                    }
+                    <a href="/Student/Courses" class="btn btn-light d-inline-flex align-items-center gap-2 shadow-sm text-primary fw-semibold px-3 py-2">
+                        <i class="bi bi-arrow-left"></i>
+                        <span>Back to My Courses</span>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (TempData["WarningMessage"] != null)
+    {
+        <div class="alert alert-warning alert-dismissible fade show rounded-3 shadow-sm mb-4" role="alert">
+            <i class="bi bi-exclamation-triangle-fill me-2"></i>
+            @TempData["WarningMessage"]
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+    }
+
+    <div class="row g-4 mb-4">
+        <!-- Left Column: Course Description & Syllabus -->
+        <div class="col-lg-8">
+            <!-- Course Description Card -->
+            <div class="card border rounded-3 p-4 bg-white shadow-sm mb-4">
+                <h5 class="fw-bold text-dark mb-3 d-flex align-items-center gap-2">
+                    <i class="bi bi-info-circle text-primary"></i>
+                    <span>Course Description</span>
+                </h5>
+                <p class="text-secondary mb-0 leading-relaxed">
+                    @(string.IsNullOrWhiteSpace(Model.Description) ? "No detailed course syllabus description available." : Model.Description)
+                </p>
+            </div>
+
+            <!-- Curriculum Overview Card -->
+            <div class="card border rounded-3 bg-white shadow-sm overflow-hidden mb-4">
+                <div class="p-3 border-bottom d-flex align-items-center justify-content-between bg-light">
+                    <div class="d-flex align-items-center gap-2">
+                        <i class="bi bi-diagram-3-fill text-primary"></i>
+                        <h5 class="fw-bold mb-0 text-dark">Course Curriculum</h5>
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                        <span class="badge bg-primary-subtle text-primary border border-primary-subtle rounded-pill">
+                            @Model.TotalModules Modules &bull; @Model.TotalLessons Lessons
+                        </span>
+                        <span class="badge @(Model.ProgressPercentage == 100 ? "bg-success" : "bg-success-subtle text-success border border-success-subtle") rounded-pill">
+                            <i class="bi bi-check-circle me-1"></i> @Model.ProgressPercentage% Complete
+                        </span>
+                    </div>
+                </div>
+
+                <div class="p-3">
+                    @if (Model.Modules.Count == 0)
+                    {
+                        <div class="p-4 text-center text-muted">
+                            <i class="bi bi-collection fs-2 d-block mb-2 text-secondary opacity-50"></i>
+                            <p class="mb-0 small">Curriculum structure is currently being compiled by your instructor.</p>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="accordion" id="curriculumAccordion">
+                            @foreach (var mod in Model.Modules.OrderBy(m => m.Position))
+                            {
+                                var collapseId = $"collapseModule{mod.ModuleId}";
+                                var headingId = $"headingModule{mod.ModuleId}";
+
+                                <div class="overview-module-card">
+                                    <div class="overview-module-header" id="@headingId">
+                                        <div class="d-flex align-items-center gap-2">
+                                            <span class="badge bg-primary text-white rounded-pill px-2 py-1 small">Module @mod.Position</span>
+                                            <span class="text-dark">@mod.Title</span>
+                                        </div>
+                                        <div class="d-flex align-items-center gap-2">
+                                            <span class="badge bg-light text-muted border small">@mod.CompletedLessons / @mod.Lessons.Count Completed</span>
+                                            <button class="btn btn-sm btn-link text-secondary p-0" type="button" data-bs-toggle="collapse" data-bs-target="#@collapseId" aria-expanded="true" aria-controls="@collapseId">
+                                                <i class="bi bi-chevron-down"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div id="@collapseId" class="collapse show" aria-labelledby="@headingId">
+                                        @if (mod.Lessons.Count == 0)
+                                        {
+                                            <div class="p-3 text-muted small text-center">
+                                                No lessons in this module yet.
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            @foreach (var lesson in mod.Lessons.OrderBy(l => l.Position))
+                                            {
+                                                var isQuiz = lesson.Type == AUBDigitalAcademy.Models.Enums.ItemType.Quiz;
+                                                var itemUrl = isQuiz
+                                                    ? $"/Student/Course/{Model.CourseId}/Quiz/{lesson.CourseItemId}"
+                                                    : $"/Student/Course/{Model.CourseId}/Lesson/{lesson.CourseItemId}";
+
+                                                <a href="@itemUrl" class="overview-lesson-item text-decoration-none d-flex align-items-center @(lesson.IsCompleted ? "bg-light-subtle" : "")">
+                                                    @if (lesson.HasPassedQuiz)
+                                                    {
+                                                        <i class="bi bi-patch-check-fill text-success fs-5 me-3" title="Quiz Passed"></i>
+                                                    }
+                                                    else if (lesson.IsCompleted)
+                                                    {
+                                                        <i class="bi bi-check-circle-fill text-success fs-5 me-3" title="Completed"></i>
+                                                    }
+                                                    else if (isQuiz)
+                                                    {
+                                                        <i class="bi bi-patch-question-fill text-warning fs-5 me-3" title="Quiz"></i>
+                                                    }
+                                                    else
+                                                    {
+                                                        <i class="bi bi-circle text-muted fs-5 me-3" title="Not completed"></i>
+                                                    }
+                                                    <div class="flex-grow-1">
+                                                        <div class="d-flex align-items-center gap-2">
+                                                            <div class="fw-medium text-dark">@lesson.Title</div>
+                                                            @if (isQuiz)
+                                                            {
+                                                                <span class="badge bg-warning-subtle text-dark border border-warning-subtle small py-0 px-1" style="font-size: 0.7rem;">
+                                                                    <i class="bi bi-patch-question"></i> Quiz
+                                                                </span>
+                                                                @if (lesson.HasPassedQuiz)
+                                                                {
+                                                                    <span class="badge bg-success-subtle text-success border border-success-subtle small py-0 px-1" style="font-size: 0.7rem;">
+                                                                        <i class="bi bi-check"></i> Passed (@lesson.BestQuizScore%)
+                                                                    </span>
+                                                                }
+                                                                else if (lesson.BestQuizScore.HasValue)
+                                                                {
+                                                                    <span class="badge bg-danger-subtle text-danger border border-danger-subtle small py-0 px-1" style="font-size: 0.7rem;">
+                                                                        Score: @lesson.BestQuizScore%
+                                                                    </span>
+                                                                }
+                                                            }
+                                                            else if (lesson.IsCompleted)
+                                                            {
+                                                                <span class="badge bg-success-subtle text-success border border-success-subtle small py-0 px-1" style="font-size: 0.7rem;">
+                                                                    <i class="bi bi-check"></i> Completed
+                                                                </span>
+                                                            }
+                                                        </div>
+                                                        <div class="d-flex align-items-center gap-2 mt-1 small">
+                                                            <span class="text-muted">@(isQuiz ? "Quiz" : "Lesson") @lesson.Position</span>
+                                                            @if (lesson.HasVideo)
+                                                            {
+                                                                <span class="badge bg-primary-subtle text-primary border border-primary-subtle"><i class="bi bi-camera-video me-1"></i>Video</span>
+                                                            }
+                                                            @if (lesson.HasContent)
+                                                            {
+                                                                <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle"><i class="bi bi-file-text me-1"></i>Notes</span>
+                                                            }
+                                                        </div>
+                                                    </div>
+                                                    <span class="btn btn-sm @(lesson.IsCompleted || lesson.HasPassedQuiz ? "btn-outline-success" : (isQuiz ? "btn-warning" : "btn-outline-primary")) rounded-pill px-3 py-1">
+                                                        <span>@(isQuiz ? (lesson.HasPassedQuiz ? "Review Quiz" : (lesson.BestQuizScore.HasValue ? "Retake Quiz" : "Take Quiz")) : (lesson.IsCompleted ? "Review" : "Open"))</span>
+                                                        <i class="bi bi-arrow-right ms-1"></i>
+                                                    </span>
+                                                </a>
+                                            }
+                                        }
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Column: Course Info & Faculty -->
+        <div class="col-lg-4">
+            <!-- Course Progress Card -->
+            <div class="card border rounded-3 p-4 bg-white shadow-sm mb-4">
+                <h6 class="fw-bold text-dark mb-3 d-flex align-items-center gap-2">
+                    <i class="bi bi-speedometer2 text-primary"></i>
+                    <span>Your Learning Progress</span>
+                </h6>
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between small mb-1">
+                        <span class="text-muted">Overall Completion:</span>
+                        <span class="fw-bold text-dark">@Model.ProgressPercentage%</span>
+                    </div>
+                    <div class="progress" style="height: 10px;">
+                        <div class="progress-bar @(Model.ProgressPercentage == 100 ? "bg-success" : "bg-primary")" role="progressbar" style="width: @Model.ProgressPercentage%;" aria-valuenow="@Model.ProgressPercentage" aria-valuemin="0" aria-valuemax="100"></div>
+                    </div>
+                    <div class="d-flex justify-content-between small text-muted mt-2">
+                        <span>@Model.CompletedLessons of @Model.TotalLessons lessons completed</span>
+                        @if (Model.ProgressPercentage == 100)
+                        {
+                            <span class="text-success fw-semibold"><i class="bi bi-check-all me-1"></i>All Completed</span>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <!-- Faculty Information Card -->
+            <div class="card border rounded-3 p-4 bg-white shadow-sm mb-4">
+                <h6 class="fw-bold text-dark mb-3 d-flex align-items-center gap-2">
+                    <i class="bi bi-person-badge text-primary"></i>
+                    <span>Faculty & Instructor</span>
+                </h6>
+                <div class="d-flex align-items-center gap-3 mb-3">
+                    <div class="rounded-circle bg-primary-subtle text-primary border border-primary-subtle d-flex align-items-center justify-content-center fw-bold fs-5" style="width: 48px; height: 48px;">
+                        @(string.IsNullOrEmpty(Model.TeacherName) ? "T" : Model.TeacherName.Substring(0, 1).ToUpper())
+                    </div>
+                    <div>
+                        <div class="fw-bold text-dark">@Model.TeacherName</div>
+                        <small class="text-muted">@Model.TeacherEmail</small>
+                    </div>
+                </div>
+                <div class="p-2 bg-light rounded-2 border text-muted small">
+                    <i class="bi bi-envelope me-1"></i> Contact your instructor for academic questions or project consultations.
+                </div>
+            </div>
+
+            <!-- Enrollment Status Card -->
+            <div class="card border rounded-3 p-4 bg-white shadow-sm">
+                <h6 class="fw-bold text-dark mb-3 d-flex align-items-center gap-2">
+                    <i class="bi bi-shield-check text-success"></i>
+                    <span>Enrollment Status</span>
+                </h6>
+                <div class="d-flex align-items-center justify-content-between mb-2 small">
+                    <span class="text-muted">Status:</span>
+                    <span class="badge bg-success-subtle text-success border border-success-subtle">Active & Enrolled</span>
+                </div>
+                <div class="d-flex align-items-center justify-content-between mb-3 small">
+                    <span class="text-muted">Registered On:</span>
+                    <span class="fw-medium text-dark">@Model.EnrolledAt.ToString("MMM dd, yyyy")</span>
+                </div>
+                <hr class="my-2" />
+                <div class="small text-muted mt-2">
+                    <i class="bi bi-info-circle me-1"></i> Complete all curriculum lessons to advance your academic track.
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

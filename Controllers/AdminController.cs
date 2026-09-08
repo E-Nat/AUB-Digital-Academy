@@ -25,4 +25,10 @@ public class AdminController : Controller
     {
         return RedirectToAction("Course", "Academic");
     }
+
+    [HttpGet]
+    public IActionResult Enrollments(string? studentId = null)
+    {
+        return RedirectToAction("Index", "Enrollment", new { studentId });
+    }
 }

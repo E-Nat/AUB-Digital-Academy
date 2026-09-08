@@ -1,4 +1,4 @@
-﻿namespace AUBDigitalAcademy.Services.Interfaces;
+namespace AUBDigitalAcademy.Services.Interfaces;
 
 public enum CourseDeleteStatus
 {
@@ -12,6 +12,7 @@ public class CourseDeleteResult
 {
     public CourseDeleteStatus Status { get; set; }
     public bool IsSuccess => Status == CourseDeleteStatus.Success;
+    public bool IsBlockedByStudentData => Status == CourseDeleteStatus.BlockedByStudentData;
     public string Message { get; set; } = string.Empty;
     public int? CourseId { get; set; }
     public string? CourseTitle { get; set; }

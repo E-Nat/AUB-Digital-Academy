@@ -224,16 +224,46 @@
                 var displayPosition = mod.Position > 0 ? mod.Position : (i + 1);
 
                 <div class="module-card" id="module-card-@mod.Id" data-module-id="@mod.Id">
+                    @{
+                        // Strict Module Isolation: Module A must never display items or lessons from Module B
+                        var moduleItems = (mod.Items ?? Enumerable.Empty<CurriculumItemViewModel>())
+                            .Where(item => item.ChapterId == mod.Id)
+                            .OrderBy(item => item.Position)
+                            .ToList();
+                        var moduleLessonCount = moduleItems.Count(item => item.Type == AUBDigitalAcademy.Models.Enums.ItemType.Lesson);
+                    }
                     <!-- Module Header -->
                     <div class="module-header">
                         <div class="d-flex align-items-center gap-3">
                             <span class="module-num-badge">Module @displayPosition</span>
                             <div>
                                 <h6 class="fw-bold text-dark mb-0 module-title-text">@mod.Title</h6>
-                                <small class="text-muted">@mod.Items.Count items (@mod.LessonCount lessons)</small>
+                                <small class="text-muted">@moduleItems.Count items (@moduleLessonCount lessons)</small>
                             </div>
                         </div>
                         <div class="d-flex align-items-center gap-1">
+                            <button type="button" class="btn btn-sm btn-primary py-1 px-2 d-inline-flex align-items-center gap-1 add-lesson-btn"
+                                    data-chapterid="@mod.Id"
+                                    data-chaptertitle="@mod.Title"
+                                    data-courseid="@mod.CourseId"
+                                    data-nextposition="@(moduleItems.Count + 1)"
+                                    data-bs-toggle="modal"
+                                    data-bs-target="#createLessonModal"
+                                    title="Add Lesson to this Module">
+                                <i class="bi bi-plus-lg"></i>
+                                <span>Add Lesson</span>
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-warning text-dark py-1 px-2 d-inline-flex align-items-center gap-1 add-quiz-btn"
+                                    data-chapterid="@mod.Id"
+                                    data-chaptertitle="@mod.Title"
+                                    data-courseid="@mod.CourseId"
+                                    data-nextposition="@(moduleItems.Count + 1)"
+                                    data-bs-toggle="modal"
+                                    data-bs-target="#createQuizModal"
+                                    title="Add Quiz to this Module">
+                                <i class="bi bi-patch-question"></i>
+                                <span>Add Quiz</span>
+                            </button>
                             <button type="button" class="btn btn-sm btn-outline-secondary p-1 edit-module-btn"
                                     data-id="@mod.Id"
                                     data-title="@mod.Title"
@@ -248,7 +278,7 @@
                                     data-id="@mod.Id"
                                     data-title="@mod.Title"
                                     data-courseid="@mod.CourseId"
-                                    data-itemcount="@mod.Items.Count"
+                                    data-itemcount="@moduleItems.Count"
                                     data-bs-toggle="modal"
                                     data-bs-target="#deleteModuleModal"
                                     title="Delete Module">
@@ -259,9 +289,9 @@
 
                     <!-- Items in Module -->
                     <div class="module-body">
-                        @if (mod.Items != null && mod.Items.Any())
+                        @if (moduleItems.Any())
                         {
-                            @foreach (var item in mod.Items)
+                            @foreach (var item in moduleItems)
                             {
                                 var typeClass = item.Type switch
                                 {
@@ -279,14 +309,14 @@
                                     _ => "bi-journal-text"
                                 };
 
-                                <div class="item-list-row">
+                                <div class="item-list-row" id="item-row-@item.Id">
                                     <div class="d-flex align-items-center gap-3">
                                         <div class="item-type-icon @typeClass">
                                             <i class="bi @typeIcon"></i>
                                         </div>
                                         <div>
                                             <div class="fw-semibold text-dark small">@item.Title</div>
-                                            <div class="d-flex align-items-center gap-2 small text-muted">
+                                            <div class="d-flex align-items-center gap-2 small text-muted flex-wrap">
                                                 <span>@item.Type</span>
                                                 @if (item.HasVideo)
                                                 {
@@ -300,11 +330,92 @@
                                                         <i class="bi bi-file-text-fill me-0.5"></i> Article
                                                     </span>
                                                 }
+                                                @if (item.Type == AUBDigitalAcademy.Models.Enums.ItemType.Quiz)
+                                                {
+                                                    <span class="badge bg-light text-info border" style="font-size: 0.65rem;">
+                                                        <i class="bi bi-clock me-0.5"></i> @(item.TimeLimitMinutes ?? 30)m
+                                                    </span>
+                                                    <span class="badge bg-light text-success border" style="font-size: 0.65rem;">
+                                                        <i class="bi bi-award me-0.5"></i> Pass: @(item.PassingScore ?? 60)%
+                                                    </span>
+                                                    <span class="badge bg-light text-secondary border" style="font-size: 0.65rem;">
+                                                        <i class="bi bi-question-circle me-0.5"></i> @item.QuestionCount Questions
+                                                    </span>
+                                                    @if (item.IsPublished)
+                                                    {
+                                                        <span class="badge bg-success-subtle text-success border border-success-subtle" style="font-size: 0.65rem;">Published</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle" style="font-size: 0.65rem;">Draft</span>
+                                                    }
+                                                }
                                             </div>
                                         </div>
                                     </div>
-                                    <div>
+                                    <div class="d-flex align-items-center gap-2">
                                         <span class="badge bg-light text-muted border">Position @item.Position</span>
+                                        @if (item.Type == AUBDigitalAcademy.Models.Enums.ItemType.Lesson)
+                                        {
+                                            <button type="button" class="btn btn-sm btn-outline-secondary p-1 edit-lesson-btn"
+                                                    data-id="@item.Id"
+                                                    data-lessonid="@(item.LessonId ?? 0)"
+                                                    data-chapterid="@item.ChapterId"
+                                                    data-chaptertitle="@mod.Title"
+                                                    data-courseid="@mod.CourseId"
+                                                    data-title="@item.Title"
+                                                    data-videourl="@(item.VideoUrl ?? "")"
+                                                    data-contenthtml="@(item.ContentHtml ?? "")"
+                                                    data-position="@item.Position"
+                                                    data-bs-toggle="modal"
+                                                    data-bs-target="#editLessonModal"
+                                                    title="Edit Lesson">
+                                                <i class="bi bi-pencil"></i>
+                                            </button>
+                                            <button type="button" class="btn btn-sm btn-outline-danger p-1 delete-lesson-btn"
+                                                    data-id="@item.Id"
+                                                    data-title="@item.Title"
+                                                    data-chapterid="@item.ChapterId"
+                                                    data-courseid="@mod.CourseId"
+                                                    data-bs-toggle="modal"
+                                                    data-bs-target="#deleteLessonModal"
+                                                    title="Delete Lesson">
+                                                <i class="bi bi-trash"></i>
+                                            </button>
+                                        }
+                                        else if (item.Type == AUBDigitalAcademy.Models.Enums.ItemType.Quiz)
+                                        {
+                                            <a href="/Academic/QuizQuestions/@(item.QuizId ?? 0)" class="btn btn-sm btn-outline-primary py-1 px-2 d-inline-flex align-items-center gap-1" title="Manage Questions">
+                                                <i class="bi bi-list-check"></i>
+                                                <span>Questions (@item.QuestionCount)</span>
+                                            </a>
+                                            <button type="button" class="btn btn-sm btn-outline-secondary p-1 edit-quiz-btn"
+                                                    data-id="@item.Id"
+                                                    data-quizid="@(item.QuizId ?? 0)"
+                                                    data-chapterid="@item.ChapterId"
+                                                    data-chaptertitle="@mod.Title"
+                                                    data-courseid="@mod.CourseId"
+                                                    data-title="@item.Title"
+                                                    data-timelimit="@(item.TimeLimitMinutes ?? 30)"
+                                                    data-passingscore="@(item.PassingScore ?? 60)"
+                                                    data-ispublished="@(item.IsPublished ? "true" : "false")"
+                                                    data-position="@item.Position"
+                                                    data-bs-toggle="modal"
+                                                    data-bs-target="#editQuizModal"
+                                                    title="Edit Quiz">
+                                                <i class="bi bi-pencil"></i>
+                                            </button>
+                                            <button type="button" class="btn btn-sm btn-outline-danger p-1 delete-quiz-btn"
+                                                    data-id="@item.Id"
+                                                    data-title="@item.Title"
+                                                    data-chapterid="@item.ChapterId"
+                                                    data-courseid="@mod.CourseId"
+                                                    data-bs-toggle="modal"
+                                                    data-bs-target="#deleteQuizModal"
+                                                    title="Delete Quiz">
+                                                <i class="bi bi-trash"></i>
+                                            </button>
+                                        }
                                     </div>
                                 </div>
                             }
@@ -314,6 +425,28 @@
                             <div class="p-4 text-center text-muted small">
                                 <i class="bi bi-journal-text fs-4 d-block mb-1 opacity-50"></i>
                                 <span>No items in this module yet.</span>
+                                <div class="mt-2 d-flex align-items-center justify-content-center gap-2">
+                                    <button type="button" class="btn btn-sm btn-outline-primary d-inline-flex align-items-center gap-1 add-lesson-btn"
+                                            data-chapterid="@mod.Id"
+                                            data-chaptertitle="@mod.Title"
+                                            data-courseid="@mod.CourseId"
+                                            data-nextposition="1"
+                                            data-bs-toggle="modal"
+                                            data-bs-target="#createLessonModal">
+                                        <i class="bi bi-plus-lg"></i>
+                                        <span>Add First Lesson</span>
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-outline-warning text-dark d-inline-flex align-items-center gap-1 add-quiz-btn"
+                                            data-chapterid="@mod.Id"
+                                            data-chaptertitle="@mod.Title"
+                                            data-courseid="@mod.CourseId"
+                                            data-nextposition="1"
+                                            data-bs-toggle="modal"
+                                            data-bs-target="#createQuizModal">
+                                        <i class="bi bi-patch-question"></i>
+                                        <span>Add Quiz</span>
+                                    </button>
+                                </div>
                             </div>
                         }
                     </div>
@@ -493,10 +626,429 @@
     </div>
 </div>
 
+<!-- ==========================================
+     CREATE LESSON MODAL
+     ========================================== -->
+<div class="modal fade" id="createLessonModal" tabindex="-1" aria-labelledby="createLessonModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header border-bottom">
+                <div class="d-flex align-items-center gap-2">
+                    <div class="rounded-2 d-flex align-items-center justify-content-center text-primary" style="width:36px;height:36px;background:#EFF6FF;">
+                        <i class="bi bi-play-circle-fill fs-5"></i>
+                    </div>
+                    <div>
+                        <h6 class="modal-title fw-bold text-dark mb-0" id="createLessonModalLabel">Add New Lesson</h6>
+                        <small class="text-muted">Target Module: <span class="fw-semibold text-primary" id="createLessonModuleTitleBadge"></span></small>
+                    </div>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form asp-controller="Academic" asp-action="CreateLesson" method="post" id="createLessonForm">
+                @Html.AntiForgeryToken()
+                <input type="hidden" id="createLessonChapterId" name="ChapterId" value="" />
+                <input type="hidden" id="createLessonCourseId" name="CourseId" value="@Model.CourseId" />
+
+                <div class="modal-body p-4">
+                    <div class="mb-3">
+                        <label for="createLessonTitle" class="form-label fw-bold small text-dark">Lesson Title <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="createLessonTitle" name="Title" placeholder="e.g. Lesson 1: Introduction to Web Design" required maxlength="200" autocomplete="off" />
+                        <span class="text-danger small" id="createLessonTitleError"></span>
+                    </div>
+
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-8">
+                            <label for="createLessonVideoUrl" class="form-label fw-bold small text-dark">Video URL <span class="text-muted fw-normal">(Optional)</span></label>
+                            <div class="input-group">
+                                <span class="input-group-text bg-light text-muted"><i class="bi bi-youtube"></i></span>
+                                <input type="url" class="form-control" id="createLessonVideoUrl" name="VideoUrl" placeholder="https://www.youtube.com/watch?v=..." maxlength="500" />
+                            </div>
+                            <span class="text-danger small" id="createLessonVideoUrlError"></span>
+                        </div>
+                        <div class="col-md-4">
+                            <label for="createLessonPosition" class="form-label fw-bold small text-dark">Sequence Position</label>
+                            <input type="number" class="form-control" id="createLessonPosition" name="Position" placeholder="Auto" min="1" max="1000" />
+                            <div class="form-text small text-muted">Auto-placed if empty.</div>
+                        </div>
+                    </div>
+
+                    <div class="mb-2">
+                        <label for="createLessonContentHtml" class="form-label fw-bold small text-dark">Lesson Content / Notes <span class="text-muted fw-normal">(HTML / Text, Optional)</span></label>
+                        <textarea class="form-control font-monospace" id="createLessonContentHtml" name="ContentHtml" rows="5" placeholder="Add lecture notes, reading material, or guidelines for students..."></textarea>
+                    </div>
+                </div>
+
+                <div class="modal-footer border-top bg-light">
+                    <button type="button" class="btn btn-light border" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary-aub d-inline-flex align-items-center gap-2" id="submitCreateLessonBtn">
+                        <i class="bi bi-check-lg"></i>
+                        <span>Save Lesson</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- ==========================================
+     EDIT LESSON MODAL
+     ========================================== -->
+<div class="modal fade" id="editLessonModal" tabindex="-1" aria-labelledby="editLessonModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header border-bottom">
+                <div class="d-flex align-items-center gap-2">
+                    <div class="rounded-2 d-flex align-items-center justify-content-center text-primary" style="width:36px;height:36px;background:#EFF6FF;">
+                        <i class="bi bi-pencil-square fs-5"></i>
+                    </div>
+                    <div>
+                        <h6 class="modal-title fw-bold text-dark mb-0" id="editLessonModalLabel">Edit Lesson</h6>
+                        <small class="text-muted">Module: <span class="badge bg-primary bg-opacity-10 text-primary fw-semibold" id="editLessonModuleTitleBadge"></span> • Update title, video, position, or content</small>
+                    </div>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form asp-controller="Academic" asp-action="EditLesson" method="post" id="editLessonForm">
+                @Html.AntiForgeryToken()
+                <input type="hidden" id="editLessonCourseItemId" name="CourseItemId" value="" />
+                <input type="hidden" id="editLessonLessonId" name="LessonId" value="" />
+                <input type="hidden" id="editLessonChapterId" name="ChapterId" value="" />
+                <input type="hidden" id="editLessonCourseId" name="CourseId" value="@Model.CourseId" />
+
+                <div class="modal-body p-4">
+                    <div class="mb-3">
+                        <label for="editLessonTitle" class="form-label fw-bold small text-dark">Lesson Title <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="editLessonTitle" name="Title" required maxlength="200" autocomplete="off" />
+                        <span class="text-danger small" id="editLessonTitleError"></span>
+                    </div>
+
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-8">
+                            <label for="editLessonVideoUrl" class="form-label fw-bold small text-dark">Video URL <span class="text-muted fw-normal">(Optional)</span></label>
+                            <div class="input-group">
+                                <span class="input-group-text bg-light text-muted"><i class="bi bi-youtube"></i></span>
+                                <input type="url" class="form-control" id="editLessonVideoUrl" name="VideoUrl" placeholder="https://www.youtube.com/watch?v=..." maxlength="500" />
+                            </div>
+                            <span class="text-danger small" id="editLessonVideoUrlError"></span>
+                        </div>
+                        <div class="col-md-4">
+                            <label for="editLessonPosition" class="form-label fw-bold small text-dark">Position / Sequence <span class="text-danger">*</span></label>
+                            <input type="number" class="form-control" id="editLessonPosition" name="Position" required min="1" max="1000" />
+                        </div>
+                    </div>
+
+                    <div class="mb-2">
+                        <label for="editLessonContentHtml" class="form-label fw-bold small text-dark">Lesson Content / Notes <span class="text-muted fw-normal">(HTML / Text, Optional)</span></label>
+                        <textarea class="form-control font-monospace" id="editLessonContentHtml" name="ContentHtml" rows="5"></textarea>
+                    </div>
+                </div>
+
+                <div class="modal-footer border-top bg-light">
+                    <button type="button" class="btn btn-light border" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary-aub d-inline-flex align-items-center gap-2" id="submitEditLessonBtn">
+                        <i class="bi bi-check-lg"></i>
+                        <span>Save Changes</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- ==========================================
+     DELETE LESSON CONFIRMATION MODAL
+     ========================================== -->
+<div class="modal fade" id="deleteLessonModal" tabindex="-1" aria-labelledby="deleteLessonModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header border-bottom">
+                <div class="d-flex align-items-center gap-2 text-danger">
+                    <div class="rounded-2 d-flex align-items-center justify-content-center bg-danger bg-opacity-10 text-danger" style="width:36px;height:36px;">
+                        <i class="bi bi-exclamation-triangle-fill fs-5"></i>
+                    </div>
+                    <div>
+                        <h6 class="modal-title fw-bold text-danger mb-0" id="deleteLessonModalLabel">Delete Lesson</h6>
+                        <small class="text-muted">Confirm deletion of this lesson</small>
+                    </div>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form asp-controller="Academic" asp-action="DeleteLesson" method="post" id="deleteLessonForm">
+                @Html.AntiForgeryToken()
+                <input type="hidden" id="deleteLessonId" name="id" value="" />
+                <input type="hidden" id="deleteLessonChapterId" name="chapterId" value="" />
+                <input type="hidden" id="deleteLessonCourseId" name="courseId" value="@Model.CourseId" />
+
+                <div class="modal-body p-4">
+                    <p class="text-dark mb-2">Are you sure you want to delete lesson:</p>
+                    <div class="p-3 bg-light rounded-3 border mb-3">
+                        <strong class="text-dark" id="deleteLessonName"></strong>
+                    </div>
+                    <div class="alert alert-warning small mb-0 d-flex align-items-start gap-2">
+                        <i class="bi bi-info-circle-fill flex-shrink-0 mt-0.5"></i>
+                        <div>
+                            This action will remove the lesson from this module. If any student has completed or progressed on this lesson, deletion will be blocked safely to protect student records.
+                        </div>
+                    </div>
+                    <div id="deleteLessonBlockedAlert" class="mt-3" style="display:none;">
+                        <div class="alert alert-danger small mb-0 d-flex align-items-start gap-2">
+                            <i class="bi bi-shield-slash-fill flex-shrink-0 mt-0.5"></i>
+                            <div id="deleteLessonBlockedText"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="modal-footer border-top bg-light">
+                    <button type="button" class="btn btn-light border" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-danger d-inline-flex align-items-center gap-2" id="confirmDeleteLessonBtn">
+                        <i class="bi bi-trash"></i>
+                        <span>Delete Lesson</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- ==========================================
+     CREATE QUIZ MODAL
+     ========================================== -->
+<div class="modal fade" id="createQuizModal" tabindex="-1" aria-labelledby="createQuizModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header border-bottom">
+                <div class="d-flex align-items-center gap-2">
+                    <div class="rounded-2 d-flex align-items-center justify-content-center text-warning bg-warning bg-opacity-10" style="width:36px;height:36px;">
+                        <i class="bi bi-patch-question-fill fs-5 text-warning"></i>
+                    </div>
+                    <div>
+                        <h6 class="modal-title fw-bold text-dark mb-0" id="createQuizModalLabel">Add New Quiz</h6>
+                        <small class="text-muted">Target Module: <span class="fw-semibold text-primary" id="createQuizModuleTitleBadge"></span></small>
+                    </div>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form asp-controller="Academic" asp-action="CreateQuiz" method="post" id="createQuizForm">
+                @Html.AntiForgeryToken()
+                <input type="hidden" id="createQuizChapterId" name="ChapterId" value="" />
+                <input type="hidden" id="createQuizCourseId" name="CourseId" value="@Model.CourseId" />
+
+                <div class="modal-body p-4">
+                    <div class="mb-3">
+                        <label for="createQuizTitle" class="form-label fw-bold small text-dark">Quiz Title <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="createQuizTitle" name="Title" placeholder="e.g. Module 1 Knowledge Check" required maxlength="200" autocomplete="off" />
+                        <span class="text-danger small" id="createQuizTitleError"></span>
+                    </div>
+
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-4">
+                            <label for="createQuizTimeLimit" class="form-label fw-bold small text-dark">Time Limit (Mins) <span class="text-danger">*</span></label>
+                            <input type="number" class="form-control" id="createQuizTimeLimit" name="TimeLimitMinutes" value="30" min="1" max="600" required />
+                        </div>
+                        <div class="col-md-4">
+                            <label for="createQuizPassingScore" class="form-label fw-bold small text-dark">Passing Score (%) <span class="text-danger">*</span></label>
+                            <input type="number" class="form-control" id="createQuizPassingScore" name="PassingScore" value="60" min="0" max="100" step="1" required />
+                        </div>
+                        <div class="col-md-4">
+                            <label for="createQuizPosition" class="form-label fw-bold small text-dark">Sequence Position</label>
+                            <input type="number" class="form-control" id="createQuizPosition" name="Position" placeholder="Auto" min="1" max="1000" />
+                        </div>
+                    </div>
+
+                    <div class="form-check form-switch mb-2">
+                        <input class="form-check-input" type="checkbox" id="createQuizIsPublished" name="IsPublished" value="true" checked />
+                        <label class="form-check-label small fw-semibold text-dark" for="createQuizIsPublished">Publish quiz immediately for enrolled students</label>
+                    </div>
+                </div>
+
+                <div class="modal-footer border-top bg-light">
+                    <button type="button" class="btn btn-light border" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary d-inline-flex align-items-center gap-2" id="submitCreateQuizBtn">
+                        <i class="bi bi-check-lg"></i>
+                        <span>Save Quiz</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- ==========================================
+     EDIT QUIZ MODAL
+     ========================================== -->
+<div class="modal fade" id="editQuizModal" tabindex="-1" aria-labelledby="editQuizModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header border-bottom">
+                <div class="d-flex align-items-center gap-2">
+                    <div class="rounded-2 d-flex align-items-center justify-content-center text-warning bg-warning bg-opacity-10" style="width:36px;height:36px;">
+                        <i class="bi bi-pencil-square fs-5 text-warning"></i>
+                    </div>
+                    <div>
+                        <h6 class="modal-title fw-bold text-dark mb-0" id="editQuizModalLabel">Edit Quiz</h6>
+                        <small class="text-muted">Module: <span class="badge bg-primary bg-opacity-10 text-primary fw-semibold" id="editQuizModuleTitleBadge"></span></small>
+                    </div>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form asp-controller="Academic" asp-action="EditQuiz" method="post" id="editQuizForm">
+                @Html.AntiForgeryToken()
+                <input type="hidden" id="editQuizCourseItemId" name="CourseItemId" value="" />
+                <input type="hidden" id="editQuizQuizId" name="QuizId" value="" />
+                <input type="hidden" id="editQuizChapterId" name="ChapterId" value="" />
+                <input type="hidden" id="editQuizCourseId" name="CourseId" value="@Model.CourseId" />
+
+                <div class="modal-body p-4">
+                    <div class="mb-3">
+                        <label for="editQuizTitle" class="form-label fw-bold small text-dark">Quiz Title <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="editQuizTitle" name="Title" required maxlength="200" autocomplete="off" />
+                        <span class="text-danger small" id="editQuizTitleError"></span>
+                    </div>
+
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-4">
+                            <label for="editQuizTimeLimit" class="form-label fw-bold small text-dark">Time Limit (Mins) <span class="text-danger">*</span></label>
+                            <input type="number" class="form-control" id="editQuizTimeLimit" name="TimeLimitMinutes" min="1" max="600" required />
+                        </div>
+                        <div class="col-md-4">
+                            <label for="editQuizPassingScore" class="form-label fw-bold small text-dark">Passing Score (%) <span class="text-danger">*</span></label>
+                            <input type="number" class="form-control" id="editQuizPassingScore" name="PassingScore" min="0" max="100" step="1" required />
+                        </div>
+                        <div class="col-md-4">
+                            <label for="editQuizPosition" class="form-label fw-bold small text-dark">Position <span class="text-danger">*</span></label>
+                            <input type="number" class="form-control" id="editQuizPosition" name="Position" required min="1" max="1000" />
+                        </div>
+                    </div>
+
+                    <div class="form-check form-switch mb-2">
+                        <input class="form-check-input" type="checkbox" id="editQuizIsPublished" name="IsPublished" value="true" />
+                        <label class="form-check-label small fw-semibold text-dark" for="editQuizIsPublished">Published</label>
+                    </div>
+                </div>
+
+                <div class="modal-footer border-top bg-light">
+                    <button type="button" class="btn btn-light border" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary d-inline-flex align-items-center gap-2" id="submitEditQuizBtn">
+                        <i class="bi bi-check-lg"></i>
+                        <span>Save Changes</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- ==========================================
+     DELETE QUIZ CONFIRMATION MODAL
+     ========================================== -->
+<div class="modal fade" id="deleteQuizModal" tabindex="-1" aria-labelledby="deleteQuizModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header border-bottom">
+                <div class="d-flex align-items-center gap-2 text-danger">
+                    <div class="rounded-2 d-flex align-items-center justify-content-center bg-danger bg-opacity-10 text-danger" style="width:36px;height:36px;">
+                        <i class="bi bi-exclamation-triangle-fill fs-5"></i>
+                    </div>
+                    <div>
+                        <h6 class="modal-title fw-bold text-danger mb-0" id="deleteQuizModalLabel">Delete Quiz</h6>
+                        <small class="text-muted">Confirm quiz deletion</small>
+                    </div>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form asp-controller="Academic" asp-action="DeleteQuiz" method="post" id="deleteQuizForm">
+                @Html.AntiForgeryToken()
+                <input type="hidden" id="deleteQuizId" name="id" value="" />
+                <input type="hidden" id="deleteQuizChapterId" name="chapterId" value="" />
+                <input type="hidden" id="deleteQuizCourseId" name="courseId" value="@Model.CourseId" />
+
+                <div class="modal-body p-4">
+                    <p class="text-dark mb-2">Are you sure you want to delete quiz:</p>
+                    <div class="p-3 bg-light rounded-3 border mb-3">
+                        <strong class="text-dark" id="deleteQuizName"></strong>
+                    </div>
+                    <div class="alert alert-warning small mb-0 d-flex align-items-start gap-2">
+                        <i class="bi bi-info-circle-fill flex-shrink-0 mt-0.5"></i>
+                        <div>
+                            This action will remove the quiz from this module. If any student has submitted answers for this quiz, deletion will be blocked safely to protect student academic history.
+                        </div>
+                    </div>
+                </div>
+
+                <div class="modal-footer border-top bg-light">
+                    <button type="button" class="btn btn-light border" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-danger d-inline-flex align-items-center gap-2" id="confirmDeleteQuizBtn">
+                        <i class="bi bi-trash"></i>
+                        <span>Delete Quiz</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 @section Scripts {
     <partial name="_ValidationScriptsPartial" />
     <script>
         document.addEventListener('DOMContentLoaded', function () {
+            // Add Quiz Button Click
+            document.querySelectorAll('.add-quiz-btn').forEach(btn => {
+                btn.addEventListener('click', function () {
+                    const chapterId = this.getAttribute('data-chapterid');
+                    const chapterTitle = this.getAttribute('data-chaptertitle');
+                    const courseId = this.getAttribute('data-courseid');
+                    const nextPosition = this.getAttribute('data-nextposition');
+
+                    document.getElementById('createQuizChapterId').value = chapterId;
+                    document.getElementById('createQuizCourseId').value = courseId;
+                    document.getElementById('createQuizModuleTitleBadge').textContent = chapterTitle;
+                    document.getElementById('createQuizPosition').value = nextPosition;
+                    document.getElementById('createQuizTitle').value = '';
+                });
+            });
+
+            // Edit Quiz Button Click
+            document.querySelectorAll('.edit-quiz-btn').forEach(btn => {
+                btn.addEventListener('click', function () {
+                    const id = this.getAttribute('data-id');
+                    const quizId = this.getAttribute('data-quizid');
+                    const chapterId = this.getAttribute('data-chapterid');
+                    const chapterTitle = this.getAttribute('data-chaptertitle');
+                    const courseId = this.getAttribute('data-courseid');
+                    const title = this.getAttribute('data-title');
+                    const timeLimit = this.getAttribute('data-timelimit');
+                    const passingScore = this.getAttribute('data-passingscore');
+                    const isPublished = this.getAttribute('data-ispublished') === 'true';
+                    const position = this.getAttribute('data-position');
+
+                    document.getElementById('editQuizCourseItemId').value = id;
+                    document.getElementById('editQuizQuizId').value = quizId;
+                    document.getElementById('editQuizChapterId').value = chapterId;
+                    document.getElementById('editQuizCourseId').value = courseId;
+                    document.getElementById('editQuizModuleTitleBadge').textContent = chapterTitle;
+                    document.getElementById('editQuizTitle').value = title;
+                    document.getElementById('editQuizTimeLimit').value = timeLimit;
+                    document.getElementById('editQuizPassingScore').value = passingScore;
+                    document.getElementById('editQuizPosition').value = position;
+                    document.getElementById('editQuizIsPublished').checked = isPublished;
+                });
+            });
+
+            // Delete Quiz Button Click
+            document.querySelectorAll('.delete-quiz-btn').forEach(btn => {
+                btn.addEventListener('click', function () {
+                    const id = this.getAttribute('data-id');
+                    const title = this.getAttribute('data-title');
+                    const chapterId = this.getAttribute('data-chapterid');
+                    const courseId = this.getAttribute('data-courseid');
+
+                    document.getElementById('deleteQuizId').value = id;
+                    document.getElementById('deleteQuizChapterId').value = chapterId;
+                    document.getElementById('deleteQuizCourseId').value = courseId;
+                    document.getElementById('deleteQuizName').textContent = title;
+                });
+            });
+
             // Edit Module Button Click
             document.querySelectorAll('.edit-module-btn').forEach(btn => {
                 btn.addEventListener('click', function () {
@@ -650,6 +1202,215 @@
                     })
                     .catch(() => {
                         deleteForm.submit();
+                    });
+                });
+            }
+
+            // ==========================================
+            // LESSON CRUD ACTIONS & MODAL HANDLERS
+            // ==========================================
+
+            // Add Lesson Button Click
+            document.querySelectorAll('.add-lesson-btn').forEach(btn => {
+                btn.addEventListener('click', function () {
+                    const chapterId = this.getAttribute('data-chapterid');
+                    const chapterTitle = this.getAttribute('data-chaptertitle') || '';
+                    const courseId = this.getAttribute('data-courseid');
+                    const nextPosition = this.getAttribute('data-nextposition') || '';
+
+                    document.getElementById('createLessonChapterId').value = chapterId;
+                    document.getElementById('createLessonCourseId').value = courseId;
+                    document.getElementById('createLessonModuleTitleBadge').textContent = chapterTitle;
+                    document.getElementById('createLessonPosition').value = nextPosition;
+                    document.getElementById('createLessonPosition').placeholder = nextPosition;
+                    document.getElementById('createLessonTitle').value = '';
+                    document.getElementById('createLessonVideoUrl').value = '';
+                    document.getElementById('createLessonContentHtml').value = '';
+                    document.getElementById('createLessonTitleError').textContent = '';
+                    document.getElementById('createLessonVideoUrlError').textContent = '';
+                });
+            });
+
+            // Edit Lesson Button Click
+            document.querySelectorAll('.edit-lesson-btn').forEach(btn => {
+                btn.addEventListener('click', function () {
+                    const id = this.getAttribute('data-id');
+                    const lessonId = this.getAttribute('data-lessonid');
+                    const chapterId = this.getAttribute('data-chapterid');
+                    const courseId = this.getAttribute('data-courseid');
+                    const title = this.getAttribute('data-title');
+                    const videoUrl = this.getAttribute('data-videourl') || '';
+                    const contentHtml = this.getAttribute('data-contenthtml') || '';
+                    const position = this.getAttribute('data-position') || '1';
+
+                    document.getElementById('editLessonCourseItemId').value = id;
+                    document.getElementById('editLessonLessonId').value = lessonId;
+                    document.getElementById('editLessonChapterId').value = chapterId;
+                    document.getElementById('editLessonCourseId').value = courseId;
+                    document.getElementById('editLessonModuleTitleBadge').textContent = this.getAttribute('data-chaptertitle') || '';
+                    document.getElementById('editLessonTitle').value = title;
+                    document.getElementById('editLessonVideoUrl').value = videoUrl;
+                    document.getElementById('editLessonPosition').value = position;
+                    document.getElementById('editLessonContentHtml').value = contentHtml;
+                    document.getElementById('editLessonTitleError').textContent = '';
+                    document.getElementById('editLessonVideoUrlError').textContent = '';
+
+                    // Fetch freshest database state via AJAX
+                    fetch(`/Academic/GetLessonJson?id=${id}&courseId=${courseId}&chapterId=${chapterId}`)
+                        .then(r => r.json())
+                        .then(data => {
+                            if (data.success && data.lesson) {
+                                document.getElementById('editLessonTitle').value = data.lesson.title;
+                                document.getElementById('editLessonPosition').value = data.lesson.position;
+                                document.getElementById('editLessonVideoUrl').value = data.lesson.videoUrl || '';
+                                document.getElementById('editLessonContentHtml').value = data.lesson.contentHtml || '';
+                                document.getElementById('editLessonLessonId').value = data.lesson.lessonId || 0;
+                            }
+                        })
+                        .catch(err => console.warn('Could not refresh lesson payload from server', err));
+                });
+            });
+
+            // Delete Lesson Button Click
+            document.querySelectorAll('.delete-lesson-btn').forEach(btn => {
+                btn.addEventListener('click', function () {
+                    const id = this.getAttribute('data-id');
+                    const title = this.getAttribute('data-title');
+                    const chapterId = this.getAttribute('data-chapterid');
+                    const courseId = this.getAttribute('data-courseid');
+
+                    document.getElementById('deleteLessonId').value = id;
+                    document.getElementById('deleteLessonChapterId').value = chapterId;
+                    document.getElementById('deleteLessonCourseId').value = courseId;
+                    document.getElementById('deleteLessonName').textContent = title;
+                    document.getElementById('deleteLessonBlockedAlert').style.display = 'none';
+                    document.getElementById('confirmDeleteLessonBtn').disabled = false;
+                    document.getElementById('confirmDeleteLessonBtn').innerHTML = '<i class="bi bi-trash"></i> <span>Delete Lesson</span>';
+                });
+            });
+
+            // AJAX handling for Create Lesson Form
+            const createLessonForm = document.getElementById('createLessonForm');
+            if (createLessonForm) {
+                createLessonForm.addEventListener('submit', function (e) {
+                    e.preventDefault();
+                    const submitBtn = document.getElementById('submitCreateLessonBtn');
+                    const titleInput = document.getElementById('createLessonTitle');
+                    const titleError = document.getElementById('createLessonTitleError');
+
+                    if (!titleInput.value.trim()) {
+                        titleError.textContent = 'Lesson title is required.';
+                        return;
+                    }
+
+                    submitBtn.disabled = true;
+                    submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"></span> Saving...';
+
+                    const formData = new FormData(createLessonForm);
+
+                    fetch('/Academic/CreateLesson', {
+                        method: 'POST',
+                        body: formData,
+                        headers: {
+                            'X-Requested-With': 'XMLHttpRequest'
+                        }
+                    })
+                    .then(r => r.json())
+                    .then(data => {
+                        if (data.success) {
+                            window.location.reload();
+                        } else {
+                            titleError.textContent = data.message || 'Failed to create lesson.';
+                            submitBtn.disabled = false;
+                            submitBtn.innerHTML = '<i class="bi bi-check-lg"></i> <span>Save Lesson</span>';
+                        }
+                    })
+                    .catch(() => {
+                        createLessonForm.submit();
+                    });
+                });
+            }
+
+            // AJAX handling for Edit Lesson Form
+            const editLessonForm = document.getElementById('editLessonForm');
+            if (editLessonForm) {
+                editLessonForm.addEventListener('submit', function (e) {
+                    e.preventDefault();
+                    const submitBtn = document.getElementById('submitEditLessonBtn');
+                    const titleInput = document.getElementById('editLessonTitle');
+                    const titleError = document.getElementById('editLessonTitleError');
+
+                    if (!titleInput.value.trim()) {
+                        titleError.textContent = 'Lesson title is required.';
+                        return;
+                    }
+
+                    submitBtn.disabled = true;
+                    submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"></span> Updating...';
+
+                    const formData = new FormData(editLessonForm);
+
+                    fetch('/Academic/EditLesson', {
+                        method: 'POST',
+                        body: formData,
+                        headers: {
+                            'X-Requested-With': 'XMLHttpRequest'
+                        }
+                    })
+                    .then(r => r.json())
+                    .then(data => {
+                        if (data.success) {
+                            window.location.reload();
+                        } else {
+                            titleError.textContent = data.message || 'Failed to update lesson.';
+                            submitBtn.disabled = false;
+                            submitBtn.innerHTML = '<i class="bi bi-check-lg"></i> <span>Save Changes</span>';
+                        }
+                    })
+                    .catch(() => {
+                        editLessonForm.submit();
+                    });
+                });
+            }
+
+            // AJAX handling for Delete Lesson Form
+            const deleteLessonForm = document.getElementById('deleteLessonForm');
+            if (deleteLessonForm) {
+                deleteLessonForm.addEventListener('submit', function (e) {
+                    e.preventDefault();
+                    const submitBtn = document.getElementById('confirmDeleteLessonBtn');
+                    const blockedAlert = document.getElementById('deleteLessonBlockedAlert');
+                    const blockedText = document.getElementById('deleteLessonBlockedText');
+
+                    submitBtn.disabled = true;
+                    submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"></span> Deleting...';
+
+                    const formData = new FormData(deleteLessonForm);
+
+                    fetch('/Academic/DeleteLesson', {
+                        method: 'POST',
+                        body: formData,
+                        headers: {
+                            'X-Requested-With': 'XMLHttpRequest'
+                        }
+                    })
+                    .then(r => r.json())
+                    .then(data => {
+                        if (data.success) {
+                            window.location.reload();
+                        } else if (data.blocked) {
+                            blockedAlert.style.display = 'block';
+                            blockedText.textContent = data.message;
+                            submitBtn.disabled = true;
+                            submitBtn.innerHTML = '<i class="bi bi-shield-x"></i> <span>Deletion Blocked</span>';
+                        } else {
+                            alert(data.message || 'Failed to delete lesson.');
+                            submitBtn.disabled = false;
+                            submitBtn.innerHTML = '<i class="bi bi-trash"></i> <span>Delete Lesson</span>';
+                        }
+                    })
+                    .catch(() => {
+                        deleteLessonForm.submit();
                     });
                 });
             }

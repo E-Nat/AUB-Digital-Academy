@@ -1,0 +1,192 @@
+@model AUBDigitalAcademy.Models.ViewModels.StudentQuizResultViewModel
+@{
+    ViewData["Title"] = $"Result: {Model.QuizTitle} - {Model.CourseTitle}";
+    ViewData["ActivePage"] = "Courses";
+}
+
+@section Styles {
+    <link rel="stylesheet" href="~/css/student.css" asp-append-version="true" />
+    <style>
+        .result-metric-card {
+            border-radius: 12px;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            padding: 1.25rem;
+            text-align: center;
+        }
+        .option-result-row {
+            border-radius: 8px;
+            padding: 0.75rem 1rem;
+            margin-bottom: 0.5rem;
+            border: 1px solid transparent;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .option-result-correct {
+            background-color: #d1e7dd;
+            border-color: #a3cfbb;
+            color: #0f5132;
+        }
+        .option-result-incorrect {
+            background-color: #f8d7da;
+            border-color: #f1aeb5;
+            color: #842029;
+        }
+        .option-result-neutral {
+            background-color: #f8f9fa;
+            border-color: #e9ecef;
+            color: #495057;
+        }
+    </style>
+}
+
+<div class="container py-4">
+    <!-- Breadcrumb Navigation -->
+    <nav aria-label="breadcrumb" class="mb-4">
+        <ol class="breadcrumb mb-0 small">
+            <li class="breadcrumb-item"><a href="/Student/Dashboard" class="text-decoration-none">Dashboard</a></li>
+            <li class="breadcrumb-item"><a href="/Student/Courses" class="text-decoration-none">My Courses</a></li>
+            <li class="breadcrumb-item"><a href="/Student/Course/@Model.CourseId" class="text-decoration-none">@Model.CourseTitle</a></li>
+            <li class="breadcrumb-item"><a href="/Student/Course/@Model.CourseId/Quiz/@Model.CourseItemId" class="text-decoration-none">@Model.QuizTitle</a></li>
+            <li class="breadcrumb-item active" aria-current="page">Quiz Result</li>
+        </ol>
+    </nav>
+
+    <!-- Score Summary Card -->
+    <div class="card border-0 shadow-sm rounded-4 overflow-hidden mb-4">
+        <div class="card-body p-4 p-md-5 @(Model.IsPassed ? "bg-success-subtle text-success-emphasis" : "bg-danger-subtle text-danger-emphasis") text-center">
+            <div class="mb-3">
+                <i class="bi @(Model.IsPassed ? "bi-check-circle-fill text-success" : "bi-x-circle-fill text-danger")" style="font-size: 4rem;"></i>
+            </div>
+            <h2 class="fw-bold mb-2">@(Model.IsPassed ? "Quiz Passed!" : "Quiz Not Passed")</h2>
+            <p class="text-secondary mb-4 mx-auto" style="max-width: 600px;">
+                @(Model.IsPassed
+                    ? $"Outstanding work! You scored {Model.Score}%, exceeding the required passing score of {Model.PassingScore}%."
+                    : $"You scored {Model.Score}%. The required passing score for this quiz is {Model.PassingScore}%. You may review the material and retake the quiz.")
+            </p>
+
+            <div class="d-inline-flex align-items-center justify-content-center p-3 px-5 rounded-pill bg-white shadow-sm mb-4 border">
+                <span class="fs-1 fw-bolder @(Model.IsPassed ? "text-success" : "text-danger") font-monospace">@Model.Score%</span>
+            </div>
+
+            <!-- Metrics Grid -->
+            <div class="row g-3 justify-content-center mt-2" style="max-width: 800px; margin: 0 auto;">
+                <div class="col-6 col-md-3">
+                    <div class="result-metric-card bg-white shadow-sm">
+                        <div class="text-muted small mb-1">Status</div>
+                        <div class="fw-bold @(Model.IsPassed ? "text-success" : "text-danger")">
+                            @(Model.IsPassed ? "Passed" : "Failed")
+                        </div>
+                    </div>
+                </div>
+                <div class="col-6 col-md-3">
+                    <div class="result-metric-card bg-white shadow-sm">
+                        <div class="text-muted small mb-1">Points Earned</div>
+                        <div class="fw-bold text-dark">@Model.EarnedPoints / @Model.TotalPoints</div>
+                    </div>
+                </div>
+                <div class="col-6 col-md-3">
+                    <div class="result-metric-card bg-white shadow-sm">
+                        <div class="text-muted small mb-1">Correct Answers</div>
+                        <div class="fw-bold text-dark">@Model.CorrectQuestionsCount / @Model.TotalQuestions</div>
+                    </div>
+                </div>
+                <div class="col-6 col-md-3">
+                    <div class="result-metric-card bg-white shadow-sm">
+                        <div class="text-muted small mb-1">Passing Mark</div>
+                        <div class="fw-bold text-dark">@Model.PassingScore%</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="d-flex align-items-center justify-content-center gap-3 mt-4 flex-wrap">
+                <a href="/Student/Course/@Model.CourseId/Quiz/@Model.CourseItemId" class="btn btn-primary px-4 py-2 d-inline-flex align-items-center gap-2 shadow-sm">
+                    <i class="bi bi-arrow-repeat"></i>
+                    <span>Retake Quiz</span>
+                </a>
+                <a href="/Student/Course/@Model.CourseId" class="btn btn-outline-secondary bg-white px-4 py-2 d-inline-flex align-items-center gap-2 shadow-sm">
+                    <i class="bi bi-grid-3x3-gap"></i>
+                    <span>Back to Course Overview</span>
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Question-by-Question Breakdown -->
+    <div class="card border-0 shadow-sm rounded-4 mb-4">
+        <div class="card-header bg-white border-bottom p-4">
+            <h5 class="fw-bold mb-0 text-dark d-flex align-items-center gap-2">
+                <i class="bi bi-list-check text-primary"></i>
+                <span>Question Breakdown</span>
+            </h5>
+            <small class="text-muted">Review your answers and detailed question results below</small>
+        </div>
+        <div class="card-body p-4">
+            @for (int i = 0; i < Model.Questions.Count; i++)
+            {
+                var q = Model.Questions[i];
+                <div class="card border rounded-3 p-4 mb-4 @(q.IsCorrect ? "border-success-subtle bg-success bg-opacity-10" : "border-danger-subtle bg-danger bg-opacity-10")">
+                    <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+                        <div class="d-flex align-items-center gap-2">
+                            <span class="badge @(q.IsCorrect ? "bg-success" : "bg-danger") rounded-pill px-3 py-1">
+                                Question @(i + 1)
+                            </span>
+                            @if (q.IsCorrect)
+                            {
+                                <span class="badge bg-success-subtle text-success border border-success-subtle fw-semibold">
+                                    <i class="bi bi-check-lg me-1"></i> Correct
+                                </span>
+                            }
+                            else
+                            {
+                                <span class="badge bg-danger-subtle text-danger border border-danger-subtle fw-semibold">
+                                    <i class="bi bi-x-lg me-1"></i> Incorrect
+                                </span>
+                            }
+                        </div>
+                        <span class="badge bg-white text-dark border">
+                            Score: @q.EarnedPoints / @q.Points pts
+                        </span>
+                    </div>
+
+                    <h6 class="fw-bold text-dark mb-3">@q.Text</h6>
+
+                    <div class="options-result-list">
+                        @foreach (var opt in q.Options)
+                        {
+                            string optClass = "option-result-neutral";
+                            string badgeHtml = "";
+
+                            if (opt.IsSelected && opt.IsCorrect)
+                            {
+                                optClass = "option-result-correct";
+                                badgeHtml = "<span class=\"badge bg-success text-white\"><i class=\"bi bi-check-circle-fill me-1\"></i> Your Answer (Correct)</span>";
+                            }
+                            else if (opt.IsSelected && !opt.IsCorrect)
+                            {
+                                optClass = "option-result-incorrect";
+                                badgeHtml = "<span class=\"badge bg-danger text-white\"><i class=\"bi bi-x-circle-fill me-1\"></i> Your Answer (Incorrect)</span>";
+                            }
+                            else if (!opt.IsSelected && opt.IsCorrect)
+                            {
+                                optClass = "option-result-correct";
+                                badgeHtml = "<span class=\"badge bg-success text-white\"><i class=\"bi bi-check-circle-fill me-1\"></i> Correct Answer</span>";
+                            }
+
+                            <div class="option-result-row @optClass">
+                                <div>
+                                    <span class="fw-medium">@opt.Text</span>
+                                </div>
+                                <div>
+                                    @Html.Raw(badgeHtml)
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+</div>
