@@ -31,6 +31,31 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
+    // ── Role Tabs Switching (UI hint only) ───────────────────────────────────────
+    const roleTabs = document.getElementById('roleTabs');
+    const loginIdLabel = document.getElementById('loginIdLabel');
+    if (roleTabs && loginIdLabel && loginIdInput) {
+        roleTabs.addEventListener('click', function (e) {
+            const tabBtn = e.target.closest('.auth-role-tab');
+            if (!tabBtn) return;
+
+            roleTabs.querySelectorAll('.auth-role-tab').forEach(b => b.classList.remove('active'));
+            tabBtn.classList.add('active');
+
+            const role = tabBtn.getAttribute('data-role');
+            if (role === 'STUDENT') {
+                loginIdLabel.textContent = 'Student ID or University Email';
+                loginIdInput.setAttribute('placeholder', 'e.g. STU001 or student@aub.edu.kh');
+            } else if (role === 'TEACHER') {
+                loginIdLabel.textContent = 'Faculty ID or University Email';
+                loginIdInput.setAttribute('placeholder', 'e.g. TCH001 or teacher@aub.edu.kh');
+            } else if (role === 'ADMIN') {
+                loginIdLabel.textContent = 'Administrator Email or Staff ID';
+                loginIdInput.setAttribute('placeholder', 'e.g. ADMIN001 or admin@aub.edu.kh');
+            }
+        });
+    }
+
     // ── Google Login ─────────────────────────────────────────────────────────────
     if (btnGoogle && googleForm) {
         btnGoogle.addEventListener('click', function () {

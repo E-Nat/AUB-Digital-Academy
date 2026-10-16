@@ -970,3 +970,39 @@ a {
 .transition-all {
     transition: all 0.3s ease;
 }
+
+/* Role Selection Segmented Control */
+.auth-role-tabs {
+    display: flex;
+    background: #F1F5F9;
+    padding: 4px;
+    border-radius: 10px;
+    gap: 4px;
+}
+
+.auth-role-tab {
+    flex: 1;
+    border: none;
+    background: transparent;
+    padding: 8px 10px;
+    border-radius: 7px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #64748B;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    transition: all 0.2s ease;
+    cursor: pointer;
+}
+
+.auth-role-tab:hover {
+    color: #0B1733;
+}
+
+.auth-role-tab.active {
+    background: #FFFFFF;
+    color: #0B1733;
+    box-shadow: 0 2px 6px rgba(15, 23, 42, 0.08);
+}

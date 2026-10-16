@@ -18,6 +18,19 @@
     <h2 class="fw-bold mb-2 text-navy" style="font-size: 2.25rem; letter-spacing: -0.5px;">Welcome Back</h2>
     <p class="text-secondary mb-5 fs-6">Sign in to continue to AUB Digital Academy.</p>
 
+    @* ── Role Selector Segmented Tabs (UI hint only) ── *@
+    <div class="auth-role-tabs mb-4" id="roleTabs">
+        <button type="button" class="auth-role-tab active" data-role="STUDENT">
+            <i class="bi bi-mortarboard"></i> Student
+        </button>
+        <button type="button" class="auth-role-tab" data-role="TEACHER">
+            <i class="bi bi-person-badge"></i> Faculty
+        </button>
+        <button type="button" class="auth-role-tab" data-role="ADMIN">
+            <i class="bi bi-shield-lock"></i> Admin
+        </button>
+    </div>
+
     <form id="loginForm" asp-action="Login" asp-controller="Account" method="post" novalidate>
         @Html.AntiForgeryToken()
         <input type="hidden" name="returnUrl" value="@ViewData["ReturnUrl"]" />
@@ -45,14 +58,14 @@
 
         @* ── University ID / Email ─────────────────────── *@
         <div class="mb-4">
-            <label asp-for="LoginId" class="form-label fw-medium text-dark mb-2 fs-6">University ID or Email</label>
+            <label asp-for="LoginId" class="form-label fw-medium text-dark mb-2 fs-6" id="loginIdLabel">Student ID or University Email</label>
             <div class="input-group auth-input-group" id="loginIdGroup">
                 <span class="input-group-text bg-white border-end-0 ps-3 pe-2 text-secondary">
                     <i class="bi bi-person fs-5"></i>
                 </span>
                 <input asp-for="LoginId"
                        class="form-control border-start-0 ps-1 py-2 fs-6 shadow-none"
-                       placeholder="Enter your University ID or Email"
+                       placeholder="e.g. STU001 or student@aub.edu.kh"
                        autofocus
                        autocomplete="username"
                        required />
