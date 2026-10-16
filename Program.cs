@@ -112,6 +112,12 @@ if (args.Contains("--test-teacher-portal"))
     return;
 }
 
+if (args.Contains("--test-auth"))
+{
+    await AuthIntegrationTestRunner.RunTestsAsync(app.Services);
+    return;
+}
+
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {

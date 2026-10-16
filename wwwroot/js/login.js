@@ -2,45 +2,65 @@ document.addEventListener('DOMContentLoaded', function () {
     const loginForm = document.getElementById('loginForm');
     const googleForm = document.getElementById('googleForm');
 
-    // UI Elements
+    // UI View Containers
     const loginView = document.getElementById('loginView');
     const googleLoadingView = document.getElementById('googleLoadingView');
     const authSuccessView = document.getElementById('authSuccessView');
-    const roleVerificationView = document.getElementById('roleVerificationView');
 
+    // Action & Status Elements
     const btnSignIn = document.getElementById('btnSignIn');
+    const btnSignInText = document.getElementById('btnSignInText');
+    const btnSignInArrow = document.getElementById('btnSignInArrow');
     const btnGoogle = document.getElementById('btnGoogle');
     const signInSpinner = document.getElementById('signInSpinner');
     const loginErrorAlert = document.getElementById('loginErrorAlert');
     const loginErrorMessage = document.getElementById('loginErrorMessage');
+    const closeErrorBtn = document.getElementById('closeErrorBtn');
 
+    // Input Controls
     const loginIdInput = document.getElementById('LoginId');
     const passwordInput = document.getElementById('Password');
     const togglePasswordBtn = document.getElementById('togglePassword');
     const togglePasswordIcon = togglePasswordBtn ? togglePasswordBtn.querySelector('i') : null;
 
-    // ── Toggle Password Visibility ──────────────────────────────────────────────
+    const prefersReducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    // ── 1. Toggle Password Visibility ─────────────────────────────────────────
     if (togglePasswordBtn && passwordInput) {
-        togglePasswordBtn.addEventListener('click', function () {
+        togglePasswordBtn.addEventListener('click', function (e) {
+            e.preventDefault();
             const isPassword = passwordInput.getAttribute('type') === 'password';
             passwordInput.setAttribute('type', isPassword ? 'text' : 'password');
+            
+            this.setAttribute('aria-pressed', isPassword ? 'true' : 'false');
+            this.setAttribute('aria-label', isPassword ? 'Hide password' : 'Show password');
+            this.setAttribute('title', isPassword ? 'Hide password' : 'Show password');
+
             if (togglePasswordIcon) {
                 togglePasswordIcon.classList.toggle('bi-eye-slash', !isPassword);
                 togglePasswordIcon.classList.toggle('bi-eye', isPassword);
             }
+            passwordInput.focus();
         });
     }
 
-    // ── Role Tabs Switching (UI hint only) ───────────────────────────────────────
+    // ── 2. Role Selector Tabs & Keyboard Navigation ───────────────────────────
     const roleTabs = document.getElementById('roleTabs');
     const loginIdLabel = document.getElementById('loginIdLabel');
-    if (roleTabs && loginIdLabel && loginIdInput) {
-        roleTabs.addEventListener('click', function (e) {
-            const tabBtn = e.target.closest('.auth-role-tab');
-            if (!tabBtn) return;
 
-            roleTabs.querySelectorAll('.auth-role-tab').forEach(b => b.classList.remove('active'));
+    if (roleTabs && loginIdLabel && loginIdInput) {
+        const tabs = Array.from(roleTabs.querySelectorAll('.auth-role-tab'));
+
+        function activateTab(tabBtn) {
+            tabs.forEach(t => {
+                t.classList.remove('active');
+                t.setAttribute('aria-selected', 'false');
+                t.setAttribute('tabindex', '-1');
+            });
+
             tabBtn.classList.add('active');
+            tabBtn.setAttribute('aria-selected', 'true');
+            tabBtn.setAttribute('tabindex', '0');
 
             const role = tabBtn.getAttribute('data-role');
             if (role === 'STUDENT') {
@@ -53,35 +73,84 @@ document.addEventListener('DOMContentLoaded', function () {
                 loginIdLabel.textContent = 'Administrator Email or Staff ID';
                 loginIdInput.setAttribute('placeholder', 'e.g. ADMIN001 or admin@aub.edu.kh');
             }
+        }
+
+        roleTabs.addEventListener('click', function (e) {
+            const tabBtn = e.target.closest('.auth-role-tab');
+            if (tabBtn) {
+                activateTab(tabBtn);
+            }
+        });
+
+        // Accessible Keyboard Arrow Navigation (Left / Right / Home / End)
+        roleTabs.addEventListener('keydown', function (e) {
+            const currentTab = document.activeElement.closest('.auth-role-tab');
+            if (!currentTab) return;
+
+            const currentIndex = tabs.indexOf(currentTab);
+            let nextIndex = -1;
+
+            if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+                e.preventDefault();
+                nextIndex = (currentIndex + 1) % tabs.length;
+            } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+                e.preventDefault();
+                nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+            } else if (e.key === 'Home') {
+                e.preventDefault();
+                nextIndex = 0;
+            } else if (e.key === 'End') {
+                e.preventDefault();
+                nextIndex = tabs.length - 1;
+            }
+
+            if (nextIndex !== -1) {
+                tabs[nextIndex].focus();
+                activateTab(tabs[nextIndex]);
+            }
         });
     }
 
-    // ── Google Login ─────────────────────────────────────────────────────────────
+    // ── 3. Google OAuth Flow ──────────────────────────────────────────────────
     if (btnGoogle && googleForm) {
         btnGoogle.addEventListener('click', function () {
-            loginView.classList.add('d-none');
-            googleLoadingView.classList.remove('d-none');
-            setTimeout(() => { googleForm.submit(); }, 800);
+            if (loginView) loginView.classList.add('d-none');
+            if (googleLoadingView) googleLoadingView.classList.remove('d-none');
+            setTimeout(() => { googleForm.submit(); }, prefersReducedMotion ? 100 : 500);
         });
     }
 
-    // ── Standard Login AJAX ──────────────────────────────────────────────────────
+    // ── 4. Dismiss Error Alert Button ─────────────────────────────────────────
+    if (closeErrorBtn && loginErrorAlert) {
+        closeErrorBtn.addEventListener('click', function () {
+            loginErrorAlert.classList.add('d-none');
+        });
+    }
+
+    // ── 5. Standard Login AJAX ────────────────────────────────────────────────
     if (loginForm) {
         loginForm.addEventListener('submit', async function (e) {
             e.preventDefault();
 
-            // Client-side empty-field check
+            // Client-side validation check
             const loginIdVal = loginIdInput ? loginIdInput.value.trim() : '';
-            const passwordVal = passwordInput ? passwordInput.value.trim() : '';
+            const passwordVal = passwordInput ? passwordInput.value : '';
 
             if (!loginIdVal || !passwordVal) {
-                showError('Please enter your University ID or Email and Password.');
-                if (!loginIdVal && loginIdInput) loginIdInput.classList.add('is-invalid');
-                if (!passwordVal && passwordInput) passwordInput.classList.add('is-invalid');
+                showError('Please enter your University ID/Email and password.');
+                if (!loginIdVal && loginIdInput) {
+                    loginIdInput.classList.add('is-invalid');
+                    loginIdInput.setAttribute('aria-invalid', 'true');
+                    loginIdInput.focus();
+                } else if (!passwordVal && passwordInput) {
+                    passwordInput.classList.add('is-invalid');
+                    passwordInput.setAttribute('aria-invalid', 'true');
+                    passwordInput.focus();
+                }
                 return;
             }
 
-            // Loading state
+            // Set loading state
             setLoading(true);
 
             try {
@@ -92,70 +161,81 @@ document.addEventListener('DOMContentLoaded', function () {
                     headers: { 'X-Requested-With': 'XMLHttpRequest' }
                 });
 
-                // HTTP 400 most likely means a stale AntiForgery token.
                 if (response.status === 400) {
                     setLoading(false);
-                    showError('Your session has expired. Please refresh the page and try again.');
+                    showError('Your security session has expired. Please refresh the page.');
                     return;
                 }
 
-                // Any other non-OK response is a server error.
                 if (!response.ok) {
-                    throw new Error(`Server error (${response.status}). Please try again.`);
+                    throw new Error(`Server connection error (${response.status}). Please try again.`);
                 }
 
-                // Parse JSON — guard against non-JSON bodies on unexpected errors.
                 let data;
                 try {
                     data = await response.json();
                 } catch {
-                    throw new Error('Unexpected server response. Please refresh and try again.');
+                    throw new Error('Unexpected server response format. Please refresh the page.');
                 }
 
                 if (data.success) {
-                    // Success screens (4 → 5 → redirect)
                     setLoading(false);
-                    loginView.classList.add('d-none');
-                    authSuccessView.classList.remove('d-none');
+                    if (prefersReducedMotion) {
+                        window.location.href = data.redirectUrl;
+                        return;
+                    }
+
+                    // Smooth transition to Success screen
+                    if (loginView) loginView.classList.add('d-none');
+                    if (authSuccessView) authSuccessView.classList.remove('d-none');
 
                     setTimeout(() => {
-                        authSuccessView.classList.add('d-none');
-                        roleVerificationView.classList.remove('d-none');
-
-                        setTimeout(() => {
-                            window.location.href = data.redirectUrl;
-                        }, 1200);
-                    }, 1500);
+                        window.location.href = data.redirectUrl;
+                    }, 500);
                 } else {
-                    // Credentials rejected
                     setLoading(false);
-                    showError(data.message || 'Invalid University ID or Password.');
-                    if (loginIdInput) loginIdInput.classList.add('is-invalid');
-                    if (passwordInput) passwordInput.classList.add('is-invalid');
+                    showError(data.message || 'Invalid University ID/Email or password.');
+                    if (loginIdInput) {
+                        loginIdInput.classList.add('is-invalid');
+                        loginIdInput.setAttribute('aria-invalid', 'true');
+                    }
+                    if (passwordInput) {
+                        passwordInput.classList.add('is-invalid');
+                        passwordInput.setAttribute('aria-invalid', 'true');
+                    }
                 }
-
             } catch (error) {
-                console.error('Login error:', error);
+                console.error('Authentication error:', error);
                 setLoading(false);
                 showError(error.message || 'An unexpected error occurred. Please try again.');
             }
         });
     }
 
-    // ── Clear error state on user input ─────────────────────────────────────────
+    // ── 6. Clear Validation & Error State on User Input ──────────────────────
     [loginIdInput, passwordInput].forEach(function (input) {
         if (!input) return;
         input.addEventListener('input', function () {
             this.classList.remove('is-invalid');
+            this.removeAttribute('aria-invalid');
             if (loginErrorAlert) loginErrorAlert.classList.add('d-none');
         });
     });
 
-    // ── Helpers ──────────────────────────────────────────────────────────────────
-    function setLoading(loading) {
-        if (btnSignIn) btnSignIn.disabled = loading;
+    // ── 7. Helper Functions ───────────────────────────────────────────────────
+    function setLoading(isLoading) {
+        if (btnSignIn) {
+            btnSignIn.disabled = isLoading;
+            btnSignIn.setAttribute('aria-busy', isLoading ? 'true' : 'false');
+        }
         if (signInSpinner) {
-            signInSpinner.classList.toggle('d-none', !loading);
+            signInSpinner.classList.toggle('d-none', !isLoading);
+        }
+        if (btnSignInArrow) {
+            btnSignInArrow.classList.toggle('d-none', isLoading);
+        }
+        if (btnSignInText) {
+            btnSignInText.textContent = isLoading ? 'Signing in…' : 'Sign In to Portal';
         }
     }
 
@@ -163,8 +243,10 @@ document.addEventListener('DOMContentLoaded', function () {
         if (loginErrorMessage) loginErrorMessage.textContent = message;
         if (loginErrorAlert) {
             loginErrorAlert.classList.remove('d-none');
-            loginErrorAlert.classList.add('shake-animation');
-            setTimeout(() => loginErrorAlert.classList.remove('shake-animation'), 500);
+            if (!prefersReducedMotion) {
+                loginErrorAlert.classList.add('shake-animation');
+                setTimeout(() => loginErrorAlert.classList.remove('shake-animation'), 500);
+            }
         }
     }
 });

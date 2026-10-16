@@ -75,7 +75,7 @@ public class AccountController : Controller
         {
             _logger.LogInformation("User {UserId} logged in.", user.Id);
             
-            var redirectUrl = GetRoleRedirectUrl(user);
+            var redirectUrl = await GetRoleRedirectUrlAsync(user);
             if (!string.IsNullOrEmpty(returnUrl) && Url.IsLocalUrl(returnUrl))
             {
                 redirectUrl = returnUrl;
@@ -237,7 +237,7 @@ public class AccountController : Controller
                 ModelState.AddModelError(string.Empty, "Your account has been deactivated. Please contact the administrator.");
                 return View("Login");
             }
-            return Redirect(GetRoleRedirectUrl(ssoUser!));
+            return Redirect(await GetRoleRedirectUrlAsync(ssoUser!));
         }
 
         // If the user does not have an account, create one (SSO auto-provision).
@@ -273,7 +273,7 @@ public class AccountController : Controller
 
             await _userManager.AddLoginAsync(user, info);
             await _signInManager.SignInAsync(user, isPersistent: false);
-            return Redirect(GetRoleRedirectUrl(user));
+            return Redirect(await GetRoleRedirectUrlAsync(user));
         }
 
         ModelState.AddModelError(string.Empty, "Error loading external login information.");
@@ -296,13 +296,13 @@ public class AccountController : Controller
         return RedirectToAction("Index", "Admin"); 
     }
     
-    private string GetRoleRedirectUrl(User user)
+    private async Task<string> GetRoleRedirectUrlAsync(User user)
     {
         // Simple synchronous helper for AJAX redirect URL generation
-        var roles = _userManager.GetRolesAsync(user).GetAwaiter().GetResult();
+        var roles = await _userManager.GetRolesAsync(user);
         if (roles.Contains("Admin")) return Url.Action("Index", "Admin") ?? "/Admin";
-        if (roles.Contains("Teacher")) return Url.Action("Dashboard", "Teacher") ?? "/Teacher";
-        if (roles.Contains("Student")) return Url.Action("Dashboard", "Student") ?? "/Student";
+        if (roles.Contains("Teacher")) return Url.Action("Dashboard", "Teacher") ?? "/Teacher/Dashboard";
+        if (roles.Contains("Student")) return Url.Action("Dashboard", "Student") ?? "/Student/Dashboard";
         return Url.Action("Index", "Admin") ?? "/Admin";
     }
 }

@@ -4,7 +4,6 @@
     Layout = "_AuthLayout";
 
     // Google OAuth is only available when credentials are configured server-side.
-    // The controller already guards registration; we hide the button here if not configured.
     var googleConfigured = !string.IsNullOrEmpty(ViewBag.GoogleConfigured as string ?? "")
         || (Context.RequestServices
                    .GetService(typeof(Microsoft.AspNetCore.Authentication.IAuthenticationSchemeProvider))
@@ -13,194 +12,237 @@
                  .Any(s => s.Name.Equals("Google", StringComparison.OrdinalIgnoreCase)));
 }
 
-@* ── Screen 1 & 2: Login form ─────────────────────────────────────────────── *@
+@* ── Screen 1: Login Form ────────────────────────────────────────────────── *@
 <div id="loginView" class="auth-fade-in">
-    <h2 class="fw-bold mb-2 text-navy" style="font-size: 2.25rem; letter-spacing: -0.5px;">Welcome Back</h2>
-    <p class="text-secondary mb-5 fs-6">Sign in to continue to AUB Digital Academy.</p>
 
-    @* ── Role Selector Segmented Tabs (UI hint only) ── *@
-    <div class="auth-role-tabs mb-4" id="roleTabs">
-        <button type="button" class="auth-role-tab active" data-role="STUDENT">
-            <i class="bi bi-mortarboard"></i> Student
+    @* Mobile University Brand Header (visible on < 992px) *@
+    <div class="d-flex d-lg-none align-items-center gap-3 mb-4 pb-3 border-bottom">
+        <div class="auth-mobile-logo-icon">
+            <i class="bi bi-mortarboard-fill text-gold" aria-hidden="true"></i>
+        </div>
+        <div>
+            <div class="fw-bold text-navy fs-5 lh-1">AUB Digital Academy</div>
+            <span class="text-secondary small">University Gateway</span>
+        </div>
+    </div>
+
+    @* Page Title & Subtitle *@
+    <div class="mb-4">
+        <h2 class="fw-bold text-navy mb-1" style="font-size: 2rem; letter-spacing: -0.5px;">Sign In</h2>
+        <p class="text-secondary small mb-0">Enter your institutional credentials to access your portal.</p>
+    </div>
+
+    @* ── Role Selector Segmented Tabs (UI guidance hint only) ── *@
+    <div class="auth-role-tabs mb-4" id="roleTabs" role="tablist" aria-label="University Role Selection">
+        <button type="button" 
+                class="auth-role-tab active" 
+                data-role="STUDENT" 
+                id="tabStudent" 
+                role="tab" 
+                aria-selected="true" 
+                aria-controls="loginForm" 
+                tabindex="0">
+            <i class="bi bi-mortarboard" aria-hidden="true"></i>
+            <span>Student</span>
         </button>
-        <button type="button" class="auth-role-tab" data-role="TEACHER">
-            <i class="bi bi-person-badge"></i> Faculty
+        <button type="button" 
+                class="auth-role-tab" 
+                data-role="TEACHER" 
+                id="tabFaculty" 
+                role="tab" 
+                aria-selected="false" 
+                aria-controls="loginForm" 
+                tabindex="-1">
+            <i class="bi bi-person-badge" aria-hidden="true"></i>
+            <span>Faculty</span>
         </button>
-        <button type="button" class="auth-role-tab" data-role="ADMIN">
-            <i class="bi bi-shield-lock"></i> Admin
+        <button type="button" 
+                class="auth-role-tab" 
+                data-role="ADMIN" 
+                id="tabAdmin" 
+                role="tab" 
+                aria-selected="false" 
+                aria-controls="loginForm" 
+                tabindex="-1">
+            <i class="bi bi-shield-lock" aria-hidden="true"></i>
+            <span>Admin</span>
         </button>
     </div>
 
-    <form id="loginForm" asp-action="Login" asp-controller="Account" method="post" novalidate>
+    <form id="loginForm" asp-action="Login" asp-controller="Account" method="post" novalidate aria-label="Sign in form">
         @Html.AntiForgeryToken()
         <input type="hidden" name="returnUrl" value="@ViewData["ReturnUrl"]" />
 
-        @* Server-side error from non-AJAX fallback *@
+        @* Server-side error alert from non-AJAX fallback *@
         @if (!ViewData.ModelState.IsValid)
         {
-            <div class="alert alert-danger d-flex align-items-center gap-2 mb-4" role="alert">
-                <i class="bi bi-exclamation-triangle-fill"></i>
-                <span>
+            <div class="alert alert-danger d-flex align-items-start gap-2 mb-4 py-2.5 px-3 rounded-3" role="alert" aria-live="polite">
+                <i class="bi bi-exclamation-triangle-fill flex-shrink-0 mt-1" aria-hidden="true"></i>
+                <div class="small">
                     @foreach (var error in ViewData.ModelState.Values.SelectMany(v => v.Errors))
                     {
-                        @error.ErrorMessage
-                        <br />
+                        <div>@error.ErrorMessage</div>
                     }
-                </span>
+                </div>
             </div>
         }
 
-        @* AJAX error placeholder (hidden until JS populates it) *@
-        <div id="loginErrorAlert" class="alert alert-danger d-none d-flex align-items-center gap-2 mb-4" role="alert">
-            <i class="bi bi-exclamation-triangle-fill flex-shrink-0"></i>
-            <span id="loginErrorMessage">Invalid University ID or Password.</span>
+        @* AJAX error placeholder *@
+        <div id="loginErrorAlert" class="alert alert-danger d-none d-flex align-items-start gap-2 mb-4 py-2.5 px-3 rounded-3" role="alert" aria-live="assertive">
+            <i class="bi bi-exclamation-triangle-fill flex-shrink-0 mt-1" aria-hidden="true"></i>
+            <div class="small flex-grow-1" id="loginErrorMessage">Invalid University ID or Password.</div>
+            <button type="button" class="btn-close btn-close-sm ms-auto" id="closeErrorBtn" aria-label="Dismiss error notice"></button>
         </div>
 
-        @* ── University ID / Email ─────────────────────── *@
-        <div class="mb-4">
-            <label asp-for="LoginId" class="form-label fw-medium text-dark mb-2 fs-6" id="loginIdLabel">Student ID or University Email</label>
+        @* ── University ID / Email Field ─────────────────────── *@
+        <div class="mb-3">
+            <label asp-for="LoginId" class="form-label fw-semibold text-dark mb-1 small" id="loginIdLabel">
+                Student ID or University Email
+            </label>
             <div class="input-group auth-input-group" id="loginIdGroup">
-                <span class="input-group-text bg-white border-end-0 ps-3 pe-2 text-secondary">
+                <span class="input-group-text bg-white border-end-0 ps-3 pe-2 text-secondary" id="loginIdAddon" aria-hidden="true">
                     <i class="bi bi-person fs-5"></i>
                 </span>
                 <input asp-for="LoginId"
                        class="form-control border-start-0 ps-1 py-2 fs-6 shadow-none"
                        placeholder="e.g. STU001 or student@aub.edu.kh"
-                       autofocus
                        autocomplete="username"
+                       autocapitalize="none"
+                       spellcheck="false"
+                       aria-required="true"
+                       aria-describedby="loginIdAddon loginIdValidation"
                        required />
             </div>
-            <span asp-validation-for="LoginId" class="text-danger small mt-1 d-block fw-medium"></span>
+            <span asp-validation-for="LoginId" class="text-danger small mt-1 d-block fw-medium" id="loginIdValidation"></span>
         </div>
 
-        @* ── Password ───────────────────────────────────── *@
-        <div class="mb-4">
-            <label asp-for="Password" class="form-label fw-medium text-dark mb-2 fs-6">Password</label>
+        @* ── Password Field ───────────────────────────────────── *@
+        <div class="mb-3">
+            <div class="d-flex justify-content-between align-items-center mb-1">
+                <label asp-for="Password" class="form-label fw-semibold text-dark mb-0 small" id="passwordLabel">
+                    Password
+                </label>
+                <a href="@Url.Action("ForgotPassword", "Account")"
+                   class="text-primary text-decoration-none fw-semibold small hover-gold">
+                    Forgot password?
+                </a>
+            </div>
             <div class="input-group auth-input-group" id="passwordGroup">
-                <span class="input-group-text bg-white border-end-0 ps-3 pe-2 text-secondary">
+                <span class="input-group-text bg-white border-end-0 ps-3 pe-2 text-secondary" id="passwordAddon" aria-hidden="true">
                     <i class="bi bi-lock fs-5"></i>
                 </span>
                 <input asp-for="Password"
                        class="form-control border-start-0 border-end-0 px-1 py-2 fs-6 shadow-none"
                        placeholder="Enter your password"
                        autocomplete="current-password"
+                       aria-required="true"
+                       aria-describedby="passwordAddon passwordValidation"
                        required />
-                <button class="btn btn-outline-secondary border-start-0 bg-white text-secondary pe-3"
+                <button class="btn btn-outline-secondary border-start-0 bg-white text-secondary pe-3 auth-pass-toggle-btn"
                         type="button"
                         id="togglePassword"
-                        aria-label="Toggle password visibility"
-                        style="border-color: var(--bs-border-color);">
-                    <i class="bi bi-eye-slash fs-5"></i>
+                        aria-label="Show password"
+                        aria-pressed="false"
+                        title="Toggle password visibility">
+                    <i class="bi bi-eye-slash fs-5" aria-hidden="true"></i>
                 </button>
             </div>
-            <span asp-validation-for="Password" class="text-danger small mt-1 d-block fw-medium"></span>
+            <span asp-validation-for="Password" class="text-danger small mt-1 d-block fw-medium" id="passwordValidation"></span>
         </div>
 
-        @* ── Remember Me + Forgot Password ─────────────── *@
-        <div class="d-flex justify-content-between align-items-center mb-4">
-            <div class="form-check custom-checkbox">
+        @* ── Remember Me Checkbox ─────────────── *@
+        <div class="d-flex align-items-center mb-4">
+            <div class="form-check custom-checkbox mb-0">
                 <input asp-for="RememberMe"
                        class="form-check-input shadow-none cursor-pointer"
                        id="rememberMeCheck" />
                 <label asp-for="RememberMe"
-                       class="form-check-label text-dark fw-medium cursor-pointer ms-1"
-                       for="rememberMeCheck">Remember me</label>
+                       class="form-check-label text-secondary small cursor-pointer ms-1"
+                       for="rememberMeCheck">
+                    Keep me signed in on this device
+                </label>
             </div>
-            <a href="@Url.Action("ForgotPassword", "Account")"
-               class="text-primary text-decoration-none fw-medium hover-gold fs-6">
-                Forgot Password?
-            </a>
         </div>
 
-        @* ── Sign In button ─────────────────────────────── *@
+        @* ── Sign In Button ─────────────────────────────── *@
         <button type="submit"
                 id="btnSignIn"
-                class="btn btn-primary-aub w-100 py-3 mb-4 rounded-3 fs-6 d-flex justify-content-center align-items-center gap-2">
-            <span>Sign In</span>
-            <div class="spinner-border spinner-border-sm d-none" id="signInSpinner" role="status">
+                class="btn btn-primary-aub w-100 py-2.5 py-md-3 mb-4 rounded-3 fw-semibold fs-6 d-flex justify-content-center align-items-center gap-2"
+                aria-label="Sign in to your account">
+            <span id="btnSignInText">Sign In to Portal</span>
+            <i class="bi bi-arrow-right" id="btnSignInArrow" aria-hidden="true"></i>
+            <div class="spinner-border spinner-border-sm d-none" id="signInSpinner" role="status" aria-hidden="true">
                 <span class="visually-hidden">Signing in…</span>
             </div>
         </button>
     </form>
 
-    @* ── Google OAuth (only shown when configured) ──────── *@
+    @* ── Google OAuth (only rendered when configured in appsettings) ──────── *@
     @if (googleConfigured)
     {
         <div class="d-flex align-items-center mb-4">
             <div class="flex-grow-1 border-bottom"></div>
-            <span class="px-3 text-secondary fw-medium" style="font-size: 0.85rem;">OR</span>
+            <span class="px-3 text-secondary fw-medium small" style="font-size: 0.8rem;">OR CONTINUE WITH</span>
             <div class="flex-grow-1 border-bottom"></div>
         </div>
 
-        <form id="googleForm" asp-action="ExternalLogin" asp-controller="Account" method="post" class="mb-5">
+        <form id="googleForm" asp-action="ExternalLogin" asp-controller="Account" method="post" class="mb-4">
             @Html.AntiForgeryToken()
             <input type="hidden" name="provider" value="Google" />
             <input type="hidden" name="returnUrl" value="@ViewData["ReturnUrl"]" />
             <button type="button" id="btnGoogle"
-                    class="btn btn-google w-100 py-2 rounded-3 d-flex justify-content-center align-items-center gap-2">
-                <svg class="google-icon" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+                    class="btn btn-google w-100 py-2.5 rounded-3 d-flex justify-content-center align-items-center gap-2"
+                    aria-label="Sign in with University Google Account">
+                <svg class="google-icon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
                     <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/>
                     <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
                     <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
                     <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
                 </svg>
-                <span>Continue with Google</span>
+                <span class="small fw-semibold">University Google SSO</span>
             </button>
         </form>
     }
 
-    @* ── "Need an account?" notice ───────────────────────── *@
-    <div class="d-flex align-items-center gap-3 mt-2 bg-light p-3 rounded-4 border border-light-subtle">
-        <div class="rounded-circle d-flex align-items-center justify-content-center bg-primary bg-opacity-10 text-primary"
-             style="width: 40px; height: 40px; flex-shrink: 0;">
-            <i class="bi bi-shield-check fs-5"></i>
+    @* ── Security & Helpdesk Footer ───────────────────────── *@
+    <div class="auth-security-footer d-flex align-items-center justify-content-between pt-3 mt-4 border-top text-secondary small">
+        <div class="d-flex align-items-center gap-1.5">
+            <i class="bi bi-shield-check text-success fs-6" aria-hidden="true"></i>
+            <span>256-Bit SSL Secured</span>
         </div>
-        <div class="d-flex flex-column text-secondary" style="font-size: 0.85rem;">
-            <span class="fw-medium text-dark">Need an account?</span>
-            <span>Please <a href="mailto:admin@aub.edu.kh"
-                            class="text-primary text-decoration-none fw-medium">contact the system administrator</a>.</span>
+        <div>
+            <span>Need assistance? <a href="mailto:it.support@aub.edu.kh" class="text-primary text-decoration-none fw-medium">IT Support</a></span>
         </div>
     </div>
 </div>
 
-@* ── Screen 3: Google loading ─────────────────────────────────────────────── *@
-<div id="googleLoadingView" class="auth-fade-in d-none flex-column justify-content-center align-items-center text-center py-5">
+@* ── Screen 2: Google Loading Transition ─────────────────────────────────── *@
+<div id="googleLoadingView" class="auth-fade-in d-none flex-column justify-content-center align-items-center text-center py-5" aria-live="polite">
     <div class="mb-4">
-        <svg viewBox="0 0 24 24" width="64" height="64" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="60" height="60" aria-hidden="true">
             <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/>
             <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
             <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
             <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
         </svg>
     </div>
-    <h3 class="fw-bold text-dark mb-2">Authenticating…</h3>
-    <p class="text-secondary mb-4">Please wait while we connect to Google.</p>
-    <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;">
-        <span class="visually-hidden">Loading…</span>
+    <h3 class="fw-bold text-navy mb-2">Connecting to Google…</h3>
+    <p class="text-secondary small mb-4">Verifying institutional single sign-on credentials.</p>
+    <div class="spinner-border text-primary" role="status" style="width: 2.5rem; height: 2.5rem;">
+        <span class="visually-hidden">Connecting…</span>
     </div>
 </div>
 
-@* ── Screen 4: Authentication success ────────────────────────────────────── *@
-<div id="authSuccessView" class="auth-fade-in d-none flex-column justify-content-center align-items-center text-center py-5">
-    <div class="success-icon-container mb-4">
-        <i class="bi bi-check-circle-fill text-success" style="font-size: 5rem;"></i>
+@* ── Screen 3: Authentication Success ────────────────────────────────────── *@
+<div id="authSuccessView" class="auth-fade-in d-none flex-column justify-content-center align-items-center text-center py-5" aria-live="polite">
+    <div class="success-icon-container mb-3">
+        <i class="bi bi-check-circle-fill text-success" style="font-size: 4.5rem;" aria-hidden="true"></i>
     </div>
-    <h3 class="fw-bold text-dark mb-2">Authentication Successful</h3>
-    <p class="text-secondary mb-4">Redirecting securely…</p>
-    <div class="progress w-75 rounded-pill" style="height: 6px;">
+    <h3 class="fw-bold text-navy mb-1">Authenticated</h3>
+    <p class="text-secondary small mb-4">Directing to your academic workspace…</p>
+    <div class="progress w-50 rounded-pill" style="height: 5px;">
         <div class="progress-bar progress-bar-striped progress-bar-animated bg-success" style="width: 100%"></div>
     </div>
-</div>
-
-@* ── Screen 5: Role verification ─────────────────────────────────────────── *@
-<div id="roleVerificationView" class="auth-fade-in d-none flex-column justify-content-center align-items-center text-center py-5">
-    <div class="mb-4">
-        <div class="spinner-grow text-primary" role="status" style="width: 4rem; height: 4rem;">
-            <span class="visually-hidden">Loading…</span>
-        </div>
-    </div>
-    <h3 class="fw-bold text-navy mb-2">Checking Account…</h3>
-    <p class="text-secondary mb-4" id="roleVerificationText">Retrieving user information…</p>
 </div>
 
 @section Scripts {

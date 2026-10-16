@@ -7,7 +7,7 @@
     
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
@@ -16,16 +16,16 @@
 <body class="bg-white">
     <div class="d-flex min-vh-100">
         
-        <!-- Left Panel (Branding) -->
-        <div class="auth-left-panel d-none d-lg-flex flex-column position-relative overflow-hidden w-50">
+        <!-- Left Panel: University Branding (Desktop) -->
+        <aside class="auth-left-panel d-none d-lg-flex flex-column position-relative overflow-hidden w-50" aria-label="University Brand Showcase">
             <!-- Background Elements -->
             <div class="auth-bg-overlay"></div>
             
             <div class="auth-left-content position-relative z-3 d-flex flex-column h-100 p-5">
                 <!-- Header / Logo -->
-                <div class="d-flex align-items-center gap-3 mb-auto">
+                <div class="d-flex align-items-center gap-3">
                     <div class="auth-logo-icon">
-                        <i class="bi bi-mortarboard-fill"></i>
+                        <i class="bi bi-mortarboard-fill" aria-hidden="true"></i>
                     </div>
                     <div class="d-flex align-items-center gap-1">
                         <span class="text-white fw-bold fs-3 letter-spacing-tight">AUB</span>
@@ -36,30 +36,71 @@
                     </div>
                 </div>
                 
-                <!-- Main Text -->
-                <div class="mb-auto mt-5 pt-5">
-                    <p class="text-white fs-4 mb-2 fw-light">Welcome to</p>
-                    <h1 class="text-white display-5 fw-bold mb-4">AUB <span class="text-gold">Digital Academy</span></h1>
+                <!-- Main Value Proposition -->
+                <div class="my-auto py-4">
+                    <p class="text-white fs-5 mb-2 fw-light opacity-90">Welcome to</p>
+                    <h1 class="text-white display-5 fw-bold mb-3" style="letter-spacing: -0.5px;">
+                        AUB <span class="text-gold">Digital Academy</span>
+                    </h1>
                     <div class="auth-title-underline mb-4"></div>
-                    <p class="text-white opacity-75 fs-5 fw-light" style="max-width: 400px; line-height: 1.6;">
-                        The smart learning platform for students and teachers.
+                    <p class="text-white opacity-80 fs-6 fw-light mb-4" style="max-width: 440px; line-height: 1.65;">
+                        Empowering students, faculty, and administration with a secure, unified academic workspace, interactive coursework, and digital learning tools.
                     </p>
+
+                    <!-- Feature Badges -->
+                    <div class="d-flex flex-column gap-3 mb-4" style="max-width: 420px;">
+                        <div class="d-flex align-items-center gap-3 text-white">
+                            <div class="rounded-circle d-flex align-items-center justify-content-center bg-white bg-opacity-10 text-gold flex-shrink-0" style="width: 38px; height: 38px;">
+                                <i class="bi bi-award fs-5" aria-hidden="true"></i>
+                            </div>
+                            <div class="small lh-sm">
+                                <strong class="d-block text-white">Accredited Academic Programs</strong>
+                                <span class="opacity-75">Curriculum standards & international certifications</span>
+                            </div>
+                        </div>
+
+                        <div class="d-flex align-items-center gap-3 text-white">
+                            <div class="rounded-circle d-flex align-items-center justify-content-center bg-white bg-opacity-10 text-gold flex-shrink-0" style="width: 38px; height: 38px;">
+                                <i class="bi bi-person-video3 fs-5" aria-hidden="true"></i>
+                            </div>
+                            <div class="small lh-sm">
+                                <strong class="d-block text-white">Faculty Mentorship & Consultation</strong>
+                                <span class="opacity-75">Live course consultations & academic guidance</span>
+                            </div>
+                        </div>
+
+                        <div class="d-flex align-items-center gap-3 text-white">
+                            <div class="rounded-circle d-flex align-items-center justify-content-center bg-white bg-opacity-10 text-gold flex-shrink-0" style="width: 38px; height: 38px;">
+                                <i class="bi bi-shield-lock-fill fs-5" aria-hidden="true"></i>
+                            </div>
+                            <div class="small lh-sm">
+                                <strong class="d-block text-white">Secure Institutional Gateway</strong>
+                                <span class="opacity-75">Role-based student, faculty, and administrative portals</span>
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 
-                <!-- Footer area of left panel if needed, currently empty to match mockup -->
-                <div></div>
+                <!-- Bottom Live Status -->
+                <div class="d-flex align-items-center justify-content-between pt-3 border-top border-white border-opacity-15">
+                    <div class="auth-status-pill d-flex align-items-center gap-2 px-3 py-1.5 rounded-pill bg-white bg-opacity-10 text-white small">
+                        <span class="auth-status-indicator" aria-hidden="true"></span>
+                        <span class="opacity-90">All Systems Operational &bull; 2026/27</span>
+                    </div>
+                    <span class="text-white opacity-60 small">v2.4 LTS</span>
+                </div>
             </div>
             
-            <!-- Graphic/Building Illustration Placeholder (using CSS for abstract look) -->
-            <div class="auth-abstract-bg position-absolute bottom-0 start-0 w-100 z-1"></div>
-        </div>
+            <!-- Graphic/Building Illustration Placeholder -->
+            <div class="auth-abstract-bg position-absolute bottom-0 start-0 w-100 z-1" aria-hidden="true"></div>
+        </aside>
         
-        <!-- Right Panel (Form) -->
-        <div class="auth-right-panel d-flex flex-column justify-content-center align-items-center w-100 w-lg-50 bg-white position-relative">
-            <div class="auth-form-wrapper w-100 p-4 p-md-5" style="max-width: 550px;">
+        <!-- Right Panel: Authentication Form -->
+        <main class="auth-right-panel d-flex flex-column justify-content-center align-items-center w-100 w-lg-50 bg-white position-relative" id="mainContent">
+            <div class="auth-form-wrapper w-100 p-4 p-md-5" style="max-width: 520px;">
                 @RenderBody()
             </div>
-        </div>
+        </main>
         
     </div>
 
