@@ -1,0 +1,142 @@
+/* AUB Digital Academy - Progressive Motion & Animation Engine */
+
+/* 1. Progressive Enhancement Base State
+   Crucial: If JavaScript fails, is blocked, or slow, all elements remain 100% visible and interactive.
+*/
+.reveal-up,
+.reveal-fade,
+.reveal-scale,
+.reveal-left,
+.reveal-right {
+    opacity: 1;
+    transform: none;
+}
+
+/* 2. Armed State (Only active when JavaScript is ready and user has not requested reduced motion) */
+html.js-ready:not(.reduced-motion) .reveal-up {
+    opacity: 0;
+    transform: translateY(20px);
+    transition: opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1), transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+    will-change: opacity, transform;
+}
+
+html.js-ready:not(.reduced-motion) .reveal-fade {
+    opacity: 0;
+    transition: opacity 0.5s ease;
+    will-change: opacity;
+}
+
+html.js-ready:not(.reduced-motion) .reveal-scale {
+    opacity: 0;
+    transform: scale(0.95);
+    transition: opacity 0.5s ease, transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+    will-change: opacity, transform;
+}
+
+html.js-ready:not(.reduced-motion) .reveal-left {
+    opacity: 0;
+    transform: translateX(-24px);
+    transition: opacity 0.5s ease, transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+    will-change: opacity, transform;
+}
+
+html.js-ready:not(.reduced-motion) .reveal-right {
+    opacity: 0;
+    transform: translateX(24px);
+    transition: opacity 0.5s ease, transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+    will-change: opacity, transform;
+}
+
+/* 3. Active Entrance State */
+.reveal-active {
+    opacity: 1 !important;
+    transform: translate(0, 0) scale(1) !important;
+}
+
+/* 4. Settled State (Settles into static document flow)
+   Ensures no leftover JavaScript or CSS transforms clip modals, dropdowns, or hover effects.
+*/
+.settled {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+    will-change: auto !important;
+}
+
+/* 5. Staggered Delay Helpers */
+.delay-100 { transition-delay: 0.1s; }
+.delay-150 { transition-delay: 0.15s; }
+.delay-200 { transition-delay: 0.2s; }
+.delay-300 { transition-delay: 0.3s; }
+.delay-400 { transition-delay: 0.4s; }
+.delay-500 { transition-delay: 0.5s; }
+
+/* 6. Subtle Continuous Ambient Motion Keyframes */
+@keyframes floatSlow {
+    0%, 100% {
+        transform: translateY(0px);
+    }
+    50% {
+        transform: translateY(-8px);
+    }
+}
+
+@keyframes floatReverse {
+    0%, 100% {
+        transform: translateY(0px);
+    }
+    50% {
+        transform: translateY(6px);
+    }
+}
+
+@keyframes pulseGlow {
+    0%, 100% {
+        box-shadow: 0 0 12px rgba(245, 184, 0, 0.25);
+    }
+    50% {
+        box-shadow: 0 0 24px rgba(245, 184, 0, 0.5);
+    }
+}
+
+.float-slow {
+    animation: floatSlow 5s ease-in-out infinite;
+}
+
+.float-reverse {
+    animation: floatReverse 6s ease-in-out infinite;
+}
+
+.glow-pulse {
+    animation: pulseGlow 3.5s ease-in-out infinite;
+}
+
+/* 7. Comprehensive Reduced Motion Support */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+
+    .reveal-up,
+    .reveal-fade,
+    .reveal-scale,
+    .reveal-left,
+    .reveal-right,
+    .reveal-active,
+    .settled {
+        opacity: 1 !important;
+        transform: none !important;
+        transition: none !important;
+    }
+
+    .float-slow,
+    .float-reverse,
+    .glow-pulse {
+        animation: none !important;
+    }
+}

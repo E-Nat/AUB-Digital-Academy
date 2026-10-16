@@ -1,0 +1,810 @@
+/* ==========================================================================
+   AUB Digital Academy - Public Website Design System
+   Color Palette: Navy (#0B1733), Blue Accent (#4F9CF9), Gold (#F5B800), Light (#F8FAFC)
+   ========================================================================== */
+
+:root {
+    --aub-navy: #0B1733;
+    --aub-navy-dark: #060D1E;
+    --aub-navy-light: #162447;
+    --aub-gold: #F5B800;
+    --aub-gold-hover: #E0A800;
+    --aub-blue: #2563EB;
+    --aub-blue-accent: #3B82F6;
+    --aub-blue-light: #60A5FA;
+    --aub-blue-glow: rgba(37, 99, 235, 0.25);
+    --aub-bg-light: #F8FAFC;
+    --aub-surface: #FFFFFF;
+    --aub-border: #E2E8F0;
+    --aub-text-main: #0F172A;
+    --aub-text-muted: #64748B;
+    --aub-card-shadow: 0 4px 16px -2px rgba(11, 23, 51, 0.06), 0 2px 6px -1px rgba(11, 23, 51, 0.04);
+    --aub-card-hover-shadow: 0 16px 32px -4px rgba(11, 23, 51, 0.12);
+    --header-height: 76px;
+}
+
+/* Document Reset & Layout Base */
+html {
+    scroll-behavior: smooth;
+    scroll-padding-top: var(--header-height);
+    box-sizing: border-box;
+}
+
+*, *::before, *::after {
+    box-sizing: inherit;
+}
+
+body.welcome-body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background-color: var(--aub-bg-light);
+    color: var(--aub-text-main);
+    overflow-x: hidden;
+    margin: 0;
+    padding: 0;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* Sections Anchor Offset to prevent sticky navbar overlap */
+section[id] {
+    scroll-margin-top: var(--header-height);
+}
+
+.container-max {
+    max-width: 1280px;
+    margin-left: auto;
+    margin-right: auto;
+    padding-left: 1.25rem;
+    padding-right: 1.25rem;
+}
+
+/* Accessibility Skip Link */
+.skip-nav-link {
+    position: absolute;
+    top: -50px;
+    left: 20px;
+    background: var(--aub-gold);
+    color: var(--aub-navy-dark);
+    font-weight: 700;
+    padding: 10px 16px;
+    border-radius: 6px;
+    z-index: 2000;
+    transition: top 0.2s ease;
+    text-decoration: none;
+}
+
+.skip-nav-link:focus {
+    top: 15px;
+    outline: 3px solid #FFFFFF;
+}
+
+/* Color & Text Helpers */
+.text-gold {
+    color: var(--aub-gold) !important;
+}
+
+.text-blue-accent {
+    color: var(--aub-blue-light) !important;
+}
+
+.bg-navy-dark {
+    background-color: var(--aub-navy-dark) !important;
+}
+
+/* Section Header Typography */
+.section-label {
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    color: var(--aub-blue);
+    text-transform: uppercase;
+}
+
+.section-label-line {
+    display: inline-block;
+    width: 20px;
+    height: 2px;
+    background-color: var(--aub-blue);
+    border-radius: 2px;
+}
+
+/* ==========================================================================
+   Navigation System (Sticky Header with Fixed Offset)
+   ========================================================================== */
+
+.welcome-header.sticky-top {
+    position: sticky;
+    top: 0;
+    z-index: 1020;
+    background: rgba(11, 23, 51, 0.94);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    transition: background 0.3s ease, box-shadow 0.3s ease;
+}
+
+.welcome-navbar {
+    padding: 0.85rem 0;
+}
+
+.welcome-header.scrolled {
+    background: rgba(6, 13, 30, 0.98);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+.brand-logo-icon {
+    width: 38px;
+    height: 38px;
+    background: linear-gradient(135deg, var(--aub-blue), #1D4ED8);
+    color: #FFFFFF;
+    border-radius: 9px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.2rem;
+    box-shadow: 0 4px 10px var(--aub-blue-glow);
+    flex-shrink: 0;
+}
+
+.brand-text-container {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.1;
+}
+
+.brand-title {
+    font-weight: 800;
+    font-size: 1.18rem;
+    color: #FFFFFF;
+    letter-spacing: -0.02em;
+}
+
+.brand-subtitle {
+    font-size: 0.55rem;
+    font-weight: 700;
+    color: var(--aub-gold);
+    letter-spacing: 0.12em;
+}
+
+/* Navigation Links */
+.navbar-nav .nav-link {
+    color: rgba(255, 255, 255, 0.82);
+    font-weight: 500;
+    font-size: 0.92rem;
+    padding: 0.4rem 0;
+    position: relative;
+    transition: color 0.2s ease;
+}
+
+.navbar-nav .nav-link:hover,
+.navbar-nav .nav-link.active {
+    color: #FFFFFF;
+}
+
+.nav-indicator {
+    position: absolute;
+    bottom: -2px;
+    left: 0;
+    width: 0;
+    height: 2px;
+    background: linear-gradient(90deg, var(--aub-gold), var(--aub-blue-light));
+    border-radius: 2px;
+    transition: width 0.25s ease;
+}
+
+.navbar-nav .nav-link:hover .nav-indicator,
+.navbar-nav .nav-link.active .nav-indicator {
+    width: 100%;
+}
+
+/* Button System */
+.btn-gold-action {
+    background: linear-gradient(135deg, var(--aub-gold), var(--aub-gold-hover));
+    color: var(--aub-navy-dark);
+    font-weight: 700;
+    font-size: 0.88rem;
+    padding: 0.55rem 1.35rem;
+    border-radius: 50rem;
+    border: none;
+    box-shadow: 0 2px 10px rgba(245, 184, 0, 0.28);
+    transition: all 0.2s ease;
+    text-decoration: none;
+}
+
+.btn-gold-action:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 16px rgba(245, 184, 0, 0.4);
+    color: #000000;
+}
+
+.btn-outline-signin {
+    color: #FFFFFF;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.08);
+    font-weight: 600;
+    font-size: 0.88rem;
+    padding: 0.55rem 1.25rem;
+    border-radius: 50rem;
+    transition: all 0.2s ease;
+    text-decoration: none;
+}
+
+.btn-outline-signin:hover {
+    background: rgba(255, 255, 255, 0.16);
+    border-color: rgba(255, 255, 255, 0.35);
+    color: #FFFFFF;
+    transform: translateY(-1px);
+}
+
+/* Mobile Toggle & Drawer */
+.mobile-toggle-btn {
+    background: transparent;
+    border: none;
+    color: #FFFFFF;
+    padding: 0.35rem;
+    border-radius: 6px;
+}
+
+.mobile-toggle-btn:focus-visible {
+    outline: 2px solid var(--aub-gold);
+}
+
+.mobile-drawer {
+    position: fixed;
+    top: 0;
+    right: -320px;
+    width: 300px;
+    height: 100vh;
+    background: var(--aub-navy-dark);
+    z-index: 1050;
+    padding: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    transition: right 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow: -8px 0 24px rgba(0, 0, 0, 0.6);
+}
+
+.mobile-drawer.active {
+    right: 0;
+}
+
+.mobile-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(3px);
+    z-index: 1040;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s ease;
+}
+
+.mobile-backdrop.active {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.mobile-nav-link {
+    display: block;
+    padding: 0.75rem 1rem;
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 0.98rem;
+    font-weight: 500;
+    border-radius: 8px;
+    text-decoration: none;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+
+.mobile-nav-link:hover,
+.mobile-nav-link.active {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--aub-gold);
+}
+
+/* ==========================================================================
+   1. Hero Section
+   ========================================================================== */
+
+.hero-section {
+    position: relative;
+    background-color: var(--aub-navy);
+    background: radial-gradient(circle at 75% 25%, #162B5E 0%, var(--aub-navy) 60%, var(--aub-navy-dark) 100%);
+    padding-top: 64px;
+    padding-bottom: 64px;
+    overflow: hidden;
+}
+
+.hero-glow-overlay {
+    position: absolute;
+    top: 15%;
+    right: 5%;
+    width: 440px;
+    height: 440px;
+    background: radial-gradient(circle, rgba(79, 156, 249, 0.14) 0%, rgba(11, 23, 51, 0) 70%);
+    pointer-events: none;
+    z-index: 1;
+}
+
+.hero-badge {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: #FFFFFF;
+    font-size: 0.8rem;
+    font-weight: 600;
+    padding: 0.35rem 1rem;
+    border-radius: 50rem;
+    letter-spacing: 0.02em;
+}
+
+.hero-title {
+    font-size: clamp(2.1rem, 4.2vw, 3.4rem);
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    line-height: 1.18;
+    color: #FFFFFF;
+}
+
+.hero-subtitle {
+    font-size: 1.05rem;
+    color: rgba(255, 255, 255, 0.8);
+    line-height: 1.65;
+    max-width: 520px;
+}
+
+.hero-image-wrapper {
+    position: relative;
+    border-radius: 20px;
+}
+
+.hero-main-img {
+    width: 100%;
+    aspect-ratio: 4 / 3;
+    border-radius: 20px;
+    box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.45);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    object-fit: cover;
+}
+
+/* Floating Glass Cards */
+.floating-glass-card {
+    position: absolute;
+    background: rgba(11, 23, 51, 0.9);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 14px;
+    padding: 0.75rem 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.35);
+    z-index: 5;
+}
+
+.floating-glass-card.card-bottom-left {
+    bottom: -15px;
+    left: -15px;
+}
+
+.floating-glass-card.card-top-right {
+    top: -15px;
+    right: -15px;
+}
+
+.icon-glow-bg {
+    width: 38px;
+    height: 38px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.1rem;
+    color: #FFFFFF;
+}
+
+.icon-glow-bg.blue {
+    background: linear-gradient(135deg, #2563EB, #1D4ED8);
+    box-shadow: 0 2px 10px rgba(37, 99, 235, 0.4);
+}
+
+.icon-glow-bg.gold {
+    background: linear-gradient(135deg, var(--aub-gold), #D97706);
+    box-shadow: 0 2px 10px rgba(245, 184, 0, 0.4);
+}
+
+/* ==========================================================================
+   2. Programs Section
+   ========================================================================== */
+
+.programs-section {
+    background-color: var(--aub-surface);
+    padding: 64px 0;
+}
+
+/* Category Filter Chips */
+.category-filter-wrapper {
+    display: flex;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.chip-filter {
+    background: #F1F5F9;
+    border: 1px solid var(--aub-border);
+    color: var(--aub-text-muted);
+    padding: 0.45rem 1.15rem;
+    border-radius: 50rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    user-select: none;
+}
+
+.chip-filter:hover {
+    color: var(--aub-navy);
+    border-color: #CBD5E1;
+    background: #E2E8F0;
+}
+
+.chip-filter.active {
+    background: var(--aub-navy);
+    color: #FFFFFF;
+    border-color: var(--aub-navy);
+    box-shadow: 0 2px 8px rgba(11, 23, 51, 0.15);
+}
+
+.chip-filter.active i {
+    color: var(--aub-gold);
+}
+
+.chip-filter:focus-visible {
+    outline: 2px solid var(--aub-blue);
+    outline-offset: 1px;
+}
+
+/* Program Cards */
+.card-program-refined {
+    background: var(--aub-surface);
+    border: 1px solid var(--aub-border);
+    border-radius: 16px;
+    padding: 1.75rem;
+    box-shadow: var(--aub-card-shadow);
+    transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+}
+
+.card-program-refined:hover {
+    transform: translateY(-4px);
+    box-shadow: var(--aub-card-hover-shadow);
+    border-color: var(--aub-blue);
+}
+
+.card-icon-square {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.4rem;
+    flex-shrink: 0;
+}
+
+.card-icon-square.icon-blue {
+    background: rgba(37, 99, 235, 0.1);
+    color: var(--aub-blue);
+}
+
+.card-icon-square.icon-gold {
+    background: rgba(245, 184, 0, 0.12);
+    color: #B45309;
+}
+
+.card-degree-badge {
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+}
+
+.card-title-bold {
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: var(--aub-navy);
+    line-height: 1.35;
+}
+
+.card-explore-btn {
+    color: var(--aub-blue);
+    font-weight: 700;
+    font-size: 0.85rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    transition: gap 0.2s ease;
+}
+
+.card-program-refined:hover .card-explore-btn {
+    gap: 0.5rem;
+}
+
+/* ==========================================================================
+   3. Why Choose AUB Section
+   ========================================================================== */
+
+.feature-showcase-section {
+    padding: 64px 0;
+    background-color: var(--aub-bg-light);
+}
+
+.feature-image-card {
+    border-radius: 18px;
+    overflow: hidden;
+    box-shadow: var(--aub-card-shadow);
+    border: 1px solid rgba(0, 0, 0, 0.06);
+    aspect-ratio: 4 / 3;
+}
+
+.feature-card-item {
+    background: var(--aub-surface);
+    border: 1px solid var(--aub-border);
+    border-radius: 14px;
+    padding: 1.25rem 1.5rem;
+    display: flex;
+    align-items: flex-start;
+    box-shadow: var(--aub-card-shadow);
+    transition: transform 0.2s ease, border-color 0.2s ease;
+}
+
+.feature-card-item:hover {
+    transform: translateX(4px);
+    border-color: var(--aub-blue);
+}
+
+.feature-card-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 11px;
+    background: rgba(37, 99, 235, 0.09);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.25rem;
+}
+
+.feature-card-title {
+    font-size: 1.02rem;
+    font-weight: 700;
+    color: var(--aub-navy);
+}
+
+.feature-card-desc {
+    font-size: 0.86rem;
+    color: var(--aub-text-muted);
+    line-height: 1.55;
+}
+
+/* ==========================================================================
+   4. Courses Section
+   ========================================================================== */
+
+.courses-section {
+    padding: 64px 0;
+    background-color: var(--aub-surface);
+}
+
+.card-course-premium {
+    background: var(--aub-surface);
+    border: 1px solid var(--aub-border);
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: var(--aub-card-shadow);
+    transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+}
+
+.card-course-premium:hover {
+    transform: translateY(-4px);
+    box-shadow: var(--aub-card-hover-shadow);
+    border-color: var(--aub-blue);
+}
+
+.course-thumbnail {
+    aspect-ratio: 16 / 9;
+    overflow: hidden;
+    background-color: #E2E8F0;
+}
+
+.course-thumbnail img {
+    transition: transform 0.35s ease;
+}
+
+.card-course-premium:hover .course-thumbnail img {
+    transform: scale(1.04);
+}
+
+.course-title-clamp {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    line-height: 1.35;
+}
+
+.course-desc-clamp {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.btn-course-cta {
+    background: var(--aub-navy);
+    color: #FFFFFF;
+    border: none;
+    border-radius: 50rem;
+    transition: all 0.2s ease;
+    text-decoration: none;
+}
+
+.btn-course-cta:hover {
+    background: var(--aub-blue);
+    color: #FFFFFF;
+    box-shadow: 0 4px 12px var(--aub-blue-glow);
+}
+
+/* ==========================================================================
+   5. About Section
+   ========================================================================== */
+
+.about-section {
+    padding: 64px 0;
+    background-color: var(--aub-bg-light);
+}
+
+.about-card-wrapper {
+    background: var(--aub-surface);
+    border-radius: 20px;
+    padding: 2.75rem;
+    box-shadow: var(--aub-card-shadow);
+    border: 1px solid var(--aub-border);
+}
+
+.about-image-card {
+    aspect-ratio: 4 / 3;
+}
+
+/* ==========================================================================
+   6. Footer
+   ========================================================================== */
+
+.landing-footer {
+    background: var(--aub-navy-dark);
+    color: #FFFFFF;
+    padding: 60px 0 32px;
+}
+
+.footer-link {
+    color: rgba(255, 255, 255, 0.7);
+    text-decoration: none;
+    transition: color 0.18s ease;
+}
+
+.footer-link:hover {
+    color: var(--aub-gold);
+}
+
+.social-btn {
+    width: 36px;
+    height: 36px;
+    border-radius: 9px;
+    background: rgba(255, 255, 255, 0.08);
+    color: #FFFFFF;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+    transition: all 0.2s ease;
+}
+
+.social-btn:hover {
+    background: var(--aub-blue);
+    color: #FFFFFF;
+    transform: translateY(-1px);
+}
+
+/* Focus outline for keyboard navigation */
+a:focus-visible,
+button:focus-visible {
+    outline: 2px solid var(--aub-gold);
+    outline-offset: 2px;
+}
+
+/* ==========================================================================
+   Responsive Adaptations (1920, 1440, 1024, 768, 390, 320 px)
+   ========================================================================== */
+
+@media (max-width: 991.98px) {
+    .hero-section {
+        padding-top: 48px;
+        padding-bottom: 48px;
+    }
+
+    .hero-main-img {
+        max-width: 480px;
+        margin-left: auto;
+        margin-right: auto;
+        display: block;
+    }
+
+    .floating-glass-card.card-bottom-left {
+        bottom: 5px;
+        left: 5px;
+    }
+
+    .floating-glass-card.card-top-right {
+        top: 5px;
+        right: 5px;
+    }
+
+    .about-card-wrapper {
+        padding: 1.75rem;
+    }
+}
+
+@media (max-width: 575.98px) {
+    .hero-section {
+        padding-top: 40px;
+        padding-bottom: 40px;
+    }
+
+    .hero-title {
+        font-size: 1.85rem;
+    }
+
+    .hero-subtitle {
+        font-size: 0.95rem;
+    }
+
+    .floating-glass-card {
+        padding: 0.5rem 0.75rem;
+        font-size: 0.8rem;
+    }
+
+    .floating-glass-card .text-sm {
+        font-size: 0.82rem !important;
+    }
+
+    .floating-glass-card .text-xs {
+        font-size: 0.7rem !important;
+    }
+
+    .icon-glow-bg {
+        width: 32px;
+        height: 32px;
+        font-size: 0.95rem;
+    }
+
+    .about-card-wrapper {
+        padding: 1.25rem;
+    }
+}
+
+@media (max-width: 350px) {
+    .brand-title {
+        font-size: 1.05rem;
+    }
+
+    .hero-title {
+        font-size: 1.65rem;
+    }
+
+    .btn-gold-action,
+    .btn-outline-signin {
+        width: 100%;
+        text-align: center;
+        justify-content: center;
+    }
+}

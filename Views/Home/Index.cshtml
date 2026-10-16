@@ -1,8 +1,450 @@
-﻿@{
-    ViewData["Title"] = "Home Page";
+@using AUBDigitalAcademy.Models
+@using AUBDigitalAcademy.Models.Enums
+@{
+    Layout = "_WelcomeLayout";
+    ViewData["Title"] = "AUB Digital Academy - Academic Excellence";
+    var categories = ViewBag.Categories as List<Category> ?? new List<Category>();
+    var majors = ViewBag.Majors as List<Major> ?? new List<Major>();
+    var courses = ViewBag.Courses as List<Course> ?? new List<Course>();
+    int publishedCoursesCount = ViewBag.PublishedCoursesCount ?? courses.Count;
+    int totalProgramsCount = ViewBag.TotalProgramsCount ?? majors.Count;
+    int totalStudentsCount = ViewBag.TotalStudentsCount ?? 1200;
 }
 
-<div class="text-center">
-    <h1 class="display-4">Welcome</h1>
-    <p>Learn about <a href="https://learn.microsoft.com/aspnet/core">building Web apps with ASP.NET Core</a>.</p>
-</div>
+<!-- 1. Hero Section -->
+<section id="home" class="hero-section" aria-labelledby="heroTitle">
+    <div class="hero-glow-overlay" aria-hidden="true"></div>
+
+    <div class="container-max position-relative" style="z-index: 2;">
+        <div class="row align-items-center g-4 g-lg-5">
+            
+            <!-- Hero Left Column: Academic Value Proposition -->
+            <div class="col-lg-6 text-center text-lg-start">
+                <div class="reveal-up">
+                    <span class="hero-badge mb-3 d-inline-flex align-items-center gap-2">
+                        <i class="bi bi-patch-check-fill text-gold" aria-hidden="true"></i>
+                        <span>Accredited Higher Education &bull; 2026/27</span>
+                    </span>
+                </div>
+                
+                <h1 id="heroTitle" class="hero-title reveal-up delay-100 mb-3">
+                    Shape Your Future with <br class="d-none d-sm-inline">
+                    <span class="text-blue-accent">Digital</span> <span class="text-gold">Excellence</span>
+                </h1>
+                
+                <p class="hero-subtitle reveal-up delay-200 mb-4 mx-auto mx-lg-0">
+                    A high-integrity university learning platform engineered for AUB students and faculty. Master in-demand skills through structured coursework, direct faculty mentorship, and verifiable progress.
+                </p>
+                
+                <div class="reveal-up delay-300 d-flex flex-wrap gap-2.5 justify-content-center justify-content-lg-start align-items-center">
+                    <a href="#programs" class="btn btn-gold-action d-inline-flex align-items-center gap-2">
+                        Explore Programs <i class="bi bi-arrow-down" aria-hidden="true"></i>
+                    </a>
+                    @if (User.Identity != null && User.Identity.IsAuthenticated)
+                    {
+                        var dashUrl = User.IsInRole("Admin") ? "/Admin" : User.IsInRole("Teacher") ? "/Teacher/Dashboard" : "/Student/Dashboard";
+                        <a href="@dashUrl" class="btn btn-outline-signin d-inline-flex align-items-center gap-2">
+                            <i class="bi bi-grid-fill" aria-hidden="true"></i> Go to Dashboard
+                        </a>
+                    }
+                    else
+                    {
+                        <a href="/Account/Login" class="btn btn-outline-signin d-inline-flex align-items-center gap-2">
+                            <i class="bi bi-person" aria-hidden="true"></i> Sign In to Portal
+                        </a>
+                    }
+                </div>
+            </div>
+
+            <!-- Hero Right Column: Institutional Showcase & Dynamic Stats -->
+            <div class="col-lg-6 position-relative">
+                <div class="hero-image-wrapper reveal-up delay-300">
+                    <img src="~/images/hero_digital_learning.jpg" 
+                         alt="Students collaborating at AUB Digital Academy" 
+                         class="hero-main-img"
+                         loading="eager" />
+                    
+                    <!-- Floating Stat 1: Real Degree Programs -->
+                    <div class="floating-glass-card card-top-right float-slow" aria-hidden="true">
+                        <div class="icon-glow-bg gold flex-shrink-0">
+                            <i class="bi bi-award-fill"></i>
+                        </div>
+                        <div>
+                            <div class="text-white fw-bold text-sm">@totalProgramsCount Academic Programs</div>
+                            <small class="text-white text-opacity-75 text-xs">Accredited Degrees</small>
+                        </div>
+                    </div>
+
+                    <!-- Floating Stat 2: Real Published Courses -->
+                    <div class="floating-glass-card card-bottom-left float-reverse" aria-hidden="true">
+                        <div class="icon-glow-bg blue flex-shrink-0">
+                            <i class="bi bi-journal-bookmark-fill"></i>
+                        </div>
+                        <div>
+                            <div class="text-white fw-bold text-sm">@publishedCoursesCount Published Courses</div>
+                            <small class="text-white text-opacity-75 text-xs">Active Curriculum</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+</section>
+
+<!-- 2. Featured Programs Section -->
+<section id="programs" class="programs-section" aria-labelledby="programsTitle">
+    <div class="container-max">
+        
+        <!-- Section Header -->
+        <div class="text-center mb-4">
+            <span class="section-label mb-2 d-inline-flex align-items-center justify-content-center gap-2 reveal-up">
+                <span class="section-label-line" aria-hidden="true"></span>
+                <span>DEGREE PROGRAMS</span>
+                <span class="section-label-line" aria-hidden="true"></span>
+            </span>
+            <h2 id="programsTitle" class="fw-bold display-6 mb-2 text-dark reveal-up delay-100">Academic Undergraduate Programs</h2>
+            <p class="text-muted mx-auto mb-0 reveal-up delay-200" style="max-width: 640px;">
+                Industry-aligned degree programs structured to develop future-proof technical, analytical, and managerial leadership.
+            </p>
+        </div>
+
+        <!-- Functional Category Filter Chips (Single row, zero duplicates) -->
+        <div class="category-filter-wrapper mb-4 reveal-up delay-200" role="tablist" aria-label="Filter programs by category">
+            <button type="button" class="chip-filter active" data-filter="all" role="tab" aria-selected="true">
+                <i class="bi bi-grid-fill me-1" aria-hidden="true"></i> All Programs (@majors.Count)
+            </button>
+            @foreach (var cat in categories)
+            {
+                var catMajorCount = cat.Majors.Count;
+                var iconClass = cat.Name.Contains("Business") ? "bi-briefcase-fill" : "bi-cpu-fill";
+                <button type="button" class="chip-filter" data-filter="cat-@cat.Id" role="tab" aria-selected="false">
+                    <i class="bi @iconClass me-1" aria-hidden="true"></i> @cat.Name (@catMajorCount)
+                </button>
+            }
+        </div>
+
+        <!-- Programs Grid -->
+        <div class="row g-3 g-lg-4" id="programsGrid">
+            @if (majors.Any())
+            {
+                foreach (var major in majors)
+                {
+                    var isTech = major.Category?.Name.Contains("Business") != true;
+                    var iconName = major.Code switch
+                    {
+                        "SE" => "bi-code-slash",
+                        "CS" => "bi-laptop",
+                        "DSAI" => "bi-diagram-3",
+                        "BA" => "bi-briefcase",
+                        "FB" => "bi-bank",
+                        "DM" => "bi-megaphone",
+                        _ => "bi-mortarboard"
+                    };
+
+                    <div class="col-12 col-md-6 col-lg-4 program-card-col reveal-up" data-category="cat-@major.CategoryId">
+                        <div class="card-program-refined h-100 d-flex flex-column">
+                            <div class="d-flex align-items-center justify-content-between mb-3">
+                                <div class="card-icon-square @(isTech ? "icon-blue" : "icon-gold")" aria-hidden="true">
+                                    <i class="bi @iconName"></i>
+                                </div>
+                                <span class="badge @(isTech ? "bg-primary" : "bg-warning text-dark") bg-opacity-10 @(isTech ? "text-primary" : "") rounded-pill px-2.5 py-1 text-xs fw-semibold">
+                                    @(major.Category?.Name ?? "Undergraduate")
+                                </span>
+                            </div>
+
+                            <span class="card-degree-badge mb-1 text-secondary text-uppercase font-semibold">Bachelor of Science &bull; @major.Code</span>
+                            <h3 class="card-title-bold mb-2">@major.Name</h3>
+                            
+                            <p class="text-muted text-sm mb-3 flex-grow-1" style="line-height: 1.6;">
+                                @if (major.Code == "SE")
+                                {
+                                    <span>Architect enterprise software, scalable web systems, cloud computing microservices, and continuous deployment pipelines.</span>
+                                }
+                                else if (major.Code == "CS")
+                                {
+                                    <span>Master algorithmic theory, computational complexity, computer systems architecture, and distributed computing.</span>
+                                }
+                                else if (major.Code == "DSAI")
+                                {
+                                    <span>Develop machine learning architectures, statistical modeling pipelines, neural networks, and business data analytics.</span>
+                                }
+                                else if (major.Code == "BA")
+                                {
+                                    <span>Lead organizational transformation, strategic enterprise leadership, operational governance, and modern digital commerce.</span>
+                                }
+                                else if (major.Code == "FB")
+                                {
+                                    <span>Analyze capital markets, corporate financial risk, automated investment strategies, and emerging fintech systems.</span>
+                                }
+                                else if (major.Code == "DM")
+                                {
+                                    <span>Formulate data-driven brand strategies, digital marketing automation, search algorithms, and audience retention metrics.</span>
+                                }
+                                else
+                                {
+                                    <span>Structured four-year degree program offering industry-leading academic curriculum and applied practicum.</span>
+                                }
+                            </p>
+
+                            <div class="d-flex justify-content-between align-items-center pt-3 border-top border-secondary border-opacity-10 mt-auto text-xs text-secondary font-medium">
+                                <span><i class="bi bi-clock me-1" aria-hidden="true"></i> 4 Years (8 Semesters)</span>
+                                <a href="#courses" class="card-explore-btn text-decoration-none">
+                                    Courses <i class="bi bi-arrow-right ms-0.5" aria-hidden="true"></i>
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                }
+            }
+            else
+            {
+                <div class="col-12 text-center py-5">
+                    <p class="text-muted">Academic degree programs are currently being scheduled for the upcoming term.</p>
+                </div>
+            }
+        </div>
+    </div>
+</section>
+
+<!-- 3. Why Choose AUB Section -->
+<section id="why-choose-us" class="feature-showcase-section" aria-labelledby="whyChooseTitle">
+    <div class="container-max">
+        
+        <div class="text-center mb-4">
+            <span class="section-label mb-2 d-inline-flex align-items-center justify-content-center gap-2 reveal-up">
+                <span class="section-label-line" aria-hidden="true"></span>
+                <span>INSTITUTIONAL ADVANTAGE</span>
+                <span class="section-label-line" aria-hidden="true"></span>
+            </span>
+            <h2 id="whyChooseTitle" class="fw-bold display-6 mb-2 text-dark reveal-up delay-100">
+                Why Study at <span class="text-gold">AUB Digital Academy</span>
+            </h2>
+            <p class="text-muted mx-auto mb-0 reveal-up delay-200" style="max-width: 640px;">
+                Combining international accreditation standards with an interactive online ecosystem tailored for practical excellence.
+            </p>
+        </div>
+
+        <div class="row align-items-center g-4 g-lg-5">
+            <!-- Left Side Showcase Image -->
+            <div class="col-lg-5 reveal-left">
+                <div class="feature-image-card">
+                    <img src="~/images/digital_learning_graphic.jpg" 
+                         alt="AUB smart campus and digital learning laboratory" 
+                         class="w-100 h-100 object-fit-cover rounded-4" 
+                         loading="lazy" />
+                </div>
+            </div>
+
+            <!-- Right Side Feature Pillars -->
+            <div class="col-lg-7">
+                <div class="d-flex flex-column gap-3">
+                    
+                    <div class="feature-card-item reveal-right delay-100">
+                        <div class="feature-card-icon me-3.5 flex-shrink-0" aria-hidden="true">
+                            <i class="bi bi-journal-check text-blue"></i>
+                        </div>
+                        <div>
+                            <h4 class="feature-card-title mb-1">Accredited Academic Curricula</h4>
+                            <p class="feature-card-desc mb-0">Course modules and syllabi aligned with international standards, delivering recognized degree credentials and foundational domain mastery.</p>
+                        </div>
+                    </div>
+
+                    <div class="feature-card-item reveal-right delay-200">
+                        <div class="feature-card-icon me-3.5 flex-shrink-0" aria-hidden="true">
+                            <i class="bi bi-person-workspace text-gold"></i>
+                        </div>
+                        <div>
+                            <h4 class="feature-card-title mb-1">Dedicated University Faculty Mentorship</h4>
+                            <p class="feature-card-desc mb-0">Learn directly under experienced academic faculty and industry practitioners with structured coursework consultations and feedback.</p>
+                        </div>
+                    </div>
+
+                    <div class="feature-card-item reveal-right delay-300">
+                        <div class="feature-card-icon me-3.5 flex-shrink-0" aria-hidden="true">
+                            <i class="bi bi-speedometer2 text-blue"></i>
+                        </div>
+                        <div>
+                            <h4 class="feature-card-title mb-1">Verifiable Progress & Continuous Assessment</h4>
+                            <p class="feature-card-desc mb-0">Self-paced interactive lessons, automated milestone tracking, chapter quizzes, and instructor-reviewed assignments on a unified platform.</p>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+        </div>
+    </div>
+</section>
+
+<!-- 4. Real Courses Section -->
+<section id="courses" class="courses-section" aria-labelledby="coursesTitle">
+    <div class="container-max">
+        
+        <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-end mb-4 gap-3">
+            <div class="reveal-up">
+                <span class="section-label mb-2 d-inline-flex align-items-center gap-2">
+                    <span class="section-label-line" aria-hidden="true"></span>
+                    <span>ACTIVE CURRICULUM</span>
+                </span>
+                <h2 id="coursesTitle" class="fw-bold display-6 mb-1 text-dark">Published Academic Courses</h2>
+                <p class="text-muted mb-0" style="max-width: 580px;">
+                    Explore verified courses offered this semester across degree departments.
+                </p>
+            </div>
+            
+            <a href="/Account/Login" class="btn btn-outline-signin text-dark border-secondary border-opacity-25 rounded-pill px-3.5 py-2 flex-shrink-0 reveal-up delay-100">
+                Access All Courses <i class="bi bi-arrow-right ms-1" aria-hidden="true"></i>
+            </a>
+        </div>
+
+        <!-- Course Cards Grid (Real database records, no fabricated ratings) -->
+        <div class="row g-3 g-lg-4" id="coursesGrid">
+            @if (courses.Any())
+            {
+                foreach (var course in courses)
+                {
+                    int lessonCount = course.Chapters?.SelectMany(ch => ch.CourseItems ?? new List<CourseItem>())
+                                           .Count(ci => ci.Type == ItemType.Lesson) ?? 0;
+                    string thumbnailPath = !string.IsNullOrEmpty(course.Thumbnail) ? course.Thumbnail : "/images/course_webdev.jpg";
+
+                    <div class="col-12 col-md-6 col-lg-3 course-card-col reveal-up">
+                        <article class="card-course-premium h-100 d-flex flex-column">
+                            <div class="course-thumbnail position-relative">
+                                <img src="@thumbnailPath" 
+                                     class="w-100 h-100 object-fit-cover" 
+                                     alt="Thumbnail for @course.Title"
+                                     loading="lazy" />
+                                <div class="course-badge-overlay position-absolute top-0 end-0 p-2.5">
+                                    <span class="badge bg-navy-dark text-white rounded-pill px-2.5 py-1 text-xs font-semibold">
+                                        @course.Code
+                                    </span>
+                                </div>
+                            </div>
+
+                            <div class="card-body p-3.5 d-flex flex-column flex-grow-1">
+                                <div class="d-flex align-items-center justify-content-between mb-2">
+                                    <span class="badge bg-primary bg-opacity-10 text-primary px-2.5 py-0.5 rounded-pill text-xs fw-semibold">
+                                        @(course.Major?.Name ?? "Curriculum")
+                                    </span>
+                                    <small class="text-secondary text-xs">
+                                        @(course.Semester?.Name ?? "Semester 2026")
+                                    </small>
+                                </div>
+
+                                <h3 class="course-title-clamp fw-bold text-dark mb-1.5 fs-6" title="@course.Title">
+                                    @course.Title
+                                </h3>
+
+                                <p class="text-muted text-xs course-desc-clamp mb-3" style="line-height: 1.55;">
+                                    @(string.IsNullOrEmpty(course.Description) ? "Comprehensive course modules covering practical core skills, theoretical foundations, and laboratory projects." : course.Description)
+                                </p>
+
+                                <div class="course-meta-row mt-auto pt-2.5 border-top border-secondary border-opacity-10 d-flex justify-content-between align-items-center text-secondary text-xs mb-3">
+                                    <span title="Faculty Instructor">
+                                        <i class="bi bi-person me-1" aria-hidden="true"></i>@(course.Teacher?.FullName ?? "AUB Faculty")
+                                    </span>
+                                    <span title="Course Lessons">
+                                        <i class="bi bi-journal-text me-1" aria-hidden="true"></i>@(lessonCount > 0 ? $"{lessonCount} Lessons" : "Curriculum Active")
+                                    </span>
+                                </div>
+
+                                <a href="/Account/Login" class="btn btn-course-cta w-100 py-2 text-center text-xs fw-semibold">
+                                    Enroll in Course <i class="bi bi-arrow-right ms-1" aria-hidden="true"></i>
+                                </a>
+                            </div>
+                        </article>
+                    </div>
+                }
+            }
+            else
+            {
+                <div class="col-12 text-center py-5">
+                    <p class="text-muted">No published courses are currently scheduled. Please check back shortly.</p>
+                </div>
+            }
+        </div>
+    </div>
+</section>
+
+<!-- 5. About Section (Authentic imagery, NO fake video) -->
+<section id="about" class="about-section" aria-labelledby="aboutTitle">
+    <div class="container-max">
+        <div class="about-card-wrapper">
+            <div class="row align-items-center g-4 g-lg-5">
+                
+                <div class="col-lg-6 reveal-left">
+                    <span class="section-label mb-2 d-inline-flex align-items-center gap-2">
+                        <span class="section-label-line" aria-hidden="true"></span>
+                        <span>ABOUT AUB</span>
+                    </span>
+                    <h2 id="aboutTitle" class="fw-bold display-6 mb-3 text-dark">About AUB Digital Academy</h2>
+                    <p class="text-muted mb-4" style="line-height: 1.7;">
+                        AUB Digital Academy is the dedicated educational technology division of the American University of Phnom Penh. Our mission is to bridge traditional academic rigor with modern digital capabilities, giving every student the resources to master software, analytics, and organizational management.
+                    </p>
+                    
+                    <div class="row g-3 pt-1">
+                        <div class="col-12 col-sm-6 reveal-up delay-100">
+                            <div class="d-flex align-items-start gap-2.5">
+                                <div class="rounded-3 bg-primary bg-opacity-10 p-2 text-primary flex-shrink-0" aria-hidden="true">
+                                    <i class="bi bi-lightbulb fs-5"></i>
+                                </div>
+                                <div>
+                                    <h5 class="fw-bold text-dark mb-1 text-sm">Applied Pedagogy</h5>
+                                    <p class="text-muted text-xs m-0">Hands-on problem solving paired with rigorous theory.</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-12 col-sm-6 reveal-up delay-200">
+                            <div class="d-flex align-items-start gap-2.5">
+                                <div class="rounded-3 bg-warning bg-opacity-10 p-2 text-warning flex-shrink-0" aria-hidden="true">
+                                    <i class="bi bi-people-fill fs-5"></i>
+                                </div>
+                                <div>
+                                    <h5 class="fw-bold text-dark mb-1 text-sm">Inclusive Community</h5>
+                                    <p class="text-muted text-xs m-0">Supportive academic network connecting learners & faculty.</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-12 col-sm-6 reveal-up delay-300">
+                            <div class="d-flex align-items-start gap-2.5">
+                                <div class="rounded-3 bg-success bg-opacity-10 p-2 text-success flex-shrink-0" aria-hidden="true">
+                                    <i class="bi bi-award fs-5"></i>
+                                </div>
+                                <div>
+                                    <h5 class="fw-bold text-dark mb-1 text-sm">Academic Standards</h5>
+                                    <p class="text-muted text-xs m-0">Strict adherence to national & international quality frameworks.</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-12 col-sm-6 reveal-up delay-400">
+                            <div class="d-flex align-items-start gap-2.5">
+                                <div class="rounded-3 bg-info bg-opacity-10 p-2 text-info flex-shrink-0" aria-hidden="true">
+                                    <i class="bi bi-building-check fs-5"></i>
+                                </div>
+                                <div>
+                                    <h5 class="fw-bold text-dark mb-1 text-sm">Career Readiness</h5>
+                                    <p class="text-muted text-xs m-0">Equipping graduates for leadership in high-growth industries.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-lg-6 reveal-right delay-200">
+                    <div class="about-image-card position-relative rounded-4 overflow-hidden shadow-sm border">
+                        <img src="~/images/digital_learning_graphic.jpg" 
+                             alt="AUB Digital Academy modern academic environment" 
+                             class="w-100 h-100 object-fit-cover"
+                             loading="lazy" />
+                        <div class="about-badge-pill position-absolute bottom-0 start-0 m-3 px-3 py-2 rounded-3 bg-navy-dark bg-opacity-90 text-white small d-flex align-items-center gap-2">
+                            <i class="bi bi-mortarboard-fill text-gold" aria-hidden="true"></i>
+                            <span>American University of Phnom Penh &bull; Digital Academy</span>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+</section>

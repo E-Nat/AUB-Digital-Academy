@@ -157,6 +157,30 @@ public static class SeedData
             }
         }
 
+        // 5b. Ensure Business & Management Category and Majors exist
+        var busCategory = await context.Categories.FirstOrDefaultAsync(c => c.Name == "Business & Management");
+        if (busCategory == null)
+        {
+            busCategory = new Category { Name = "Business & Management" };
+            context.Categories.Add(busCategory);
+            await context.SaveChangesAsync();
+
+            var newMajors = new List<Major>
+            {
+                new Major { Name = "Business Administration", Code = "BA", CategoryId = busCategory.Id },
+                new Major { Name = "Finance & Banking", Code = "FB", CategoryId = busCategory.Id },
+                new Major { Name = "Digital Marketing", Code = "DM", CategoryId = busCategory.Id }
+            };
+            foreach (var m in newMajors)
+            {
+                if (!await context.Majors.AnyAsync(x => x.Code == m.Code))
+                {
+                    context.Majors.Add(m);
+                }
+            }
+            await context.SaveChangesAsync();
+        }
+
         // 6. Seed Semesters if empty
         if (!await context.Semesters.AnyAsync())
         {
@@ -179,6 +203,105 @@ public static class SeedData
                 }
             );
             await context.SaveChangesAsync();
+        }
+
+        // 7. Seed Foundational Published Courses if empty
+        if (!await context.Courses.AnyAsync())
+        {
+            var teacher = await userManager.FindByEmailAsync("teacher@aub.edu.kh");
+            var semester = await context.Semesters.FirstOrDefaultAsync(s => s.Code == "SP26")
+                           ?? await context.Semesters.FirstOrDefaultAsync();
+            var seMajor = await context.Majors.FirstOrDefaultAsync(m => m.Code == "SE")
+                          ?? await context.Majors.FirstOrDefaultAsync();
+            var csMajor = await context.Majors.FirstOrDefaultAsync(m => m.Code == "CS")
+                          ?? seMajor;
+            var dsaiMajor = await context.Majors.FirstOrDefaultAsync(m => m.Code == "DSAI")
+                            ?? seMajor;
+            var baMajor = await context.Majors.FirstOrDefaultAsync(m => m.Code == "BA")
+                          ?? seMajor;
+
+            if (teacher != null && semester != null && seMajor != null)
+            {
+                var seedCourses = new List<Course>
+                {
+                    new Course
+                    {
+                        Code = "CS301",
+                        Title = "Full-Stack Web Engineering",
+                        Description = "Modern enterprise web architecture, secure RESTful APIs, relational databases, and cloud application deployment.",
+                        Status = AUBDigitalAcademy.Models.Enums.CourseStatus.Published,
+                        MajorId = seMajor.Id,
+                        SemesterId = semester.Id,
+                        TeacherId = teacher.Id,
+                        Thumbnail = "/images/course_webdev.jpg",
+                        CreatedAt = DateTime.UtcNow.AddDays(-30),
+                        UpdatedAt = DateTime.UtcNow.AddDays(-5)
+                    },
+                    new Course
+                    {
+                        Code = "CS201",
+                        Title = "Data Structures & Algorithms",
+                        Description = "Fundamental data structures, computational complexity analysis, asymptotic efficiency, and algorithmic problem-solving in modern languages.",
+                        Status = AUBDigitalAcademy.Models.Enums.CourseStatus.Published,
+                        MajorId = csMajor!.Id,
+                        SemesterId = semester.Id,
+                        TeacherId = teacher.Id,
+                        Thumbnail = "/images/course_cybersecurity.jpg",
+                        CreatedAt = DateTime.UtcNow.AddDays(-25),
+                        UpdatedAt = DateTime.UtcNow.AddDays(-4)
+                    },
+                    new Course
+                    {
+                        Code = "AI401",
+                        Title = "Applied Machine Learning & AI",
+                        Description = "Foundational supervised and unsupervised learning models, neural networks, predictive data analytics, and real-world evaluation.",
+                        Status = AUBDigitalAcademy.Models.Enums.CourseStatus.Published,
+                        MajorId = dsaiMajor!.Id,
+                        SemesterId = semester.Id,
+                        TeacherId = teacher.Id,
+                        Thumbnail = "/images/course_datascience.jpg",
+                        CreatedAt = DateTime.UtcNow.AddDays(-20),
+                        UpdatedAt = DateTime.UtcNow.AddDays(-3)
+                    },
+                    new Course
+                    {
+                        Code = "BA101",
+                        Title = "Principles of Business Management",
+                        Description = "Strategic organizational management, leadership frameworks, digital transformation, and business innovation in international markets.",
+                        Status = AUBDigitalAcademy.Models.Enums.CourseStatus.Published,
+                        MajorId = baMajor!.Id,
+                        SemesterId = semester.Id,
+                        TeacherId = teacher.Id,
+                        Thumbnail = "/images/course_uiux.jpg",
+                        CreatedAt = DateTime.UtcNow.AddDays(-15),
+                        UpdatedAt = DateTime.UtcNow.AddDays(-2)
+                    }
+                };
+
+                context.Courses.AddRange(seedCourses);
+                await context.SaveChangesAsync();
+
+                foreach (var course in seedCourses)
+                {
+                    var ch = new Chapter
+                    {
+                        Title = "Module 1: Foundations & Architecture",
+                        Position = 1,
+                        CourseId = course.Id
+                    };
+                    context.Chapters.Add(ch);
+                    await context.SaveChangesAsync();
+
+                    var items = new List<CourseItem>
+                    {
+                        new CourseItem { ChapterId = ch.Id, Title = "Course Overview & Learning Objectives", Position = 1, Type = AUBDigitalAcademy.Models.Enums.ItemType.Lesson },
+                        new CourseItem { ChapterId = ch.Id, Title = "Core Architecture & System Setup", Position = 2, Type = AUBDigitalAcademy.Models.Enums.ItemType.Lesson },
+                        new CourseItem { ChapterId = ch.Id, Title = "Practical Implementation Workshop", Position = 3, Type = AUBDigitalAcademy.Models.Enums.ItemType.Lesson }
+                    };
+                    context.CourseItems.AddRange(items);
+                    await context.SaveChangesAsync();
+                }
+            }
         }
     }
 }
