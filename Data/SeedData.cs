@@ -11,18 +11,30 @@ public static class SeedData
         var roleManager = serviceProvider.GetRequiredService<RoleManager<IdentityRole>>();
         var userManager = serviceProvider.GetRequiredService<UserManager<User>>();
         var context = serviceProvider.GetRequiredService<ApplicationDbContext>();
+        var logger = serviceProvider.GetRequiredService<ILogger<Program>>();
 
-        // Ensure SQL Server database and tables are created cleanly
-        bool isReady = false;
+        // Check connectivity and schema health safely — never drop the database on a transient error.
+        bool canConnect = false;
+        bool hasRoles = false;
+        bool hasUsers = false;
         try
         {
-            isReady = await context.Database.CanConnectAsync() && await context.Roles.AnyAsync();
+            canConnect = await context.Database.CanConnectAsync();
+            if (canConnect)
+            {
+                hasRoles = await context.Roles.AnyAsync();
+                hasUsers = await context.Users.AnyAsync();
+            }
         }
-        catch
+        catch (Exception ex)
         {
-            // Incomplete database schema from previous failed run - drop and recreate
-            await context.Database.EnsureDeletedAsync();
+            // A transient connection failure (e.g. LocalDB still starting) must never destroy data.
+            logger.LogWarning(ex, "Database connectivity check failed during seed. Skipping seed to protect existing data.");
+            return;
         }
+
+        // isReady = database is reachable AND both roles and users are already seeded.
+        bool isReady = canConnect && hasRoles && hasUsers;
 
         if (!isReady)
         {
