@@ -35,7 +35,11 @@ builder.Services.ConfigureApplicationCookie(options =>
     options.LogoutPath = "/Account/Logout";
     options.AccessDeniedPath = "/Account/AccessDenied";
     options.SlidingExpiration = true;
-    options.ExpireTimeSpan = TimeSpan.FromHours(24);
+    options.ExpireTimeSpan = TimeSpan.FromHours(8);      // idle session window
+    options.Cookie.HttpOnly = true;                       // JS cannot read the cookie
+    options.Cookie.SameSite = SameSiteMode.Lax;          // CSRF protection
+    options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest; // HTTPS in prod
+    // RememberMe extends to 14 days via SignInManager's isPersistent flag.
 });
 
 // Add Google OAuth (optional - configure in appsettings)
@@ -57,6 +61,8 @@ builder.Services.AddControllersWithViews();
 builder.Services.AddScoped<AUBDigitalAcademy.Services.Interfaces.ICourseService, AUBDigitalAcademy.Services.Implementations.CourseService>();
 builder.Services.AddScoped<AUBDigitalAcademy.Services.Interfaces.ICurriculumService, AUBDigitalAcademy.Services.Implementations.CurriculumService>();
 builder.Services.AddScoped<AUBDigitalAcademy.Services.Interfaces.IEnrollmentService, AUBDigitalAcademy.Services.Implementations.EnrollmentService>();
+builder.Services.AddScoped<AUBDigitalAcademy.Services.Interfaces.IUserService, AUBDigitalAcademy.Services.Implementations.UserService>();
+builder.Services.AddScoped<AUBDigitalAcademy.Services.Interfaces.ITeacherService, AUBDigitalAcademy.Services.Implementations.TeacherService>();
 
 var app = builder.Build();
 
@@ -75,51 +81,10 @@ using (var scope = app.Services.CreateScope())
     }
 }
 
-if (args.Contains("--test-course-creation"))
-{
-    await CourseCreationTestRunner.RunTestsAsync(app.Services);
-    return;
-}
-
-if (args.Contains("--test-course-delete"))
-{
-    await CourseDeleteTestRunner.RunTestsAsync(app.Services);
-    return;
-}
-
+// Integration Test CLI Hooks
 if (args.Contains("--test-course-integration"))
 {
     await CourseIntegrationTestRunner.RunTestsAsync(app.Services);
-    return;
-}
-
-if (args.Contains("--test-module-crud"))
-{
-    await ModuleCrudTestRunner.RunTestsAsync(app.Services);
-    return;
-}
-
-if (args.Contains("--test-module-ui"))
-{
-    await ModuleUiIntegrationTestRunner.RunTestsAsync(app.Services);
-    return;
-}
-
-if (args.Contains("--test-lesson-crud"))
-{
-    await LessonCrudTestRunner.RunTestsAsync(app.Services);
-    return;
-}
-
-if (args.Contains("--test-curriculum-e2e"))
-{
-    await CurriculumEndToEndIntegrationTestRunner.RunTestsAsync(app.Services);
-    return;
-}
-
-if (args.Contains("--test-enrollment-backend"))
-{
-    await EnrollmentBackendTestRunner.RunTestsAsync(app.Services);
     return;
 }
 
@@ -129,30 +94,23 @@ if (args.Contains("--test-enrollment-ui"))
     return;
 }
 
-if (args.Contains("--test-student-flow"))
-{
-    await StudentFlowIntegrationTestRunner.RunTestsAsync(app.Services);
-    return;
-}
-
-if (args.Contains("--test-student-player"))
-{
-    await StudentPlayerIntegrationTestRunner.RunTestsAsync(app.Services);
-    return;
-}
-
-if (args.Contains("--test-student-progress"))
-{
-    await StudentProgressIntegrationTestRunner.RunTestsAsync(app.Services);
-    return;
-}
-
 if (args.Contains("--test-quiz"))
 {
     await QuizIntegrationTestRunner.RunTestsAsync(app.Services);
     return;
 }
 
+if (args.Contains("--test-user-management"))
+{
+    await UserManagementTestRunner.RunTestsAsync(app.Services);
+    return;
+}
+
+if (args.Contains("--test-teacher-portal"))
+{
+    await TeacherPortalTestRunner.RunTestsAsync(app.Services);
+    return;
+}
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
@@ -191,4 +149,3 @@ app.MapControllerRoute(
     .WithStaticAssets();
 
 app.Run();
-

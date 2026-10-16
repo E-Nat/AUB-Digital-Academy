@@ -69,7 +69,7 @@ public class AccountController : Controller
         }
 
         var result = await _signInManager.PasswordSignInAsync(
-            user.UserName!, model.Password, model.RememberMe, lockoutOnFailure: false);
+            user.UserName!, model.Password, model.RememberMe, lockoutOnFailure: true);
 
         if (result.Succeeded)
         {
@@ -87,6 +87,15 @@ public class AccountController : Controller
             }
             
             return Redirect(redirectUrl);
+        }
+
+        if (result.IsLockedOut)
+        {
+            const string lockMsg = "Your account has been temporarily locked due to multiple failed login attempts. Please try again later.";
+            _logger.LogWarning("User {UserId} account locked out.", user.Id);
+            ModelState.AddModelError(string.Empty, lockMsg);
+            if (isAjax) return Json(new { success = false, message = lockMsg });
+            return View(model);
         }
 
         ModelState.AddModelError(string.Empty, "Invalid University ID/Email or password.");
@@ -143,16 +152,14 @@ public class AccountController : Controller
     }
     
     [HttpGet]
-    public IActionResult ResetPassword(string? token = null)
+    public IActionResult ResetPassword(string? token = null, string? email = null)
     {
-        if (token == null)
+        if (string.IsNullOrEmpty(token))
         {
-            // For testing purposes, we allow it to load without a token
-            // In production, return BadRequest("A token must be supplied for password reset.");
-            token = "dummy-token"; 
+            return BadRequest("A valid password reset token is required.");
         }
 
-        var model = new ResetPasswordViewModel { Token = token };
+        var model = new ResetPasswordViewModel { Token = token, Email = email ?? string.Empty };
         return View(model);
     }
 
@@ -222,11 +229,18 @@ public class AccountController : Controller
 
         if (result.Succeeded)
         {
-            var user = await _userManager.FindByEmailAsync(info.Principal.FindFirst(ClaimTypes.Email)!.Value);
-            return Redirect(GetRoleRedirectUrl(user!));
+            var ssoUser = await _userManager.FindByEmailAsync(info.Principal.FindFirst(ClaimTypes.Email)!.Value);
+            // Enforce IsActive even for SSO logins of existing accounts.
+            if (ssoUser != null && !ssoUser.IsActive)
+            {
+                await _signInManager.SignOutAsync();
+                ModelState.AddModelError(string.Empty, "Your account has been deactivated. Please contact the administrator.");
+                return View("Login");
+            }
+            return Redirect(GetRoleRedirectUrl(ssoUser!));
         }
 
-        // If the user does not have an account, create one
+        // If the user does not have an account, create one (SSO auto-provision).
         var email = info.Principal.FindFirst(ClaimTypes.Email)?.Value;
         var name = info.Principal.FindFirst(ClaimTypes.Name)?.Value;
 
@@ -250,6 +264,12 @@ public class AccountController : Controller
                     await _userManager.AddToRoleAsync(user, "Student");
                 }
             }
+            else if (!user.IsActive)
+            {
+                // Block deactivated accounts from SSO sign-in even if they don't yet have an external login entry.
+                ModelState.AddModelError(string.Empty, "Your account has been deactivated. Please contact the administrator.");
+                return View("Login");
+            }
 
             await _userManager.AddLoginAsync(user, info);
             await _signInManager.SignInAsync(user, isPersistent: false);
@@ -269,12 +289,11 @@ public class AccountController : Controller
 
     private IActionResult RedirectToRoleDashboard()
     {
-        if (User.IsInRole("Admin")) return RedirectToAction("Index", "Dashboard", new { area = "Admin" }); // or wherever Admin is mapped
+        if (User.IsInRole("Admin")) return RedirectToAction("Index", "Admin");
         if (User.IsInRole("Teacher")) return RedirectToAction("Dashboard", "Teacher");
         if (User.IsInRole("Student")) return RedirectToAction("Dashboard", "Student");
         
-        // Fallback using the new controllers
-        return RedirectToAction("Index", "Dashboard"); 
+        return RedirectToAction("Index", "Admin"); 
     }
     
     private string GetRoleRedirectUrl(User user)
@@ -284,6 +303,6 @@ public class AccountController : Controller
         if (roles.Contains("Admin")) return Url.Action("Index", "Admin") ?? "/Admin";
         if (roles.Contains("Teacher")) return Url.Action("Dashboard", "Teacher") ?? "/Teacher";
         if (roles.Contains("Student")) return Url.Action("Dashboard", "Student") ?? "/Student";
-        return Url.Action("Index", "Dashboard") ?? "/";
+        return Url.Action("Index", "Admin") ?? "/Admin";
     }
 }
