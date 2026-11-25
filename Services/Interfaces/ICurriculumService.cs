@@ -224,7 +224,48 @@ public interface ICurriculumService
         string studentId,
         Microsoft.AspNetCore.Http.IFormFile? file,
         string? externalUrl,
-        string? textResponse);
+        string? textResponse,
+        IEnumerable<Microsoft.AspNetCore.Http.IFormFile>? files = null);
+
+    /// <summary>
+    /// Creates a new Resource / Book course item under a module.
+    /// </summary>
+    Task<CurriculumOperationResult> CreateBookAsync(BookCreateViewModel model);
+
+    /// <summary>
+    /// Updates an existing Resource / Book course item.
+    /// </summary>
+    Task<CurriculumOperationResult> UpdateBookAsync(BookEditViewModel model);
+
+    /// <summary>
+    /// Deletes a Resource / Book course item.
+    /// </summary>
+    Task<CurriculumOperationResult> DeleteBookAsync(int courseItemId, int? expectedChapterId = null, int? expectedCourseId = null);
+
+    /// <summary>
+    /// Retrieves a Book item for editing.
+    /// </summary>
+    Task<BookEditViewModel?> GetBookByIdAsync(int courseItemId);
+
+    /// <summary>
+    /// Creates a new Assignment course item under a module.
+    /// </summary>
+    Task<CurriculumOperationResult> CreateAssignmentAsync(AssignmentCreateViewModel model);
+
+    /// <summary>
+    /// Updates an existing Assignment course item.
+    /// </summary>
+    Task<CurriculumOperationResult> UpdateAssignmentAsync(AssignmentEditViewModel model);
+
+    /// <summary>
+    /// Deletes an Assignment course item. Blocked if student submissions exist.
+    /// </summary>
+    Task<CurriculumOperationResult> DeleteAssignmentAsync(int courseItemId, int? expectedChapterId = null, int? expectedCourseId = null);
+
+    /// <summary>
+    /// Retrieves an Assignment item for editing.
+    /// </summary>
+    Task<AssignmentEditViewModel?> GetAssignmentByIdAsync(int courseItemId);
 
     /// <summary>
     /// Loads complete Student Book Reader view data for a specific course and book item,

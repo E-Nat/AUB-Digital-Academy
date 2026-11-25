@@ -264,6 +264,28 @@
                                 <i class="bi bi-patch-question"></i>
                                 <span>Add Quiz</span>
                             </button>
+                            <button type="button" class="btn btn-sm btn-outline-info text-dark py-1 px-2 d-inline-flex align-items-center gap-1 add-assignment-btn"
+                                    data-chapterid="@mod.Id"
+                                    data-chaptertitle="@mod.Title"
+                                    data-courseid="@mod.CourseId"
+                                    data-nextposition="@(moduleItems.Count + 1)"
+                                    data-bs-toggle="modal"
+                                    data-bs-target="#createAssignmentModal"
+                                    title="Add Assignment to this Module">
+                                <i class="bi bi-pencil-square"></i>
+                                <span>Add Assignment</span>
+                            </button>
+                            <button type="button" class="btn btn-sm btn-outline-success text-dark py-1 px-2 d-inline-flex align-items-center gap-1 add-book-btn"
+                                    data-chapterid="@mod.Id"
+                                    data-chaptertitle="@mod.Title"
+                                    data-courseid="@mod.CourseId"
+                                    data-nextposition="@(moduleItems.Count + 1)"
+                                    data-bs-toggle="modal"
+                                    data-bs-target="#createBookModal"
+                                    title="Add Resource/Book to this Module">
+                                <i class="bi bi-book"></i>
+                                <span>Add Resource</span>
+                            </button>
                             <button type="button" class="btn btn-sm btn-outline-secondary p-1 edit-module-btn"
                                     data-id="@mod.Id"
                                     data-title="@mod.Title"
@@ -397,7 +419,8 @@
                                                     data-courseid="@mod.CourseId"
                                                     data-title="@item.Title"
                                                     data-timelimit="@(item.TimeLimitMinutes ?? 30)"
-                                                    data-passingscore="@(item.PassingScore ?? 60)"
+                                                    data-passingscore="@(item.PassingScore ?? 50)"
+                                                    data-maxattempts="@(item.MaxAttempts ?? 3)"
                                                     data-ispublished="@(item.IsPublished ? "true" : "false")"
                                                     data-position="@item.Position"
                                                     data-bs-toggle="modal"
@@ -413,6 +436,64 @@
                                                     data-bs-toggle="modal"
                                                     data-bs-target="#deleteQuizModal"
                                                     title="Delete Quiz">
+                                                <i class="bi bi-trash"></i>
+                                            </button>
+                                        }
+                                        else if (item.Type == AUBDigitalAcademy.Models.Enums.ItemType.Book)
+                                        {
+                                            <button type="button" class="btn btn-sm btn-outline-secondary p-1 edit-book-btn"
+                                                    data-id="@item.Id"
+                                                    data-bookid="@(item.BookId ?? 0)"
+                                                    data-chapterid="@item.ChapterId"
+                                                    data-chaptertitle="@mod.Title"
+                                                    data-courseid="@mod.CourseId"
+                                                    data-title="@item.Title"
+                                                    data-fileurl="@(item.FileUrl ?? "")"
+                                                    data-filetype="@(item.FileType ?? "PDF")"
+                                                    data-filesize="@(item.FileSize ?? 0)"
+                                                    data-position="@item.Position"
+                                                    data-bs-toggle="modal"
+                                                    data-bs-target="#editBookModal"
+                                                    title="Edit Resource">
+                                                <i class="bi bi-pencil"></i>
+                                            </button>
+                                            <button type="button" class="btn btn-sm btn-outline-danger p-1 delete-book-btn"
+                                                    data-id="@item.Id"
+                                                    data-title="@item.Title"
+                                                    data-chapterid="@item.ChapterId"
+                                                    data-courseid="@mod.CourseId"
+                                                    data-bs-toggle="modal"
+                                                    data-bs-target="#deleteBookModal"
+                                                    title="Delete Resource">
+                                                <i class="bi bi-trash"></i>
+                                            </button>
+                                        }
+                                        else if (item.Type == AUBDigitalAcademy.Models.Enums.ItemType.Assignment)
+                                        {
+                                            <button type="button" class="btn btn-sm btn-outline-secondary p-1 edit-assignment-btn"
+                                                    data-id="@item.Id"
+                                                    data-assignmentid="@(item.AssignmentId ?? 0)"
+                                                    data-chapterid="@item.ChapterId"
+                                                    data-chaptertitle="@mod.Title"
+                                                    data-courseid="@mod.CourseId"
+                                                    data-title="@item.Title"
+                                                    data-instruction="@(item.Instruction ?? "")"
+                                                    data-maxscore="@(item.MaxScore ?? 100)"
+                                                    data-duedate="@(item.DueDate?.ToString("yyyy-MM-ddTHH:mm") ?? "")"
+                                                    data-position="@item.Position"
+                                                    data-bs-toggle="modal"
+                                                    data-bs-target="#editAssignmentModal"
+                                                    title="Edit Assignment">
+                                                <i class="bi bi-pencil"></i>
+                                            </button>
+                                            <button type="button" class="btn btn-sm btn-outline-danger p-1 delete-assignment-btn"
+                                                    data-id="@item.Id"
+                                                    data-title="@item.Title"
+                                                    data-chapterid="@item.ChapterId"
+                                                    data-courseid="@mod.CourseId"
+                                                    data-bs-toggle="modal"
+                                                    data-bs-target="#deleteAssignmentModal"
+                                                    title="Delete Assignment">
                                                 <i class="bi bi-trash"></i>
                                             </button>
                                         }
@@ -841,15 +922,19 @@
                     </div>
 
                     <div class="row g-3 mb-3">
-                        <div class="col-md-4">
+                        <div class="col-md-3">
                             <label for="createQuizTimeLimit" class="form-label fw-bold small text-dark">Time Limit (Mins) <span class="text-danger">*</span></label>
                             <input type="number" class="form-control" id="createQuizTimeLimit" name="TimeLimitMinutes" value="30" min="1" max="600" required />
                         </div>
-                        <div class="col-md-4">
+                        <div class="col-md-3">
                             <label for="createQuizPassingScore" class="form-label fw-bold small text-dark">Passing Score (%) <span class="text-danger">*</span></label>
-                            <input type="number" class="form-control" id="createQuizPassingScore" name="PassingScore" value="60" min="0" max="100" step="1" required />
+                            <input type="number" class="form-control" id="createQuizPassingScore" name="PassingScore" value="50" min="0" max="100" step="1" required />
                         </div>
-                        <div class="col-md-4">
+                        <div class="col-md-3">
+                            <label for="createQuizMaxAttempts" class="form-label fw-bold small text-dark">Max Attempts <span class="text-danger">*</span></label>
+                            <input type="number" class="form-control" id="createQuizMaxAttempts" name="MaxAttempts" value="3" min="1" max="10" required />
+                        </div>
+                        <div class="col-md-3">
                             <label for="createQuizPosition" class="form-label fw-bold small text-dark">Sequence Position</label>
                             <input type="number" class="form-control" id="createQuizPosition" name="Position" placeholder="Auto" min="1" max="1000" />
                         </div>
@@ -906,15 +991,19 @@
                     </div>
 
                     <div class="row g-3 mb-3">
-                        <div class="col-md-4">
+                        <div class="col-md-3">
                             <label for="editQuizTimeLimit" class="form-label fw-bold small text-dark">Time Limit (Mins) <span class="text-danger">*</span></label>
                             <input type="number" class="form-control" id="editQuizTimeLimit" name="TimeLimitMinutes" min="1" max="600" required />
                         </div>
-                        <div class="col-md-4">
+                        <div class="col-md-3">
                             <label for="editQuizPassingScore" class="form-label fw-bold small text-dark">Passing Score (%) <span class="text-danger">*</span></label>
                             <input type="number" class="form-control" id="editQuizPassingScore" name="PassingScore" min="0" max="100" step="1" required />
                         </div>
-                        <div class="col-md-4">
+                        <div class="col-md-3">
+                            <label for="editQuizMaxAttempts" class="form-label fw-bold small text-dark">Max Attempts <span class="text-danger">*</span></label>
+                            <input type="number" class="form-control" id="editQuizMaxAttempts" name="MaxAttempts" min="1" max="10" required />
+                        </div>
+                        <div class="col-md-3">
                             <label for="editQuizPosition" class="form-label fw-bold small text-dark">Position <span class="text-danger">*</span></label>
                             <input type="number" class="form-control" id="editQuizPosition" name="Position" required min="1" max="1000" />
                         </div>
@@ -987,6 +1076,352 @@
     </div>
 </div>
 
+<!-- ==========================================
+     CREATE BOOK MODAL
+     ========================================== -->
+<div class="modal fade" id="createBookModal" tabindex="-1" aria-labelledby="createBookModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header border-bottom">
+                <div class="d-flex align-items-center gap-2">
+                    <div class="rounded-2 d-flex align-items-center justify-content-center text-success bg-success bg-opacity-10" style="width:36px;height:36px;">
+                        <i class="bi bi-book-fill fs-5 text-success"></i>
+                    </div>
+                    <div>
+                        <h6 class="modal-title fw-bold text-dark mb-0" id="createBookModalLabel">Add Resource / Book</h6>
+                        <small class="text-muted">Target Module: <span class="fw-semibold text-primary" id="createBookModuleTitleBadge"></span></small>
+                    </div>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form asp-controller="Academic" asp-action="CreateBook" method="post" id="createBookForm">
+                @Html.AntiForgeryToken()
+                <input type="hidden" id="createBookChapterId" name="ChapterId" value="" />
+                <input type="hidden" id="createBookCourseId" name="CourseId" value="@Model.CourseId" />
+
+                <div class="modal-body p-4">
+                    <div class="mb-3">
+                        <label for="createBookTitle" class="form-label fw-bold small text-dark">Resource Title <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="createBookTitle" name="Title" placeholder="e.g. Clean Architecture Reference Guide" required maxlength="200" autocomplete="off" />
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="createBookFileUrl" class="form-label fw-bold small text-dark">Document File URL or Path <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="createBookFileUrl" name="FileUrl" placeholder="e.g. /materials/clean_arch.pdf or https://..." required maxlength="500" />
+                        <div class="form-text text-muted small">URL or relative path to PDF, EPUB, or document file.</div>
+                    </div>
+
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6">
+                            <label for="createBookFileType" class="form-label fw-bold small text-dark">File Format <span class="text-danger">*</span></label>
+                            <select class="form-select" id="createBookFileType" name="FileType" required>
+                                <option value="PDF" selected>PDF</option>
+                                <option value="EPUB">EPUB</option>
+                                <option value="DOCX">DOCX</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="createBookPosition" class="form-label fw-bold small text-dark">Sequence Position</label>
+                            <input type="number" class="form-control" id="createBookPosition" name="Position" placeholder="Auto" min="1" max="1000" />
+                        </div>
+                    </div>
+                </div>
+
+                <div class="modal-footer border-top bg-light">
+                    <button type="button" class="btn btn-light border" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary d-inline-flex align-items-center gap-2">
+                        <i class="bi bi-check-lg"></i>
+                        <span>Save Resource</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- ==========================================
+     EDIT BOOK MODAL
+     ========================================== -->
+<div class="modal fade" id="editBookModal" tabindex="-1" aria-labelledby="editBookModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header border-bottom">
+                <div class="d-flex align-items-center gap-2">
+                    <div class="rounded-2 d-flex align-items-center justify-content-center text-success bg-success bg-opacity-10" style="width:36px;height:36px;">
+                        <i class="bi bi-pencil-square fs-5 text-success"></i>
+                    </div>
+                    <div>
+                        <h6 class="modal-title fw-bold text-dark mb-0" id="editBookModalLabel">Edit Resource / Book</h6>
+                        <small class="text-muted">Module: <span class="badge bg-primary bg-opacity-10 text-primary fw-semibold" id="editBookModuleTitleBadge"></span></small>
+                    </div>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form asp-controller="Academic" asp-action="EditBook" method="post" id="editBookForm">
+                @Html.AntiForgeryToken()
+                <input type="hidden" id="editBookCourseItemId" name="CourseItemId" value="" />
+                <input type="hidden" id="editBookBookId" name="BookId" value="" />
+                <input type="hidden" id="editBookChapterId" name="ChapterId" value="" />
+                <input type="hidden" id="editBookCourseId" name="CourseId" value="@Model.CourseId" />
+
+                <div class="modal-body p-4">
+                    <div class="mb-3">
+                        <label for="editBookTitle" class="form-label fw-bold small text-dark">Resource Title <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="editBookTitle" name="Title" required maxlength="200" autocomplete="off" />
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="editBookFileUrl" class="form-label fw-bold small text-dark">Document File URL or Path <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="editBookFileUrl" name="FileUrl" required maxlength="500" />
+                    </div>
+
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6">
+                            <label for="editBookFileType" class="form-label fw-bold small text-dark">File Format <span class="text-danger">*</span></label>
+                            <select class="form-select" id="editBookFileType" name="FileType" required>
+                                <option value="PDF">PDF</option>
+                                <option value="EPUB">EPUB</option>
+                                <option value="DOCX">DOCX</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="editBookPosition" class="form-label fw-bold small text-dark">Position <span class="text-danger">*</span></label>
+                            <input type="number" class="form-control" id="editBookPosition" name="Position" required min="1" max="1000" />
+                        </div>
+                    </div>
+                </div>
+
+                <div class="modal-footer border-top bg-light">
+                    <button type="button" class="btn btn-light border" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary d-inline-flex align-items-center gap-2">
+                        <i class="bi bi-check-lg"></i>
+                        <span>Save Changes</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- ==========================================
+     DELETE BOOK MODAL
+     ========================================== -->
+<div class="modal fade" id="deleteBookModal" tabindex="-1" aria-labelledby="deleteBookModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header border-bottom">
+                <div class="d-flex align-items-center gap-2 text-danger">
+                    <div class="rounded-2 d-flex align-items-center justify-content-center bg-danger bg-opacity-10 text-danger" style="width:36px;height:36px;">
+                        <i class="bi bi-exclamation-triangle-fill fs-5"></i>
+                    </div>
+                    <div>
+                        <h6 class="modal-title fw-bold text-danger mb-0" id="deleteBookModalLabel">Delete Resource</h6>
+                        <small class="text-muted">Confirm resource deletion</small>
+                    </div>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form asp-controller="Academic" asp-action="DeleteBook" method="post" id="deleteBookForm">
+                @Html.AntiForgeryToken()
+                <input type="hidden" id="deleteBookId" name="id" value="" />
+                <input type="hidden" id="deleteBookChapterId" name="chapterId" value="" />
+                <input type="hidden" id="deleteBookCourseId" name="courseId" value="@Model.CourseId" />
+
+                <div class="modal-body p-4">
+                    <p class="text-dark mb-2">Are you sure you want to delete resource:</p>
+                    <div class="p-3 bg-light rounded-3 border mb-3">
+                        <strong class="text-dark" id="deleteBookName"></strong>
+                    </div>
+                    <p class="text-muted small mb-0">This action will remove the book resource from this module.</p>
+                </div>
+
+                <div class="modal-footer border-top bg-light">
+                    <button type="button" class="btn btn-light border" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-danger d-inline-flex align-items-center gap-2">
+                        <i class="bi bi-trash"></i>
+                        <span>Delete Resource</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- ==========================================
+     CREATE ASSIGNMENT MODAL
+     ========================================== -->
+<div class="modal fade" id="createAssignmentModal" tabindex="-1" aria-labelledby="createAssignmentModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header border-bottom">
+                <div class="d-flex align-items-center gap-2">
+                    <div class="rounded-2 d-flex align-items-center justify-content-center text-info bg-info bg-opacity-10" style="width:36px;height:36px;">
+                        <i class="bi bi-pencil-square fs-5 text-info"></i>
+                    </div>
+                    <div>
+                        <h6 class="modal-title fw-bold text-dark mb-0" id="createAssignmentModalLabel">Add New Assignment</h6>
+                        <small class="text-muted">Target Module: <span class="fw-semibold text-primary" id="createAssignmentModuleTitleBadge"></span></small>
+                    </div>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form asp-controller="Academic" asp-action="CreateAssignment" method="post" id="createAssignmentForm">
+                @Html.AntiForgeryToken()
+                <input type="hidden" id="createAssignmentChapterId" name="ChapterId" value="" />
+                <input type="hidden" id="createAssignmentCourseId" name="CourseId" value="@Model.CourseId" />
+
+                <div class="modal-body p-4">
+                    <div class="mb-3">
+                        <label for="createAssignmentTitle" class="form-label fw-bold small text-dark">Assignment Title <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="createAssignmentTitle" name="Title" placeholder="e.g. Lab 1: Relational Schema Design" required maxlength="200" autocomplete="off" />
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="createAssignmentInstruction" class="form-label fw-bold small text-dark">Instructions / Task Description <span class="text-danger">*</span></label>
+                        <textarea class="form-control" id="createAssignmentInstruction" name="Instruction" rows="4" placeholder="Detail the instructions, submission guidelines, and deliverables..." required></textarea>
+                    </div>
+
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-4">
+                            <label for="createAssignmentMaxScore" class="form-label fw-bold small text-dark">Maximum Score <span class="text-danger">*</span></label>
+                            <input type="number" class="form-control" id="createAssignmentMaxScore" name="MaxScore" value="100" min="1" max="1000" step="1" required />
+                        </div>
+                        <div class="col-md-4">
+                            <label for="createAssignmentDueDate" class="form-label fw-bold small text-dark">Due Date & Time <span class="text-danger">*</span></label>
+                            <input type="datetime-local" class="form-control" id="createAssignmentDueDate" name="DueDate" value="@DateTime.UtcNow.AddDays(7).ToString("yyyy-MM-ddTHH:mm")" required />
+                        </div>
+                        <div class="col-md-4">
+                            <label for="createAssignmentPosition" class="form-label fw-bold small text-dark">Sequence Position</label>
+                            <input type="number" class="form-control" id="createAssignmentPosition" name="Position" placeholder="Auto" min="1" max="1000" />
+                        </div>
+                    </div>
+                </div>
+
+                <div class="modal-footer border-top bg-light">
+                    <button type="button" class="btn btn-light border" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary d-inline-flex align-items-center gap-2">
+                        <i class="bi bi-check-lg"></i>
+                        <span>Save Assignment</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- ==========================================
+     EDIT ASSIGNMENT MODAL
+     ========================================== -->
+<div class="modal fade" id="editAssignmentModal" tabindex="-1" aria-labelledby="editAssignmentModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header border-bottom">
+                <div class="d-flex align-items-center gap-2">
+                    <div class="rounded-2 d-flex align-items-center justify-content-center text-info bg-info bg-opacity-10" style="width:36px;height:36px;">
+                        <i class="bi bi-pencil-square fs-5 text-info"></i>
+                    </div>
+                    <div>
+                        <h6 class="modal-title fw-bold text-dark mb-0" id="editAssignmentModalLabel">Edit Assignment</h6>
+                        <small class="text-muted">Module: <span class="badge bg-primary bg-opacity-10 text-primary fw-semibold" id="editAssignmentModuleTitleBadge"></span></small>
+                    </div>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form asp-controller="Academic" asp-action="EditAssignment" method="post" id="editAssignmentForm">
+                @Html.AntiForgeryToken()
+                <input type="hidden" id="editAssignmentCourseItemId" name="CourseItemId" value="" />
+                <input type="hidden" id="editAssignmentAssignmentId" name="AssignmentId" value="" />
+                <input type="hidden" id="editAssignmentChapterId" name="ChapterId" value="" />
+                <input type="hidden" id="editAssignmentCourseId" name="CourseId" value="@Model.CourseId" />
+
+                <div class="modal-body p-4">
+                    <div class="mb-3">
+                        <label for="editAssignmentTitle" class="form-label fw-bold small text-dark">Assignment Title <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="editAssignmentTitle" name="Title" required maxlength="200" autocomplete="off" />
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="editAssignmentInstruction" class="form-label fw-bold small text-dark">Instructions / Task Description <span class="text-danger">*</span></label>
+                        <textarea class="form-control" id="editAssignmentInstruction" name="Instruction" rows="4" required></textarea>
+                    </div>
+
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-4">
+                            <label for="editAssignmentMaxScore" class="form-label fw-bold small text-dark">Maximum Score <span class="text-danger">*</span></label>
+                            <input type="number" class="form-control" id="editAssignmentMaxScore" name="MaxScore" min="1" max="1000" step="1" required />
+                        </div>
+                        <div class="col-md-4">
+                            <label for="editAssignmentDueDate" class="form-label fw-bold small text-dark">Due Date & Time <span class="text-danger">*</span></label>
+                            <input type="datetime-local" class="form-control" id="editAssignmentDueDate" name="DueDate" required />
+                        </div>
+                        <div class="col-md-4">
+                            <label for="editAssignmentPosition" class="form-label fw-bold small text-dark">Position <span class="text-danger">*</span></label>
+                            <input type="number" class="form-control" id="editAssignmentPosition" name="Position" required min="1" max="1000" />
+                        </div>
+                    </div>
+                </div>
+
+                <div class="modal-footer border-top bg-light">
+                    <button type="button" class="btn btn-light border" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary d-inline-flex align-items-center gap-2">
+                        <i class="bi bi-check-lg"></i>
+                        <span>Save Changes</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- ==========================================
+     DELETE ASSIGNMENT MODAL
+     ========================================== -->
+<div class="modal fade" id="deleteAssignmentModal" tabindex="-1" aria-labelledby="deleteAssignmentModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header border-bottom">
+                <div class="d-flex align-items-center gap-2 text-danger">
+                    <div class="rounded-2 d-flex align-items-center justify-content-center bg-danger bg-opacity-10 text-danger" style="width:36px;height:36px;">
+                        <i class="bi bi-exclamation-triangle-fill fs-5"></i>
+                    </div>
+                    <div>
+                        <h6 class="modal-title fw-bold text-danger mb-0" id="deleteAssignmentModalLabel">Delete Assignment</h6>
+                        <small class="text-muted">Confirm assignment deletion</small>
+                    </div>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form asp-controller="Academic" asp-action="DeleteAssignment" method="post" id="deleteAssignmentForm">
+                @Html.AntiForgeryToken()
+                <input type="hidden" id="deleteAssignmentId" name="id" value="" />
+                <input type="hidden" id="deleteAssignmentChapterId" name="chapterId" value="" />
+                <input type="hidden" id="deleteAssignmentCourseId" name="courseId" value="@Model.CourseId" />
+
+                <div class="modal-body p-4">
+                    <p class="text-dark mb-2">Are you sure you want to delete assignment:</p>
+                    <div class="p-3 bg-light rounded-3 border mb-3">
+                        <strong class="text-dark" id="deleteAssignmentName"></strong>
+                    </div>
+                    <div class="alert alert-warning small mb-0 d-flex align-items-start gap-2">
+                        <i class="bi bi-info-circle-fill flex-shrink-0 mt-0.5"></i>
+                        <div>
+                            This action will remove the assignment from this module. If any student has submitted work for this assignment, deletion is strictly blocked to preserve academic records.
+                        </div>
+                    </div>
+                </div>
+
+                <div class="modal-footer border-top bg-light">
+                    <button type="button" class="btn btn-light border" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-danger d-inline-flex align-items-center gap-2">
+                        <i class="bi bi-trash"></i>
+                        <span>Delete Assignment</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 @section Scripts {
     <partial name="_ValidationScriptsPartial" />
     <script>
@@ -1030,6 +1465,7 @@
                     document.getElementById('editQuizTimeLimit').value = timeLimit;
                     document.getElementById('editQuizPassingScore').value = passingScore;
                     document.getElementById('editQuizPosition').value = position;
+                    document.getElementById('editQuizMaxAttempts').value = this.getAttribute('data-maxattempts') || 3;
                     document.getElementById('editQuizIsPublished').checked = isPublished;
                 });
             });
@@ -1046,6 +1482,122 @@
                     document.getElementById('deleteQuizChapterId').value = chapterId;
                     document.getElementById('deleteQuizCourseId').value = courseId;
                     document.getElementById('deleteQuizName').textContent = title;
+                });
+            });
+
+            // Add Book Button Click
+            document.querySelectorAll('.add-book-btn').forEach(btn => {
+                btn.addEventListener('click', function () {
+                    const chapterId = this.getAttribute('data-chapterid');
+                    const chapterTitle = this.getAttribute('data-chaptertitle');
+                    const courseId = this.getAttribute('data-courseid');
+                    const nextPosition = this.getAttribute('data-nextposition');
+
+                    document.getElementById('createBookChapterId').value = chapterId;
+                    document.getElementById('createBookCourseId').value = courseId;
+                    document.getElementById('createBookModuleTitleBadge').textContent = chapterTitle;
+                    document.getElementById('createBookPosition').value = nextPosition;
+                    document.getElementById('createBookTitle').value = '';
+                    document.getElementById('createBookFileUrl').value = '';
+                });
+            });
+
+            // Edit Book Button Click
+            document.querySelectorAll('.edit-book-btn').forEach(btn => {
+                btn.addEventListener('click', function () {
+                    const id = this.getAttribute('data-id');
+                    const bookId = this.getAttribute('data-bookid');
+                    const chapterId = this.getAttribute('data-chapterid');
+                    const chapterTitle = this.getAttribute('data-chaptertitle');
+                    const courseId = this.getAttribute('data-courseid');
+                    const title = this.getAttribute('data-title');
+                    const fileUrl = this.getAttribute('data-fileurl');
+                    const fileType = this.getAttribute('data-filetype') || 'PDF';
+                    const position = this.getAttribute('data-position');
+
+                    document.getElementById('editBookCourseItemId').value = id;
+                    document.getElementById('editBookBookId').value = bookId;
+                    document.getElementById('editBookChapterId').value = chapterId;
+                    document.getElementById('editBookCourseId').value = courseId;
+                    document.getElementById('editBookModuleTitleBadge').textContent = chapterTitle;
+                    document.getElementById('editBookTitle').value = title;
+                    document.getElementById('editBookFileUrl').value = fileUrl;
+                    document.getElementById('editBookFileType').value = fileType;
+                    document.getElementById('editBookPosition').value = position;
+                });
+            });
+
+            // Delete Book Button Click
+            document.querySelectorAll('.delete-book-btn').forEach(btn => {
+                btn.addEventListener('click', function () {
+                    const id = this.getAttribute('data-id');
+                    const title = this.getAttribute('data-title');
+                    const chapterId = this.getAttribute('data-chapterid');
+                    const courseId = this.getAttribute('data-courseid');
+
+                    document.getElementById('deleteBookId').value = id;
+                    document.getElementById('deleteBookChapterId').value = chapterId;
+                    document.getElementById('deleteBookCourseId').value = courseId;
+                    document.getElementById('deleteBookName').textContent = title;
+                });
+            });
+
+            // Add Assignment Button Click
+            document.querySelectorAll('.add-assignment-btn').forEach(btn => {
+                btn.addEventListener('click', function () {
+                    const chapterId = this.getAttribute('data-chapterid');
+                    const chapterTitle = this.getAttribute('data-chaptertitle');
+                    const courseId = this.getAttribute('data-courseid');
+                    const nextPosition = this.getAttribute('data-nextposition');
+
+                    document.getElementById('createAssignmentChapterId').value = chapterId;
+                    document.getElementById('createAssignmentCourseId').value = courseId;
+                    document.getElementById('createAssignmentModuleTitleBadge').textContent = chapterTitle;
+                    document.getElementById('createAssignmentPosition').value = nextPosition;
+                    document.getElementById('createAssignmentTitle').value = '';
+                    document.getElementById('createAssignmentInstruction').value = '';
+                });
+            });
+
+            // Edit Assignment Button Click
+            document.querySelectorAll('.edit-assignment-btn').forEach(btn => {
+                btn.addEventListener('click', function () {
+                    const id = this.getAttribute('data-id');
+                    const assignmentId = this.getAttribute('data-assignmentid');
+                    const chapterId = this.getAttribute('data-chapterid');
+                    const chapterTitle = this.getAttribute('data-chaptertitle');
+                    const courseId = this.getAttribute('data-courseid');
+                    const title = this.getAttribute('data-title');
+                    const instruction = this.getAttribute('data-instruction');
+                    const maxScore = this.getAttribute('data-maxscore');
+                    const dueDate = this.getAttribute('data-duedate');
+                    const position = this.getAttribute('data-position');
+
+                    document.getElementById('editAssignmentCourseItemId').value = id;
+                    document.getElementById('editAssignmentAssignmentId').value = assignmentId;
+                    document.getElementById('editAssignmentChapterId').value = chapterId;
+                    document.getElementById('editAssignmentCourseId').value = courseId;
+                    document.getElementById('editAssignmentModuleTitleBadge').textContent = chapterTitle;
+                    document.getElementById('editAssignmentTitle').value = title;
+                    document.getElementById('editAssignmentInstruction').value = instruction;
+                    document.getElementById('editAssignmentMaxScore').value = maxScore;
+                    document.getElementById('editAssignmentDueDate').value = dueDate;
+                    document.getElementById('editAssignmentPosition').value = position;
+                });
+            });
+
+            // Delete Assignment Button Click
+            document.querySelectorAll('.delete-assignment-btn').forEach(btn => {
+                btn.addEventListener('click', function () {
+                    const id = this.getAttribute('data-id');
+                    const title = this.getAttribute('data-title');
+                    const chapterId = this.getAttribute('data-chapterid');
+                    const courseId = this.getAttribute('data-courseid');
+
+                    document.getElementById('deleteAssignmentId').value = id;
+                    document.getElementById('deleteAssignmentChapterId').value = chapterId;
+                    document.getElementById('deleteAssignmentCourseId').value = courseId;
+                    document.getElementById('deleteAssignmentName').textContent = title;
                 });
             });
 

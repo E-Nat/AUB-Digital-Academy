@@ -21,6 +21,9 @@ public class AssignmentSubmission
 
     public string? FileUrl { get; set; }
 
+    [StringLength(1000)]
+    public string? ExternalUrl { get; set; }
+
     public string? TextResponse { get; set; }
 
     public SubmissionStatus Status { get; set; } = SubmissionStatus.Submitted;
@@ -49,5 +52,7 @@ public class AssignmentSubmission
 
     [ForeignKey(nameof(GradedById))]
     public virtual User? GradedBy { get; set; }
+
+    public virtual ICollection<AssignmentAttachment> Attachments { get; set; } = new List<AssignmentAttachment>();
 }
 

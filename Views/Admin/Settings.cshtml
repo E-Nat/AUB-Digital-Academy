@@ -1,0 +1,31 @@
+@{
+    ViewData["Title"] = "System Settings";
+    ViewData["ActivePage"] = "Settings";
+}
+
+<div class="container-fluid py-4 px-4">
+    <div class="d-flex align-items-center justify-content-between mb-4">
+        <div>
+            <h2 class="fw-bold text-dark fs-3 mb-1">
+                <i class="bi bi-gear-fill text-primary me-2"></i>System & Security Settings
+            </h2>
+            <p class="text-muted text-sm mb-0">Platform configuration, Telegram 2FA bot status, and institutional parameters.</p>
+        </div>
+    </div>
+
+    <div class="card border-0 shadow-sm rounded-4 p-5 bg-white text-center">
+        <div class="py-4">
+            <div class="rounded-circle d-inline-flex align-items-center justify-content-center bg-secondary bg-opacity-10 text-secondary mb-3" style="width: 72px; height: 72px;">
+                <i class="bi bi-sliders fs-2"></i>
+            </div>
+            <h5 class="fw-bold text-dark mb-2">Platform Administration & Security Control</h5>
+            <p class="text-muted text-sm mx-auto" style="max-width: 500px;">
+                Manage global portal policies, Telegram bot verification tokens, and administrative security credentials.
+            </p>
+            <div class="d-flex justify-content-center gap-2 mt-4">
+                <a href="/User/Profile" class="btn btn-primary rounded-pill px-4">My Account Profile</a>
+                <a href="/Admin/Dashboard" class="btn btn-light border rounded-pill px-4">Return to Dashboard</a>
+            </div>
+        </div>
+    </div>
+</div>

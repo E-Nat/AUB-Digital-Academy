@@ -147,8 +147,23 @@
                                 }
                             </div>
                             <div class="col-sm-6 col-md-3">
-                                <label class="text-muted text-xs text-uppercase fw-bold d-block">Submitted File / Link</label>
-                                @if (!string.IsNullOrEmpty(Model.LatestFileUrl))
+                                <label class="text-muted text-xs text-uppercase fw-bold d-block">Submitted File(s) / Link</label>
+                                @if (!string.IsNullOrEmpty(Model.LatestExternalUrl))
+                                {
+                                    <a href="@Model.LatestExternalUrl" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-info mt-1 me-1">
+                                        <i class="bi bi-box-arrow-up-right me-1"></i>Open External Link
+                                    </a>
+                                }
+                                @if (Model.LatestAttachments != null && Model.LatestAttachments.Any())
+                                {
+                                    foreach (var att in Model.LatestAttachments)
+                                    {
+                                        <a href="/Student/Assignment/DownloadAttachment/@att.Id" class="btn btn-sm btn-outline-primary mt-1 me-1">
+                                            <i class="bi bi-download me-1"></i>@att.OriginalFileName
+                                        </a>
+                                    }
+                                }
+                                else if (!string.IsNullOrEmpty(Model.LatestFileUrl) && string.IsNullOrEmpty(Model.LatestExternalUrl))
                                 {
                                     @if (Model.LatestFileUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || Model.LatestFileUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
                                     {
@@ -163,7 +178,7 @@
                                         </a>
                                     }
                                 }
-                                else
+                                else if (string.IsNullOrEmpty(Model.LatestExternalUrl) && (Model.LatestAttachments == null || !Model.LatestAttachments.Any()))
                                 {
                                     <span class="text-muted small">Text response only</span>
                                 }
@@ -219,10 +234,10 @@
                         <!-- Submission Methods -->
                         <div class="mb-3">
                             <label class="form-label fw-semibold text-dark">
-                                <i class="bi bi-file-earmark-arrow-up me-1 text-primary"></i>Upload Submission File (Optional)
+                                <i class="bi bi-file-earmark-arrow-up me-1 text-primary"></i>Upload Submission Files (Optional, up to 5 files)
                             </label>
-                            <input type="file" name="submissionFile" class="form-control" accept=".pdf,.zip,.docx,application/pdf,application/zip,application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
-                            <div class="form-text text-muted small">Supported formats: PDF, ZIP, DOCX. Maximum file size: 10 MB.</div>
+                            <input type="file" name="files" multiple class="form-control" accept=".pdf,.zip,.docx,application/pdf,application/zip,application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
+                            <div class="form-text text-muted small">Supported formats: PDF, ZIP, DOCX. Up to 5 files, maximum 10 MB per file.</div>
                         </div>
 
                         <div class="mb-3">
@@ -300,15 +315,28 @@
                                                 <div class="text-xs text-muted">@attempt.SubmittedAt.ToString("MMM dd, yyyy · HH:mm")</div>
                                             </td>
                                             <td>
-                                                @if (!string.IsNullOrEmpty(attempt.FileUrl))
+                                                @if (!string.IsNullOrEmpty(attempt.ExternalUrl))
+                                                {
+                                                    <a href="@attempt.ExternalUrl" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-info rounded-pill px-2 py-0 text-xs me-1">Link</a>
+                                                }
+                                                @if (attempt.Attachments != null && attempt.Attachments.Any())
+                                                {
+                                                    foreach (var att in attempt.Attachments)
+                                                    {
+                                                        <a href="/Student/Assignment/DownloadAttachment/@att.Id" class="btn btn-sm btn-outline-primary rounded-pill px-2 py-0 text-xs me-1">
+                                                            <i class="bi bi-download"></i> @att.OriginalFileName
+                                                        </a>
+                                                    }
+                                                }
+                                                else if (!string.IsNullOrEmpty(attempt.FileUrl) && string.IsNullOrEmpty(attempt.ExternalUrl))
                                                 {
                                                     @if (attempt.FileUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || attempt.FileUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
                                                     {
-                                                        <a href="@attempt.FileUrl" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-info rounded-pill px-2 py-0 text-xs">Link</a>
+                                                        <a href="@attempt.FileUrl" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-info rounded-pill px-2 py-0 text-xs me-1">Link</a>
                                                     }
                                                     else
                                                     {
-                                                        <a href="/Student/Assignment/Download/@attempt.SubmissionId" class="btn btn-sm btn-outline-primary rounded-pill px-2 py-0 text-xs">
+                                                        <a href="/Student/Assignment/Download/@attempt.SubmissionId" class="btn btn-sm btn-outline-primary rounded-pill px-2 py-0 text-xs me-1">
                                                             <i class="bi bi-download"></i> File
                                                         </a>
                                                     }

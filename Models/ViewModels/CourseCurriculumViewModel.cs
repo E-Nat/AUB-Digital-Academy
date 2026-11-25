@@ -99,6 +99,7 @@ public class CurriculumItemViewModel
     public int? QuizId { get; set; }
     public int? TimeLimitMinutes { get; set; }
     public double? PassingScore { get; set; }
+    public int? MaxAttempts { get; set; }
     public bool IsPublished { get; set; }
     public int QuestionCount { get; set; }
 }

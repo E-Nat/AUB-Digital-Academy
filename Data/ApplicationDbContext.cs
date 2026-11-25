@@ -27,6 +27,7 @@ public class ApplicationDbContext : IdentityDbContext<User>
     public DbSet<CourseProgress> CourseProgresses { get; set; }
     public DbSet<QuizSubmission> QuizSubmissions { get; set; }
     public DbSet<AssignmentSubmission> AssignmentSubmissions { get; set; }
+    public DbSet<AssignmentAttachment> AssignmentAttachments { get; set; }
     public DbSet<QuizSubmissionAnswer> QuizSubmissionAnswers { get; set; }
     public DbSet<CourseAssistant> CourseAssistants { get; set; }
     public DbSet<TelegramVerificationRequest> TelegramVerificationRequests { get; set; }
@@ -217,6 +218,8 @@ public class ApplicationDbContext : IdentityDbContext<User>
         // QuizSubmission
         builder.Entity<QuizSubmission>(entity =>
         {
+            entity.Property(qs => qs.MaxAttemptsAllowed).HasDefaultValue(3);
+
             entity.HasOne(qs => qs.Quiz)
                 .WithMany(q => q.Submissions)
                 .HasForeignKey(qs => qs.QuizId)
@@ -247,6 +250,28 @@ public class ApplicationDbContext : IdentityDbContext<User>
                 .WithMany(u => u.GradedSubmissions)
                 .HasForeignKey(asub => asub.GradedById)
                 .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        // AssignmentAttachment
+        builder.Entity<AssignmentAttachment>(entity =>
+        {
+            entity.HasIndex(aa => aa.SubmissionId);
+            entity.HasIndex(aa => aa.IsDeleted);
+
+            entity.HasOne(aa => aa.Submission)
+                .WithMany(s => s.Attachments)
+                .HasForeignKey(aa => aa.SubmissionId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(aa => aa.DeletedBy)
+                .WithMany()
+                .HasForeignKey(aa => aa.DeletedById)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(aa => aa.RestoredBy)
+                .WithMany()
+                .HasForeignKey(aa => aa.RestoredById)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         // QuizSubmissionAnswer

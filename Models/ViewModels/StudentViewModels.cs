@@ -242,6 +242,7 @@ public class StudentQuizResultViewModel
     public int AttemptNumber { get; set; } = 1;
     public int MaxAttempts { get; set; } = 3;
     public bool CanRetake => AttemptNumber < MaxAttempts;
+    public bool AreAttemptsExhausted { get; set; }
     public double Score { get; set; }
     public double? BestScore { get; set; }
     public bool IsPassed { get; set; }
@@ -314,7 +315,9 @@ public class StudentAssignmentViewModel
     public string? LatestGradedByName { get; set; }
     public string? LatestFileUrl { get; set; }
     public string? LatestOriginalFileName { get; set; }
+    public string? LatestExternalUrl { get; set; }
     public string? LatestTextResponse { get; set; }
+    public List<StudentAttachmentViewModel> LatestAttachments { get; set; } = new();
 
     // Version / Resubmission History
     public List<StudentAssignmentAttemptViewModel> SubmissionHistory { get; set; } = new();
@@ -324,6 +327,16 @@ public class StudentAssignmentViewModel
     public int CourseProgressPercentage { get; set; }
     public int CompletedLessonsCount { get; set; }
     public int TotalLessonsCount { get; set; }
+}
+
+public class StudentAttachmentViewModel
+{
+    public int Id { get; set; }
+    public string OriginalFileName { get; set; } = string.Empty;
+    public long FileSizeBytes { get; set; }
+    public string ContentType { get; set; } = string.Empty;
+    public string StoragePath { get; set; } = string.Empty;
+    public bool IsDeleted { get; set; }
 }
 
 public class StudentAssignmentAttemptViewModel
@@ -337,8 +350,10 @@ public class StudentAssignmentAttemptViewModel
     public string? Feedback { get; set; }
     public string? FileUrl { get; set; }
     public string? OriginalFileName { get; set; }
+    public string? ExternalUrl { get; set; }
     public string? TextResponse { get; set; }
     public bool IsLatest { get; set; }
+    public List<StudentAttachmentViewModel> Attachments { get; set; } = new();
 }
 
 public class StudentBookViewModel

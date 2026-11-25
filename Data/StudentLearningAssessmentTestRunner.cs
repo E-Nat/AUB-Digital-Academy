@@ -22,7 +22,7 @@ public static class StudentLearningAssessmentTestRunner
     public static async Task RunTestsAsync(IServiceProvider serviceProvider)
     {
         Console.WriteLine("\n=================================================================");
-        Console.WriteLine("🚀 RUNNING 18-POINT PHASE 4 INTEGRATION TEST SUITE");
+        Console.WriteLine("🚀 RUNNING 26-POINT PHASE 4 INTEGRATION TEST SUITE");
         Console.WriteLine("   Student Learning & Assessment Workflow Verification");
         Console.WriteLine("=================================================================\n");
 
@@ -239,6 +239,16 @@ public static class StudentLearningAssessmentTestRunner
             .ToListAsync();
         if (oldTestSubs.Any())
         {
+            var oldSubIds = oldTestSubs.Select(s => s.Id).ToList();
+            var oldAttachments = await context.AssignmentAttachments
+                .Where(a => oldSubIds.Contains(a.SubmissionId))
+                .ToListAsync();
+            if (oldAttachments.Any())
+            {
+                context.AssignmentAttachments.RemoveRange(oldAttachments);
+                await context.SaveChangesAsync();
+            }
+
             context.AssignmentSubmissions.RemoveRange(oldTestSubs);
             await context.SaveChangesAsync();
         }
@@ -641,8 +651,470 @@ public static class StudentLearningAssessmentTestRunner
         passed++;
         Console.WriteLine($"[PASS] Test 18: Lifecycle Integrity: 4 roles verified, {totalCourses} courses, {totalUsers} users intact with zero data loss.");
 
+        // -------------------------------------------------------------
+        // TEST 19: Multi-Attachment Submissions & Simultaneous External URL Retention
+        // -------------------------------------------------------------
+        var multiAssignItem = await context.CourseItems
+            .Include(ci => ci.Assignment)
+            .FirstOrDefaultAsync(ci => ci.Chapter.CourseId == cs301.Id && ci.Type == ItemType.Assignment);
+        if (multiAssignItem == null || multiAssignItem.Assignment == null)
+            throw new Exception("Assignment item missing for Test 19.");
+
+        // Create 3 valid test files with signatures
+        var validPdf1Bytes = Encoding.UTF8.GetBytes("%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF");
+        using var pdf1Stream = new MemoryStream(validPdf1Bytes);
+        var pdf1 = new FormFile(pdf1Stream, 0, validPdf1Bytes.Length, "files", "spec_document.pdf")
+        {
+            Headers = new HeaderDictionary(),
+            ContentType = "application/pdf"
+        };
+
+        var validPdf2Bytes = Encoding.UTF8.GetBytes("%PDF-1.4\n2 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF");
+        using var pdf2Stream = new MemoryStream(validPdf2Bytes);
+        var pdf2 = new FormFile(pdf2Stream, 0, validPdf2Bytes.Length, "files", "test_report.pdf")
+        {
+            Headers = new HeaderDictionary(),
+            ContentType = "application/pdf"
+        };
+
+        using var zipStream = new MemoryStream();
+        using (var archive = new System.IO.Compression.ZipArchive(zipStream, System.IO.Compression.ZipArchiveMode.Create, true))
+        {
+            var entry = archive.CreateEntry("solution.cs");
+            using var writer = new StreamWriter(entry.Open());
+            writer.Write("// Solution code");
+        }
+        zipStream.Position = 0;
+        var validZip = new FormFile(zipStream, 0, zipStream.Length, "files", "source_code.zip")
+        {
+            Headers = new HeaderDictionary(),
+            ContentType = "application/zip"
+        };
+
+        var multiFiles = new List<IFormFile> { pdf1, pdf2, validZip };
+        var testExternalUrl = "https://github.com/aub-academy/risc-pipeline-v4";
+
+        var (multiSubResult, multiSub) = await curriculumService.SubmitAssignmentAsync(
+            cs301.Id,
+            multiAssignItem.Id,
+            studentUser.Id,
+            null,
+            testExternalUrl,
+            "Multi-attachment submission with 3 files and external github repo.",
+            multiFiles);
+
+        if (!multiSubResult.IsSuccess || multiSub == null)
+            throw new Exception($"Multi-attachment submission failed: {multiSubResult.Message}");
+
+        if (multiSub.ExternalUrl != testExternalUrl)
+            throw new Exception("Submission ExternalUrl was discarded or not preserved.");
+
+        var savedAttachments = await context.AssignmentAttachments
+            .Where(a => a.SubmissionId == multiSub.Id && !a.IsDeleted)
+            .ToListAsync();
+
+        if (savedAttachments.Count != 3)
+            throw new Exception($"Expected 3 attachments in AssignmentAttachments, found {savedAttachments.Count}.");
+
+        var studentAssignVm = await curriculumService.GetStudentAssignmentAsync(cs301.Id, multiAssignItem.Id, studentUser.Id);
+        if (studentAssignVm == null || studentAssignVm.LatestExternalUrl != testExternalUrl || studentAssignVm.LatestAttachments.Count != 3)
+            throw new Exception("StudentAssignmentViewModel did not reflect both external URL and all 3 attachments.");
+
+        // Verify limit of max 5 files
+        var sixFiles = new List<IFormFile>();
+        for (int i = 0; i < 6; i++)
+        {
+            var stream = new MemoryStream(validPdf1Bytes);
+            sixFiles.Add(new FormFile(stream, 0, validPdf1Bytes.Length, "files", $"file_{i}.pdf")
+            {
+                Headers = new HeaderDictionary(),
+                ContentType = "application/pdf"
+            });
+        }
+        var (overLimitResult, _) = await curriculumService.SubmitAssignmentAsync(
+            cs301.Id,
+            multiAssignItem.Id,
+            studentUser.Id,
+            null,
+            null,
+            "Exceeds max files",
+            sixFiles);
+
+        if (overLimitResult.IsSuccess)
+            throw new Exception("Submitting more than 5 attachments should be rejected.");
+
+        passed++;
+        Console.WriteLine($"[PASS] Test 19: Multi-Attachment Submission: Successfully saved 3 attachments ({string.Join(", ", savedAttachments.Select(a => a.OriginalFileName))}) and preserved ExternalUrl simultaneously; rejected >5 files.");
+
+        // -------------------------------------------------------------
+        // TEST 20: Malicious File Signature & Magic Bytes Rejection
+        // -------------------------------------------------------------
+        // 20a: Executable with MZ header disguised as PDF
+        var mzBytes = new byte[] { 0x4D, 0x5A, 0x90, 0x00, 0x03, 0x00, 0x00, 0x00 };
+        using var mzStream = new MemoryStream(mzBytes);
+        var mzFile = new FormFile(mzStream, 0, mzBytes.Length, "file", "trojan.pdf")
+        {
+            Headers = new HeaderDictionary(),
+            ContentType = "application/pdf"
+        };
+        var mzResult = await storageService.SaveAssignmentFileAsync(mzFile, studentUser.Id, multiAssignItem.Id);
+        if (mzResult.Success)
+            throw new Exception("Storage service must reject files with MZ header disguised as PDF.");
+
+        // 20b: Linux ELF executable disguised as PDF
+        var elfBytes = new byte[] { 0x7F, 0x45, 0x4C, 0x46, 0x02, 0x01, 0x01, 0x00 };
+        using var elfStream = new MemoryStream(elfBytes);
+        var elfFile = new FormFile(elfStream, 0, elfBytes.Length, "file", "rootkit.pdf")
+        {
+            Headers = new HeaderDictionary(),
+            ContentType = "application/pdf"
+        };
+        var elfResult = await storageService.SaveAssignmentFileAsync(elfFile, studentUser.Id, multiAssignItem.Id);
+        if (elfResult.Success)
+            throw new Exception("Storage service must reject files with ELF header disguised as PDF.");
+
+        // 20c: Plain text disguised as DOCX (fails OpenXML inspection)
+        var fakeDocxBytes = Encoding.UTF8.GetBytes("Not a valid zip or docx archive");
+        using var fakeDocxStream = new MemoryStream(fakeDocxBytes);
+        var fakeDocxFile = new FormFile(fakeDocxStream, 0, fakeDocxBytes.Length, "file", "report.docx")
+        {
+            Headers = new HeaderDictionary(),
+            ContentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        };
+        var fakeDocxResult = await storageService.SaveAssignmentFileAsync(fakeDocxFile, studentUser.Id, multiAssignItem.Id);
+        if (fakeDocxResult.Success)
+            throw new Exception("Storage service must reject invalid non-OpenXML files with .docx extension.");
+
+        passed++;
+        Console.WriteLine("[PASS] Test 20: File Signature Security: Magic bytes validation blocked executable (MZ), ELF, and fake DOCX disguises.");
+
+        // -------------------------------------------------------------
+        // TEST 21: Rejection of Grading on Historical (Non-Latest) Submissions
+        // -------------------------------------------------------------
+        var allStudentSubs = await context.AssignmentSubmissions
+            .Where(s => s.AssignmentId == multiAssignItem.Assignment.Id && s.StudentId == studentUser.Id)
+            .OrderBy(s => s.AttemptNumber)
+            .ToListAsync();
+
+        var nonLatestSub = allStudentSubs.FirstOrDefault(s => !s.IsLatest);
+        var latestSub = allStudentSubs.FirstOrDefault(s => s.IsLatest);
+
+        if (nonLatestSub == null || latestSub == null)
+            throw new Exception("Could not find both historical and latest submission attempts for student.");
+
+        var historicalGradeResult = await teacherService.GradeSubmissionAsync(nonLatestSub.Id, 85.0, "Attempting to grade historical attempt.", teacherUser.Id);
+        if (historicalGradeResult.Success)
+            throw new Exception("Grading a historical (IsLatest=false) submission attempt must be rejected.");
+
+        var latestGradeResult = await teacherService.GradeSubmissionAsync(latestSub.Id, 95.0, "Grading the latest attempt.", teacherUser.Id);
+        if (!latestGradeResult.Success)
+            throw new Exception($"Grading the latest submission attempt should succeed: {latestGradeResult.Message}");
+
+        passed++;
+        Console.WriteLine($"[PASS] Test 21: Attempt Immutability: Historical attempt #{nonLatestSub.AttemptNumber} grading rejected; Latest attempt #{latestSub.AttemptNumber} successfully graded.");
+
+        // -------------------------------------------------------------
+        // TEST 22: Quiz Answer Key Shielding until Attempts Exhausted
+        // -------------------------------------------------------------
+        // Create a standalone quiz with MaxAttempts = 3 to test shielding lifecycle cleanly
+        var shieldQuizCourseItem = new CourseItem
+        {
+            Title = "Security Shielding Test Assessment",
+            Position = 120,
+            Type = ItemType.Quiz,
+            ChapterId = chapter.Id
+        };
+        context.CourseItems.Add(shieldQuizCourseItem);
+        await context.SaveChangesAsync();
+
+        var shieldQuiz = new Quiz
+        {
+            CourseItemId = shieldQuizCourseItem.Id,
+            PassingScore = 50.0,
+            TimeLimitMinutes = 20,
+            MaxAttempts = 3,
+            IsPublished = true
+        };
+        context.Quizzes.Add(shieldQuiz);
+        await context.SaveChangesAsync();
+
+        var sq1 = new Question
+        {
+            QuizId = shieldQuiz.Id,
+            Text = "What layer of the OSI model does TLS operate in?",
+            Order = 1,
+            Points = 100.0,
+            Type = QuestionType.MultipleChoice
+        };
+        context.Questions.Add(sq1);
+        await context.SaveChangesAsync();
+
+        var optTransport = new QuestionOption { QuestionId = sq1.Id, Text = "Transport / Presentation", IsCorrect = true };
+        var optPhysical = new QuestionOption { QuestionId = sq1.Id, Text = "Physical Layer", IsCorrect = false };
+        context.QuestionOptions.AddRange(optTransport, optPhysical);
+        await context.SaveChangesAsync();
+
+        // Attempt 1: Student answers incorrectly
+        var badAnswerMap = new Dictionary<int, int> { { sq1.Id, optPhysical.Id } };
+        var (att1Result, att1Outcome) = await curriculumService.SubmitQuizAsync(studentUser.Id, cs301.Id, shieldQuizCourseItem.Id, badAnswerMap);
+        if (!att1Result.IsSuccess || att1Outcome == null)
+            throw new Exception("Shield quiz Attempt 1 failed.");
+
+        var att1View = await curriculumService.GetStudentQuizResultAsync(cs301.Id, shieldQuizCourseItem.Id, att1Outcome.SubmissionId, studentUser.Id);
+        if (att1View == null)
+            throw new Exception("Failed to load Attempt 1 result view.");
+
+        if (att1View.AreAttemptsExhausted)
+            throw new Exception("Attempt 1: AreAttemptsExhausted must be false when 1/3 attempts used.");
+
+        // Correct answer flag in Options must be shielded (IsCorrect == false for all)
+        if (att1View.Questions.First().Options.Any(o => o.IsCorrect))
+            throw new Exception("Attempt 1: Correct answers must be shielded from student when retakes remain.");
+
+        // Attempt 2: Student retakes
+        var (att2Result, att2Outcome) = await curriculumService.SubmitQuizAsync(studentUser.Id, cs301.Id, shieldQuizCourseItem.Id, badAnswerMap);
+        if (!att2Result.IsSuccess || att2Outcome == null)
+            throw new Exception("Shield quiz Attempt 2 failed.");
+
+        var att2View = await curriculumService.GetStudentQuizResultAsync(cs301.Id, shieldQuizCourseItem.Id, att2Outcome.SubmissionId, studentUser.Id);
+        if (att2View == null || att2View.AreAttemptsExhausted)
+            throw new Exception("Attempt 2: AreAttemptsExhausted must remain false when 2/3 attempts used.");
+
+        // Attempt 3: Student retakes (final allowed attempt, exhausting attempts)
+        var (att3Result, att3Outcome) = await curriculumService.SubmitQuizAsync(studentUser.Id, cs301.Id, shieldQuizCourseItem.Id, badAnswerMap);
+        if (!att3Result.IsSuccess || att3Outcome == null)
+            throw new Exception("Shield quiz Attempt 3 failed.");
+
+        var att3View = await curriculumService.GetStudentQuizResultAsync(cs301.Id, shieldQuizCourseItem.Id, att3Outcome.SubmissionId, studentUser.Id);
+        if (att3View == null || !att3View.AreAttemptsExhausted)
+            throw new Exception("Attempt 3: AreAttemptsExhausted must be true once all 3 attempts are exhausted.");
+
+        // Now correct answer must be revealed
+        if (!att3View.Questions.First().Options.Any(o => o.IsCorrect))
+            throw new Exception("Attempt 3: Correct answer must be revealed after all attempts are exhausted.");
+
+        // Attempt 4: Should be blocked by server
+        var (att4Result, _) = await curriculumService.SubmitQuizAsync(studentUser.Id, cs301.Id, shieldQuizCourseItem.Id, badAnswerMap);
+        if (att4Result.IsSuccess)
+            throw new Exception("Attempt 4 must be blocked because attempt limit has been exhausted.");
+
+        passed++;
+        Console.WriteLine("[PASS] Test 22: Quiz Security Shielding: Correct answers shielded on Attempts #1 & #2; revealed only after exhausting all attempts (Attempt #3); Attempt #4 blocked.");
+
+        // -------------------------------------------------------------
+        // TEST 23: Future-Only Quiz MaxAttempts Persistence (Locked Snapshot)
+        // -------------------------------------------------------------
+        var futureQuizCourseItem = new CourseItem
+        {
+            Title = "Snapshot Limit Test Quiz",
+            Position = 121,
+            Type = ItemType.Quiz,
+            ChapterId = chapter.Id
+        };
+        context.CourseItems.Add(futureQuizCourseItem);
+        await context.SaveChangesAsync();
+
+        var futureQuiz = new Quiz
+        {
+            CourseItemId = futureQuizCourseItem.Id,
+            PassingScore = 50.0,
+            TimeLimitMinutes = 15,
+            MaxAttempts = 2, // Originally 2 attempts
+            IsPublished = true
+        };
+        context.Quizzes.Add(futureQuiz);
+        await context.SaveChangesAsync();
+
+        var fq = new Question
+        {
+            QuizId = futureQuiz.Id,
+            Text = "What is 2 + 2?",
+            Order = 1,
+            Points = 100.0,
+            Type = QuestionType.MultipleChoice
+        };
+        context.Questions.Add(fq);
+        await context.SaveChangesAsync();
+        var fqOpt = new QuestionOption { QuestionId = fq.Id, Text = "4", IsCorrect = true };
+        context.QuestionOptions.Add(fqOpt);
+        await context.SaveChangesAsync();
+
+        // Student takes Attempt 1
+        var fqAnswers = new Dictionary<int, int> { { fq.Id, fqOpt.Id } };
+        var (snap1Res, snap1Out) = await curriculumService.SubmitQuizAsync(studentUser.Id, cs301.Id, futureQuizCourseItem.Id, fqAnswers);
+        if (!snap1Res.IsSuccess || snap1Out == null)
+            throw new Exception("Student Attempt 1 failed.");
+
+        var savedSnapSub = await context.QuizSubmissions.FindAsync(snap1Out.SubmissionId);
+        if (savedSnapSub == null || savedSnapSub.MaxAttemptsAllowed != 2)
+            throw new Exception($"Expected MaxAttemptsAllowed snapshot = 2, found {savedSnapSub?.MaxAttemptsAllowed}.");
+
+        // Now teacher/admin raises MaxAttempts on the Quiz from 2 to 5 for future students
+        futureQuiz.MaxAttempts = 5;
+        await context.SaveChangesAsync();
+
+        // Student takes Attempt 2 (reaches 2/2 of their locked limit)
+        var (snap2Res, snap2Out) = await curriculumService.SubmitQuizAsync(studentUser.Id, cs301.Id, futureQuizCourseItem.Id, fqAnswers);
+        if (!snap2Res.IsSuccess)
+            throw new Exception("Student Attempt 2 should succeed.");
+
+        // Student tries to take Attempt 3: MUST BE REJECTED because Student's snapshot was 2!
+        var (snap3Res, _) = await curriculumService.SubmitQuizAsync(studentUser.Id, cs301.Id, futureQuizCourseItem.Id, fqAnswers);
+        if (snap3Res.IsSuccess)
+            throw new Exception("Student was allowed Attempt 3 despite their locked snapshot limit being 2.");
+
+        passed++;
+        Console.WriteLine("[PASS] Test 23: Future-Only MaxAttempts: Student snapshot limit locked at 2 preserved despite quiz limit increase to 5; Attempt #3 rejected.");
+
+        // -------------------------------------------------------------
+        // TEST 24: Uniform 50% Passing Threshold for Quizzes and Assignments
+        // -------------------------------------------------------------
+        // Check gradebook passing evaluation logic
+        var gradesVm = await curriculumService.GetStudentGradesAsync(studentUser.Id, cs301.Id);
+        if (gradesVm == null)
+            throw new Exception("Could not load student gradebook.");
+
+        foreach (var item in gradesVm.GradeItems)
+        {
+            if (item.Score.HasValue)
+            {
+                bool expectedPass = item.Score.Value >= 50.0;
+                if (item.IsPassed != expectedPass)
+                    throw new Exception($"Gradebook item '{item.AssessmentTitle}' with Score {item.Score}% had IsPassed={item.IsPassed}, expected {expectedPass} under 50% threshold.");
+            }
+        }
+
+        passed++;
+        Console.WriteLine("[PASS] Test 24: Uniform 50% Threshold: All gradebook assessments strictly evaluated at uniform >= 50% pass threshold.");
+
+        // -------------------------------------------------------------
+        // TEST 25: Faculty Book CRUD & Safe Assignment Deletion
+        // -------------------------------------------------------------
+        // Book CRUD
+        var bookCreateVm = new BookCreateViewModel
+        {
+            CourseId = cs301.Id,
+            ChapterId = chapter.Id,
+            Title = "Modern Operating Systems Manual",
+            FileUrl = "https://example.com/books/mos.pdf",
+            FileSize = 4194304,
+            Position = 40
+        };
+        var bookCreateRes = await curriculumService.CreateBookAsync(bookCreateVm);
+        if (!bookCreateRes.IsSuccess)
+            throw new Exception($"CreateBookAsync failed: {bookCreateRes.Message}");
+
+        int createdBookId = bookCreateRes.EntityId ?? 0;
+        var bookEditVm = await curriculumService.GetBookByIdAsync(createdBookId);
+        if (bookEditVm == null || bookEditVm.Title != "Modern Operating Systems Manual")
+            throw new Exception("GetBookByIdAsync failed to return created book.");
+
+        bookEditVm.Title = "Modern Operating Systems Manual 2nd Ed";
+        var bookUpdateRes = await curriculumService.UpdateBookAsync(bookEditVm);
+        if (!bookUpdateRes.IsSuccess)
+            throw new Exception($"UpdateBookAsync failed: {bookUpdateRes.Message}");
+
+        var bookDeleteRes = await curriculumService.DeleteBookAsync(createdBookId, chapter.Id, cs301.Id);
+        if (!bookDeleteRes.IsSuccess)
+            throw new Exception($"DeleteBookAsync failed: {bookDeleteRes.Message}");
+
+        // Assignment CRUD & Safe Deletion
+        var assignCreateVm = new AssignmentCreateViewModel
+        {
+            CourseId = cs301.Id,
+            ChapterId = chapter.Id,
+            Title = "Kernel Module Development",
+            Instruction = "Write a basic character driver in C.",
+            DueDate = DateTime.UtcNow.AddDays(10),
+            MaxScore = 100.0,
+            Position = 41
+        };
+        var assignCreateRes = await curriculumService.CreateAssignmentAsync(assignCreateVm);
+        if (!assignCreateRes.IsSuccess)
+            throw new Exception($"CreateAssignmentAsync failed: {assignCreateRes.Message}");
+
+        int createdAssignId = assignCreateRes.EntityId ?? 0;
+        var assignEditVm = await curriculumService.GetAssignmentByIdAsync(createdAssignId);
+        if (assignEditVm == null || assignEditVm.Title != "Kernel Module Development")
+            throw new Exception("GetAssignmentByIdAsync failed.");
+
+        assignEditVm.Title = "Kernel Module Development (Advanced)";
+        var assignUpdateRes = await curriculumService.UpdateAssignmentAsync(assignEditVm);
+        if (!assignUpdateRes.IsSuccess)
+            throw new Exception($"UpdateAssignmentAsync failed: {assignUpdateRes.Message}");
+
+        // Add a student submission to test safe deletion block
+        var dummyAssignEntity = await context.Assignments.FirstAsync(a => a.CourseItemId == createdAssignId);
+        var dummySub = new AssignmentSubmission
+        {
+            AssignmentId = dummyAssignEntity.Id,
+            StudentId = studentUser.Id,
+            AttemptNumber = 1,
+            IsLatest = true,
+            Status = SubmissionStatus.Submitted,
+            TextResponse = "Safe deletion test submission",
+            SubmittedAt = DateTime.UtcNow
+        };
+        context.AssignmentSubmissions.Add(dummySub);
+        await context.SaveChangesAsync();
+
+        // Attempt delete: MUST BE BLOCKED
+        var blockedDeleteRes = await curriculumService.DeleteAssignmentAsync(createdAssignId, chapter.Id, cs301.Id);
+        if (blockedDeleteRes.IsSuccess)
+            throw new Exception("DeleteAssignmentAsync must be blocked when student submissions exist.");
+
+        // Remove student submission and retry deletion: should succeed
+        context.AssignmentSubmissions.Remove(dummySub);
+        await context.SaveChangesAsync();
+
+        var safeDeleteRes = await curriculumService.DeleteAssignmentAsync(createdAssignId, chapter.Id, cs301.Id);
+        if (!safeDeleteRes.IsSuccess)
+            throw new Exception($"DeleteAssignmentAsync should succeed after submissions removed: {safeDeleteRes.Message}");
+
+        passed++;
+        Console.WriteLine("[PASS] Test 25: Faculty Authoring CRUD: Book & Assignment CRUD verified; Assignment deletion safely blocked when student submissions exist.");
+
+        // -------------------------------------------------------------
+        // TEST 26: Admin File Soft-Delete & Audit Recovery Workflow
+        // -------------------------------------------------------------
+        var testAttachment = await context.AssignmentAttachments
+            .FirstOrDefaultAsync(a => a.SubmissionId == multiSub.Id && !a.IsDeleted);
+        if (testAttachment == null)
+            throw new Exception("Test attachment not found for Test 26.");
+
+        // Soft-delete the attachment
+        testAttachment.IsDeleted = true;
+        testAttachment.DeletedAt = DateTime.UtcNow;
+        testAttachment.DeletedById = adminUser.Id;
+        testAttachment.DeletionReason = "Admin compliance soft-delete test";
+        await context.SaveChangesAsync();
+
+        // Verify student view hides the soft-deleted attachment
+        var studentAfterSoftDelete = await curriculumService.GetStudentAssignmentAsync(cs301.Id, multiAssignItem.Id, studentUser.Id);
+        if (studentAfterSoftDelete == null || studentAfterSoftDelete.LatestAttachments.Any(a => a.Id == testAttachment.Id))
+            throw new Exception("Soft-deleted attachment must not appear in student submission view.");
+
+        // Verify physical file is still preserved on disk
+        var environment = services.GetRequiredService<Microsoft.AspNetCore.Hosting.IWebHostEnvironment>();
+        var physicalPath = Path.Combine(environment.ContentRootPath, "App_Data", "Uploads", "Assignments", testAttachment.StoragePath);
+        if (!File.Exists(physicalPath))
+            throw new Exception("Physical file was unexpectedly deleted from App_Data storage upon soft-delete.");
+
+        // Restore attachment
+        testAttachment.IsDeleted = false;
+        testAttachment.RestoredAt = DateTime.UtcNow;
+        testAttachment.RestoredById = adminUser.Id;
+        await context.SaveChangesAsync();
+
+        var studentAfterRestore = await curriculumService.GetStudentAssignmentAsync(cs301.Id, multiAssignItem.Id, studentUser.Id);
+        if (studentAfterRestore == null || !studentAfterRestore.LatestAttachments.Any(a => a.Id == testAttachment.Id))
+            throw new Exception("Restored attachment must reappear in student submission view.");
+
+        passed++;
+        Console.WriteLine($"[PASS] Test 26: Admin File Lifecycle: Soft-delete hid attachment '{testAttachment.OriginalFileName}', retained physical storage, and successfully restored with full audit tracking.");
+
         Console.WriteLine("\n=================================================================");
-        Console.WriteLine($"🎉 PHASE 4 INTEGRATION SUITE COMPLETE: {passed}/18 TESTS PASSED (100% SUCCESS)");
+        Console.WriteLine($"🎉 PHASE 4 INTEGRATION SUITE COMPLETE: {passed}/26 TESTS PASSED (100% SUCCESS)");
         Console.WriteLine("=================================================================\n");
     }
 }

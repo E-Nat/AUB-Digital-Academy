@@ -802,6 +802,7 @@ public class StudentController : Controller
         int courseId,
         int courseItemId,
         IFormFile? submissionFile,
+        List<IFormFile>? files,
         string? externalUrl,
         string? textResponse)
     {
@@ -814,7 +815,8 @@ public class StudentController : Controller
             currentUserId,
             submissionFile,
             externalUrl,
-            textResponse);
+            textResponse,
+            files);
 
         if (!result.IsSuccess)
         {
@@ -826,6 +828,33 @@ public class StudentController : Controller
         }
 
         return RedirectToAction(nameof(Assignment), new { courseId, courseItemId });
+    }
+
+    [HttpGet]
+    [Route("Student/Assignment/DownloadAttachment/{attachmentId:int}")]
+    public async Task<IActionResult> DownloadAttachment(int attachmentId)
+    {
+        var currentUserId = _userManager.GetUserId(User);
+        if (string.IsNullOrEmpty(currentUserId)) return Challenge();
+
+        var attachment = await _context.AssignmentAttachments
+            .Include(a => a.Submission)
+            .FirstOrDefaultAsync(a => a.Id == attachmentId);
+
+        if (attachment == null || attachment.IsDeleted) return NotFound("Attachment not found or has been removed.");
+
+        if (attachment.Submission.StudentId != currentUserId && !User.IsInRole("Admin"))
+        {
+            return Forbid();
+        }
+
+        var fileResult = await _assignmentStorageService.GetAssignmentFileAsync(attachment.StoragePath, attachment.OriginalFileName);
+        if (fileResult == null || fileResult.Value.FileBytes == null)
+        {
+            return NotFound("Stored file not found.");
+        }
+
+        return File(fileResult.Value.FileBytes, fileResult.Value.ContentType, fileResult.Value.DownloadFileName);
     }
 
     [HttpGet]

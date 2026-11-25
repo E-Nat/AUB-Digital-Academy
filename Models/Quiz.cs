@@ -16,7 +16,7 @@ public class Quiz
 
     public int MaxAttempts { get; set; } = 3;
 
-    public double PassingScore { get; set; } = 60.0;
+    public double PassingScore { get; set; } = 50.0;
 
     public bool IsPublished { get; set; }
 

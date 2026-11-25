@@ -27,7 +27,12 @@ public class QuizEditViewModel
     [Required(ErrorMessage = "Passing score percentage is required.")]
     [Range(0.0, 100.0, ErrorMessage = "Passing score must be between 0% and 100%.")]
     [Display(Name = "Passing Score (%)")]
-    public double PassingScore { get; set; } = 60.0;
+    public double PassingScore { get; set; } = 50.0;
+
+    [Required(ErrorMessage = "Maximum attempts is required.")]
+    [Range(1, 10, ErrorMessage = "Maximum attempts must be between 1 and 10.")]
+    [Display(Name = "Max Attempts")]
+    public int MaxAttempts { get; set; } = 3;
 
     [Display(Name = "Published Status")]
     public bool IsPublished { get; set; }

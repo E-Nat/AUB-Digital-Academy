@@ -211,6 +211,37 @@ public class TeacherController : Controller
     }
 
     [HttpGet]
+    [Route("Teacher/Assignment/DownloadAttachment/{attachmentId:int}")]
+    public async Task<IActionResult> DownloadAttachment(int attachmentId)
+    {
+        var teacherId = await GetCurrentTeacherIdAsync();
+        if (string.IsNullOrEmpty(teacherId)) return Challenge();
+
+        var attachment = await _context.AssignmentAttachments
+            .Include(a => a.Submission)
+                .ThenInclude(s => s.Assignment)
+                    .ThenInclude(a => a.CourseItem)
+                        .ThenInclude(ci => ci.Chapter)
+            .FirstOrDefaultAsync(a => a.Id == attachmentId);
+
+        if (attachment == null || attachment.IsDeleted) return NotFound("Attachment not found or has been removed.");
+
+        var courseId = attachment.Submission?.Assignment?.CourseItem?.Chapter?.CourseId ?? 0;
+        if (!await _teacherService.HasAccessToCourseAsync(courseId, teacherId) && !User.IsInRole("Admin"))
+        {
+            return Forbid();
+        }
+
+        var fileResult = await _assignmentStorageService.GetAssignmentFileAsync(attachment.StoragePath, attachment.OriginalFileName);
+        if (fileResult == null || fileResult.Value.FileBytes == null)
+        {
+            return NotFound("File not found on server.");
+        }
+
+        return File(fileResult.Value.FileBytes, fileResult.Value.ContentType, fileResult.Value.DownloadFileName);
+    }
+
+    [HttpGet]
     public async Task<IActionResult> Grades(int? courseId = null)
     {
         ViewData["Title"] = "Student Grades";

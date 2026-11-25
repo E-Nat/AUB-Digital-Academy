@@ -11,7 +11,7 @@ using AUBDigitalAcademy.Services.Interfaces;
 
 namespace AUBDigitalAcademy.Controllers;
 
-[Authorize(Roles = "Admin")]
+[Authorize(Roles = "Admin,Teacher")]
 public class AcademicController : Controller
 {
     private readonly ICourseService _courseService;
@@ -34,6 +34,7 @@ public class AcademicController : Controller
         _curriculumService = curriculumService ?? new AUBDigitalAcademy.Services.Implementations.CurriculumService(context, new LoggerFactory().CreateLogger<AUBDigitalAcademy.Services.Implementations.CurriculumService>());
     }
 
+    [Authorize(Roles = "Admin")]
     [HttpGet]
     public async Task<IActionResult> Course()
     {
@@ -598,6 +599,17 @@ public class AcademicController : Controller
         {
             TempData["ErrorMessage"] = "Course not found.";
             return RedirectToAction(nameof(Course));
+        }
+
+        var currentUserId = _userManager.GetUserId(User);
+        bool isAdmin = User.IsInRole("Admin");
+        if (!isAdmin)
+        {
+            var course = await _context.Courses.AsNoTracking().FirstOrDefaultAsync(c => c.Id == id);
+            if (course == null || (course.TeacherId != currentUserId && !await _context.CourseAssistants.AnyAsync(ca => ca.CourseId == id && ca.AssistantId == currentUserId)))
+            {
+                return Forbid();
+            }
         }
 
         ViewData["Title"] = $"{viewModel.CourseTitle} - Curriculum";
@@ -1183,6 +1195,252 @@ public class AcademicController : Controller
         }
 
         var result = await _curriculumService.DeleteQuizAsync(id, chapterId > 0 ? chapterId : null, courseId > 0 ? courseId : null);
+        if (result.IsSuccess)
+        {
+            TempData["SuccessMessage"] = result.Message;
+            if (isAjax)
+            {
+                return Json(new
+                {
+                    success = true,
+                    message = result.Message,
+                    courseItemId = id,
+                    courseId = courseId,
+                    redirectUrl = Url.Action(nameof(Curriculum), new { id = courseId })
+                });
+            }
+            return courseId > 0 ? RedirectToAction(nameof(Curriculum), new { id = courseId }) : RedirectToAction(nameof(Course));
+        }
+
+        if (isAjax) return Json(new { success = false, message = result.Message, errors = result.Errors });
+        TempData["ErrorMessage"] = result.Message;
+        return courseId > 0 ? RedirectToAction(nameof(Curriculum), new { id = courseId }) : RedirectToAction(nameof(Course));
+    }
+
+    // ==========================================
+    // RESOURCE / BOOK ACTIONS
+    // ==========================================
+
+    [HttpGet]
+    public async Task<IActionResult> GetBookJson(int id)
+    {
+        if (id <= 0) return BadRequest(new { success = false, message = "Invalid resource ID." });
+        var book = await _curriculumService.GetBookByIdAsync(id);
+        if (book == null) return NotFound(new { success = false, message = "Resource not found." });
+        return Json(new { success = true, book });
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> CreateBook(BookCreateViewModel model)
+    {
+        bool isAjax = Request.Headers["X-Requested-With"] == "XMLHttpRequest";
+        if (!ModelState.IsValid)
+        {
+            var errors = ModelState.Values.SelectMany(v => v.Errors).Select(e => e.ErrorMessage).ToList();
+            if (isAjax) return Json(new { success = false, message = "Please provide valid resource information.", errors });
+            TempData["ErrorMessage"] = errors.FirstOrDefault() ?? "Invalid resource data.";
+            return RedirectToAction(nameof(Curriculum), new { id = model.CourseId });
+        }
+
+        var result = await _curriculumService.CreateBookAsync(model);
+        if (result.IsSuccess)
+        {
+            TempData["SuccessMessage"] = result.Message;
+            if (isAjax)
+            {
+                return Json(new
+                {
+                    success = true,
+                    message = result.Message,
+                    courseItemId = result.EntityId,
+                    courseId = model.CourseId,
+                    chapterId = model.ChapterId,
+                    redirectUrl = Url.Action(nameof(Curriculum), new { id = model.CourseId })
+                });
+            }
+            return RedirectToAction(nameof(Curriculum), new { id = model.CourseId });
+        }
+
+        if (isAjax) return Json(new { success = false, message = result.Message, errors = result.Errors });
+        TempData["ErrorMessage"] = result.Message;
+        return RedirectToAction(nameof(Curriculum), new { id = model.CourseId });
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> EditBook(BookEditViewModel model)
+    {
+        bool isAjax = Request.Headers["X-Requested-With"] == "XMLHttpRequest";
+        if (!ModelState.IsValid)
+        {
+            var errors = ModelState.Values.SelectMany(v => v.Errors).Select(e => e.ErrorMessage).ToList();
+            if (isAjax) return Json(new { success = false, message = "Please provide valid resource information.", errors });
+            TempData["ErrorMessage"] = errors.FirstOrDefault() ?? "Invalid resource data.";
+            return RedirectToAction(nameof(Curriculum), new { id = model.CourseId });
+        }
+
+        var result = await _curriculumService.UpdateBookAsync(model);
+        if (result.IsSuccess)
+        {
+            TempData["SuccessMessage"] = result.Message;
+            if (isAjax)
+            {
+                return Json(new
+                {
+                    success = true,
+                    message = result.Message,
+                    courseItemId = model.CourseItemId,
+                    courseId = model.CourseId,
+                    chapterId = model.ChapterId,
+                    redirectUrl = Url.Action(nameof(Curriculum), new { id = model.CourseId })
+                });
+            }
+            return RedirectToAction(nameof(Curriculum), new { id = model.CourseId });
+        }
+
+        if (isAjax) return Json(new { success = false, message = result.Message, errors = result.Errors });
+        TempData["ErrorMessage"] = result.Message;
+        return RedirectToAction(nameof(Curriculum), new { id = model.CourseId });
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> DeleteBook(int id, int courseId = 0, int? chapterId = null)
+    {
+        bool isAjax = Request.Headers["X-Requested-With"] == "XMLHttpRequest";
+        if (id <= 0)
+        {
+            var invalidMsg = "Invalid resource ID.";
+            if (isAjax) return BadRequest(new { success = false, message = invalidMsg });
+            TempData["ErrorMessage"] = invalidMsg;
+            return courseId > 0 ? RedirectToAction(nameof(Curriculum), new { id = courseId }) : RedirectToAction(nameof(Course));
+        }
+
+        var result = await _curriculumService.DeleteBookAsync(id, chapterId > 0 ? chapterId : null, courseId > 0 ? courseId : null);
+        if (result.IsSuccess)
+        {
+            TempData["SuccessMessage"] = result.Message;
+            if (isAjax)
+            {
+                return Json(new
+                {
+                    success = true,
+                    message = result.Message,
+                    courseItemId = id,
+                    courseId = courseId,
+                    redirectUrl = Url.Action(nameof(Curriculum), new { id = courseId })
+                });
+            }
+            return courseId > 0 ? RedirectToAction(nameof(Curriculum), new { id = courseId }) : RedirectToAction(nameof(Course));
+        }
+
+        if (isAjax) return Json(new { success = false, message = result.Message, errors = result.Errors });
+        TempData["ErrorMessage"] = result.Message;
+        return courseId > 0 ? RedirectToAction(nameof(Curriculum), new { id = courseId }) : RedirectToAction(nameof(Course));
+    }
+
+    // ==========================================
+    // ASSIGNMENT ACTIONS
+    // ==========================================
+
+    [HttpGet]
+    public async Task<IActionResult> GetAssignmentJson(int id)
+    {
+        if (id <= 0) return BadRequest(new { success = false, message = "Invalid assignment ID." });
+        var assignment = await _curriculumService.GetAssignmentByIdAsync(id);
+        if (assignment == null) return NotFound(new { success = false, message = "Assignment not found." });
+        return Json(new { success = true, assignment });
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> CreateAssignment(AssignmentCreateViewModel model)
+    {
+        bool isAjax = Request.Headers["X-Requested-With"] == "XMLHttpRequest";
+        if (!ModelState.IsValid)
+        {
+            var errors = ModelState.Values.SelectMany(v => v.Errors).Select(e => e.ErrorMessage).ToList();
+            if (isAjax) return Json(new { success = false, message = "Please provide valid assignment information.", errors });
+            TempData["ErrorMessage"] = errors.FirstOrDefault() ?? "Invalid assignment data.";
+            return RedirectToAction(nameof(Curriculum), new { id = model.CourseId });
+        }
+
+        var result = await _curriculumService.CreateAssignmentAsync(model);
+        if (result.IsSuccess)
+        {
+            TempData["SuccessMessage"] = result.Message;
+            if (isAjax)
+            {
+                return Json(new
+                {
+                    success = true,
+                    message = result.Message,
+                    courseItemId = result.EntityId,
+                    courseId = model.CourseId,
+                    chapterId = model.ChapterId,
+                    redirectUrl = Url.Action(nameof(Curriculum), new { id = model.CourseId })
+                });
+            }
+            return RedirectToAction(nameof(Curriculum), new { id = model.CourseId });
+        }
+
+        if (isAjax) return Json(new { success = false, message = result.Message, errors = result.Errors });
+        TempData["ErrorMessage"] = result.Message;
+        return RedirectToAction(nameof(Curriculum), new { id = model.CourseId });
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> EditAssignment(AssignmentEditViewModel model)
+    {
+        bool isAjax = Request.Headers["X-Requested-With"] == "XMLHttpRequest";
+        if (!ModelState.IsValid)
+        {
+            var errors = ModelState.Values.SelectMany(v => v.Errors).Select(e => e.ErrorMessage).ToList();
+            if (isAjax) return Json(new { success = false, message = "Please provide valid assignment information.", errors });
+            TempData["ErrorMessage"] = errors.FirstOrDefault() ?? "Invalid assignment data.";
+            return RedirectToAction(nameof(Curriculum), new { id = model.CourseId });
+        }
+
+        var result = await _curriculumService.UpdateAssignmentAsync(model);
+        if (result.IsSuccess)
+        {
+            TempData["SuccessMessage"] = result.Message;
+            if (isAjax)
+            {
+                return Json(new
+                {
+                    success = true,
+                    message = result.Message,
+                    courseItemId = model.CourseItemId,
+                    courseId = model.CourseId,
+                    chapterId = model.ChapterId,
+                    redirectUrl = Url.Action(nameof(Curriculum), new { id = model.CourseId })
+                });
+            }
+            return RedirectToAction(nameof(Curriculum), new { id = model.CourseId });
+        }
+
+        if (isAjax) return Json(new { success = false, message = result.Message, errors = result.Errors });
+        TempData["ErrorMessage"] = result.Message;
+        return RedirectToAction(nameof(Curriculum), new { id = model.CourseId });
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> DeleteAssignment(int id, int courseId = 0, int? chapterId = null)
+    {
+        bool isAjax = Request.Headers["X-Requested-With"] == "XMLHttpRequest";
+        if (id <= 0)
+        {
+            var invalidMsg = "Invalid assignment ID.";
+            if (isAjax) return BadRequest(new { success = false, message = invalidMsg });
+            TempData["ErrorMessage"] = invalidMsg;
+            return courseId > 0 ? RedirectToAction(nameof(Curriculum), new { id = courseId }) : RedirectToAction(nameof(Course));
+        }
+
+        var result = await _curriculumService.DeleteAssignmentAsync(id, chapterId > 0 ? chapterId : null, courseId > 0 ? courseId : null);
         if (result.IsSuccess)
         {
             TempData["SuccessMessage"] = result.Message;

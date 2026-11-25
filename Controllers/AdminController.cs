@@ -6,6 +6,7 @@ using AUBDigitalAcademy.Data;
 using AUBDigitalAcademy.Models;
 using AUBDigitalAcademy.Models.Enums;
 using AUBDigitalAcademy.Models.ViewModels;
+using AUBDigitalAcademy.Services.Interfaces;
 
 namespace AUBDigitalAcademy.Controllers;
 
@@ -14,11 +15,16 @@ public class AdminController : Controller
 {
     private readonly ApplicationDbContext? _context;
     private readonly UserManager<User>? _userManager;
+    private readonly IAssignmentStorageService? _storageService;
 
-    public AdminController(ApplicationDbContext? context = null, UserManager<User>? userManager = null)
+    public AdminController(
+        ApplicationDbContext? context = null,
+        UserManager<User>? userManager = null,
+        IAssignmentStorageService? storageService = null)
     {
         _context = context;
         _userManager = userManager;
+        _storageService = storageService;
     }
 
     [HttpGet]
@@ -278,6 +284,197 @@ public class AdminController : Controller
     public IActionResult Users(string? role = null, string? search = null, bool? status = null)
     {
         return RedirectToAction("Index", "User", new { role, search, status });
+    }
+
+    // ==========================================
+    // PHASE 4 — FILE MANAGEMENT & SOFT DELETION
+    // ==========================================
+
+    [HttpGet]
+    public async Task<IActionResult> Files()
+    {
+        ViewData["Title"] = "File Management";
+        ViewData["ActivePage"] = "Files";
+
+        var viewModel = new AdminFileManagementViewModel();
+
+        if (_context != null)
+        {
+            var attachments = await _context.AssignmentAttachments
+                .AsNoTracking()
+                .Include(a => a.Submission)
+                    .ThenInclude(s => s.Student)
+                .Include(a => a.Submission)
+                    .ThenInclude(s => s.Assignment)
+                        .ThenInclude(a => a.CourseItem)
+                            .ThenInclude(ci => ci.Chapter)
+                                .ThenInclude(ch => ch.Course)
+                .Include(a => a.DeletedBy)
+                .Include(a => a.RestoredBy)
+                .OrderByDescending(a => a.UploadedAt)
+                .ToListAsync();
+
+            viewModel.Files = attachments.Select(a => new AdminFileItemViewModel
+            {
+                Id = a.Id,
+                SubmissionId = a.SubmissionId,
+                OriginalFileName = a.OriginalFileName,
+                StoragePath = a.StoragePath,
+                FileSizeBytes = a.FileSizeBytes,
+                ContentType = a.ContentType,
+                UploadedAt = a.UploadedAt,
+                StudentId = a.Submission?.StudentId ?? "",
+                StudentName = a.Submission?.Student?.FullName ?? a.Submission?.Student?.UserName ?? "Student",
+                StudentEmail = a.Submission?.Student?.Email ?? "",
+                AssignmentId = a.Submission?.AssignmentId ?? 0,
+                AssignmentTitle = a.Submission?.Assignment?.CourseItem?.Title ?? "Assignment",
+                CourseCode = a.Submission?.Assignment?.CourseItem?.Chapter?.Course?.Code ?? "",
+                CourseTitle = a.Submission?.Assignment?.CourseItem?.Chapter?.Course?.Title ?? "",
+                IsDeleted = a.IsDeleted,
+                DeletedAt = a.DeletedAt,
+                DeletedByName = a.DeletedBy?.FullName ?? a.DeletedBy?.UserName,
+                DeletionReason = a.DeletionReason,
+                RestoredAt = a.RestoredAt,
+                RestoredByName = a.RestoredBy?.FullName ?? a.RestoredBy?.UserName
+            }).ToList();
+        }
+
+        return View(viewModel);
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> SoftDeleteFile(int id, string? reason)
+    {
+        if (_context == null) return BadRequest("Context unavailable.");
+
+        var attachment = await _context.AssignmentAttachments.FindAsync(id);
+        if (attachment == null)
+        {
+            TempData["ErrorMessage"] = "File not found.";
+            return RedirectToAction(nameof(Files));
+        }
+
+        var currentUserId = _userManager?.GetUserId(User);
+        attachment.IsDeleted = true;
+        attachment.DeletedAt = DateTime.UtcNow;
+        attachment.DeletedById = currentUserId;
+        attachment.DeletionReason = !string.IsNullOrWhiteSpace(reason) ? reason.Trim() : "Administrative soft-delete";
+
+        await _context.SaveChangesAsync();
+        TempData["SuccessMessage"] = $"File '{attachment.OriginalFileName}' has been soft-deleted.";
+        return RedirectToAction(nameof(Files));
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> RestoreFile(int id)
+    {
+        if (_context == null) return BadRequest("Context unavailable.");
+
+        var attachment = await _context.AssignmentAttachments.FindAsync(id);
+        if (attachment == null)
+        {
+            TempData["ErrorMessage"] = "File not found.";
+            return RedirectToAction(nameof(Files));
+        }
+
+        var currentUserId = _userManager?.GetUserId(User);
+        attachment.IsDeleted = false;
+        attachment.RestoredAt = DateTime.UtcNow;
+        attachment.RestoredById = currentUserId;
+
+        await _context.SaveChangesAsync();
+        TempData["SuccessMessage"] = $"File '{attachment.OriginalFileName}' has been restored.";
+        return RedirectToAction(nameof(Files));
+    }
+
+    [HttpGet]
+    [Route("Admin/Files/Download/{id:int}")]
+    public async Task<IActionResult> DownloadAttachment(int id)
+    {
+        if (_context == null || _storageService == null) return NotFound("File service unavailable.");
+
+        var attachment = await _context.AssignmentAttachments.FindAsync(id);
+        if (attachment == null) return NotFound("Attachment record not found.");
+
+        var fileResult = await _storageService.GetAssignmentFileAsync(attachment.StoragePath, attachment.OriginalFileName);
+        if (fileResult == null || fileResult.Value.FileBytes == null)
+        {
+            return NotFound("Physical file not found on disk.");
+        }
+
+        return File(fileResult.Value.FileBytes, fileResult.Value.ContentType, fileResult.Value.DownloadFileName);
+    }
+
+    // ==========================================
+    // SIDEBAR NAVIGATION COMPATIBILITY ROUTES
+    // ==========================================
+
+    [HttpGet]
+    public IActionResult Academic()
+    {
+        return RedirectToAction("Course", "Academic");
+    }
+
+    [HttpGet]
+    public IActionResult Exams()
+    {
+        return RedirectToAction("Course", "Academic");
+    }
+
+    [HttpGet]
+    public IActionResult Teachers()
+    {
+        return RedirectToAction("Index", "User", new { role = "Teacher" });
+    }
+
+    [HttpGet]
+    public IActionResult Schedule()
+    {
+        ViewData["Title"] = "Academic Schedule";
+        ViewData["ActivePage"] = "Schedule";
+        return View();
+    }
+
+    [HttpGet]
+    public IActionResult Payments()
+    {
+        ViewData["Title"] = "Fee Payments";
+        ViewData["ActivePage"] = "Payments";
+        return View();
+    }
+
+    [HttpGet]
+    public IActionResult Invoices()
+    {
+        ViewData["Title"] = "Billing Invoices";
+        ViewData["ActivePage"] = "Invoices";
+        return View();
+    }
+
+    [HttpGet]
+    public IActionResult Payroll()
+    {
+        ViewData["Title"] = "Teacher Payroll";
+        ViewData["ActivePage"] = "Payroll";
+        return View();
+    }
+
+    [HttpGet]
+    public IActionResult Reports()
+    {
+        ViewData["Title"] = "Reports & Analytics";
+        ViewData["ActivePage"] = "Reports";
+        return View();
+    }
+
+    [HttpGet]
+    public IActionResult Settings()
+    {
+        ViewData["Title"] = "System Settings";
+        ViewData["ActivePage"] = "Settings";
+        return View();
     }
 }
 

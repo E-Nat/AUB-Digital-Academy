@@ -74,17 +74,35 @@
                                         <div class="text-xs text-muted">@sub.SubmittedAt.ToString("MMM dd, yyyy · HH:mm")</div>
                                     </td>
                                     <td>
-                                        @if (!string.IsNullOrEmpty(sub.FileUrl))
+                                        @if (!string.IsNullOrEmpty(sub.ExternalUrl))
+                                        {
+                                            <a href="@sub.ExternalUrl" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-info rounded-pill px-2 py-1 text-xs me-2 mb-1">
+                                                <i class="bi bi-box-arrow-up-right me-1"></i> External Link
+                                            </a>
+                                        }
+                                        @if (sub.Attachments != null && sub.Attachments.Any())
+                                        {
+                                            foreach (var att in sub.Attachments)
+                                            {
+                                                <a href="/Teacher/Assignment/DownloadAttachment/@att.Id" class="btn btn-sm btn-outline-primary rounded-pill px-2 py-1 text-xs me-2 mb-1">
+                                                    <i class="bi bi-file-earmark-arrow-down me-1"></i> @att.OriginalFileName
+                                                </a>
+                                            }
+                                        }
+                                        else if (!string.IsNullOrEmpty(sub.FileUrl))
                                         {
                                             @if (sub.FileUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || sub.FileUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
                                             {
-                                                <a href="@sub.FileUrl" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-info rounded-pill px-2 py-1 text-xs me-2">
-                                                    <i class="bi bi-box-arrow-up-right me-1"></i> External Link
-                                                </a>
+                                                if (string.IsNullOrEmpty(sub.ExternalUrl))
+                                                {
+                                                    <a href="@sub.FileUrl" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-info rounded-pill px-2 py-1 text-xs me-2 mb-1">
+                                                        <i class="bi bi-box-arrow-up-right me-1"></i> External Link
+                                                    </a>
+                                                }
                                             }
                                             else
                                             {
-                                                <a href="/Teacher/Assignment/Download/@sub.SubmissionId" class="btn btn-sm btn-outline-primary rounded-pill px-2 py-1 text-xs me-2">
+                                                <a href="/Teacher/Assignment/Download/@sub.SubmissionId" class="btn btn-sm btn-outline-primary rounded-pill px-2 py-1 text-xs me-2 mb-1">
                                                     <i class="bi bi-file-earmark-arrow-down me-1"></i> @(sub.OriginalFileName ?? "Download File")
                                                 </a>
                                             }
@@ -95,7 +113,7 @@
                                                 "@sub.TextResponse"
                                             </span>
                                         }
-                                        @if (string.IsNullOrEmpty(sub.FileUrl) && string.IsNullOrEmpty(sub.TextResponse))
+                                        @if (string.IsNullOrEmpty(sub.ExternalUrl) && (sub.Attachments == null || !sub.Attachments.Any()) && string.IsNullOrEmpty(sub.FileUrl) && string.IsNullOrEmpty(sub.TextResponse))
                                         {
                                             <span class="text-muted text-xs italic">No content submitted</span>
                                         }
@@ -127,9 +145,18 @@
                                     <td class="pe-4 text-end">
                                         @if (ViewBag.CanGrade == true || sub.CanGrade)
                                         {
-                                            <button class="btn btn-sm btn-primary rounded-pill px-3 font-semibold" data-bs-toggle="modal" data-bs-target="#gradeModal_@sub.SubmissionId">
-                                                <i class="bi bi-check2-circle me-1"></i> Grade
-                                            </button>
+                                            @if (sub.IsLatest)
+                                            {
+                                                <button class="btn btn-sm btn-primary rounded-pill px-3 font-semibold" data-bs-toggle="modal" data-bs-target="#gradeModal_@sub.SubmissionId">
+                                                    <i class="bi bi-check2-circle me-1"></i> Grade
+                                                </button>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-secondary bg-opacity-10 text-secondary border rounded-pill px-3 py-1 text-xs" title="Only the latest attempt can be graded.">
+                                                    <i class="bi bi-clock-history me-1"></i> History (Read-Only)
+                                                </span>
+                                            }
 
                                             <!-- Grading Modal -->
                                             <div class="modal fade text-start" id="gradeModal_@sub.SubmissionId" tabindex="-1" aria-hidden="true">

@@ -22,6 +22,8 @@ public class QuizSubmission
 
     public bool IsPassed { get; set; }
 
+    public int MaxAttemptsAllowed { get; set; } = 3;
+
     public DateTime SubmittedAt { get; set; } = DateTime.UtcNow;
 
     public virtual ICollection<QuizSubmissionAnswer> Answers { get; set; } = new List<QuizSubmissionAnswer>();

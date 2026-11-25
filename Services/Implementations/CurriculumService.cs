@@ -98,6 +98,7 @@ public class CurriculumService : ICurriculumService
                             QuizId = ci.Quiz?.Id,
                             TimeLimitMinutes = ci.Quiz?.TimeLimitMinutes,
                             PassingScore = ci.Quiz?.PassingScore,
+                            MaxAttempts = ci.Quiz?.MaxAttempts,
                             IsPublished = ci.Quiz?.IsPublished ?? false,
                             QuestionCount = ci.Quiz?.Questions?.Count ?? 0
                         })
@@ -974,7 +975,8 @@ public class CurriculumService : ICurriculumService
         {
             CourseItemId = courseItem.Id,
             TimeLimitMinutes = model.TimeLimitMinutes > 0 ? model.TimeLimitMinutes : 30,
-            PassingScore = model.PassingScore >= 0 ? model.PassingScore : 60.0,
+            PassingScore = model.PassingScore >= 0 ? model.PassingScore : 50.0,
+            MaxAttempts = model.MaxAttempts > 0 ? model.MaxAttempts : 3,
             IsPublished = model.IsPublished
         };
         _context.Quizzes.Add(quiz);
@@ -1011,7 +1013,8 @@ public class CurriculumService : ICurriculumService
         courseItem.Title = model.Title.Trim();
         courseItem.Position = model.Position;
         courseItem.Quiz.TimeLimitMinutes = model.TimeLimitMinutes > 0 ? model.TimeLimitMinutes : 30;
-        courseItem.Quiz.PassingScore = model.PassingScore >= 0 ? model.PassingScore : 60.0;
+        courseItem.Quiz.PassingScore = model.PassingScore >= 0 ? model.PassingScore : 50.0;
+        courseItem.Quiz.MaxAttempts = model.MaxAttempts > 0 ? model.MaxAttempts : 3;
         courseItem.Quiz.IsPublished = model.IsPublished;
 
         await _context.SaveChangesAsync();
@@ -1079,6 +1082,7 @@ public class CurriculumService : ICurriculumService
             Position = courseItem.Position,
             TimeLimitMinutes = courseItem.Quiz.TimeLimitMinutes,
             PassingScore = courseItem.Quiz.PassingScore,
+            MaxAttempts = courseItem.Quiz.MaxAttempts,
             IsPublished = courseItem.Quiz.IsPublished,
             Questions = courseItem.Quiz.Questions
                 .OrderBy(q => q.Order)
@@ -1098,6 +1102,273 @@ public class CurriculumService : ICurriculumService
                         IsCorrect = o.IsCorrect
                     }).ToList()
                 }).ToList()
+        };
+    }
+
+    // =========================================================================
+    // STEP 4.3B BOOK & ASSIGNMENT MANAGEMENT (FACULTY AUTHORING)
+    // =========================================================================
+
+    public async Task<CurriculumOperationResult> CreateBookAsync(BookCreateViewModel model)
+    {
+        if (model == null) return CurriculumOperationResult.ValidationError("Invalid resource/book data.");
+        if (string.IsNullOrWhiteSpace(model.Title)) return CurriculumOperationResult.ValidationError("Resource title is required.");
+        if (string.IsNullOrWhiteSpace(model.FileUrl)) return CurriculumOperationResult.ValidationError("Document file URL or path is required.");
+        if (model.ChapterId <= 0) return CurriculumOperationResult.ValidationError("Valid Module ID is required.");
+
+        var chapter = await _context.Chapters.Include(ch => ch.Course).FirstOrDefaultAsync(ch => ch.Id == model.ChapterId);
+        if (chapter == null) return CurriculumOperationResult.NotFound("Module not found.");
+        if (model.CourseId > 0 && chapter.CourseId != model.CourseId)
+        {
+            return CurriculumOperationResult.ValidationError("Module does not belong to the specified course.");
+        }
+
+        int position = model.Position ?? await GetNextItemPositionAsync(model.ChapterId);
+
+        var courseItem = new CourseItem
+        {
+            Title = model.Title.Trim(),
+            Position = position,
+            Type = ItemType.Book,
+            ChapterId = model.ChapterId
+        };
+        _context.CourseItems.Add(courseItem);
+        await _context.SaveChangesAsync();
+
+        var book = new Book
+        {
+            CourseItemId = courseItem.Id,
+            FileUrl = model.FileUrl.Trim(),
+            FileType = !string.IsNullOrWhiteSpace(model.FileType) ? model.FileType.Trim() : "PDF",
+            FileSize = model.FileSize
+        };
+        _context.Books.Add(book);
+        await _context.SaveChangesAsync();
+
+        _logger.LogInformation("Book ID {BookId} created under CourseItem ID {CourseItemId} in Chapter {ChapterId}.",
+            book.Id, courseItem.Id, model.ChapterId);
+
+        return CurriculumOperationResult.Ok("Resource / Book created successfully.", courseItem.Id);
+    }
+
+    public async Task<CurriculumOperationResult> UpdateBookAsync(BookEditViewModel model)
+    {
+        if (model == null) return CurriculumOperationResult.ValidationError("Invalid book edit data.");
+        if (string.IsNullOrWhiteSpace(model.Title)) return CurriculumOperationResult.ValidationError("Resource title is required.");
+        if (string.IsNullOrWhiteSpace(model.FileUrl)) return CurriculumOperationResult.ValidationError("Document file URL or path is required.");
+        if (model.CourseItemId <= 0) return CurriculumOperationResult.ValidationError("Valid CourseItem ID is required.");
+
+        var courseItem = await _context.CourseItems
+            .Include(ci => ci.Book)
+            .Include(ci => ci.Chapter)
+            .FirstOrDefaultAsync(ci => ci.Id == model.CourseItemId && ci.Type == ItemType.Book);
+
+        if (courseItem == null || courseItem.Book == null) return CurriculumOperationResult.NotFound("Resource not found.");
+
+        if (model.CourseId > 0 && courseItem.Chapter.CourseId != model.CourseId)
+        {
+            return CurriculumOperationResult.ValidationError("Resource does not belong to the specified course.");
+        }
+        if (model.ChapterId > 0 && courseItem.ChapterId != model.ChapterId)
+        {
+            return CurriculumOperationResult.ValidationError("Resource does not belong to the specified module.");
+        }
+
+        courseItem.Title = model.Title.Trim();
+        courseItem.Position = model.Position;
+        courseItem.Book.FileUrl = model.FileUrl.Trim();
+        courseItem.Book.FileType = !string.IsNullOrWhiteSpace(model.FileType) ? model.FileType.Trim() : "PDF";
+        courseItem.Book.FileSize = model.FileSize;
+
+        await _context.SaveChangesAsync();
+        _logger.LogInformation("Book ID {BookId} updated successfully.", courseItem.Book.Id);
+        return CurriculumOperationResult.Ok("Resource / Book updated successfully.");
+    }
+
+    public async Task<CurriculumOperationResult> DeleteBookAsync(int courseItemId, int? expectedChapterId = null, int? expectedCourseId = null)
+    {
+        if (courseItemId <= 0) return CurriculumOperationResult.ValidationError("Invalid course item ID.");
+
+        var courseItem = await _context.CourseItems
+            .Include(ci => ci.Book)
+            .Include(ci => ci.Chapter)
+            .FirstOrDefaultAsync(ci => ci.Id == courseItemId && ci.Type == ItemType.Book);
+
+        if (courseItem == null) return CurriculumOperationResult.NotFound("Resource not found.");
+
+        if (expectedCourseId.HasValue && courseItem.Chapter.CourseId != expectedCourseId.Value)
+        {
+            return CurriculumOperationResult.ValidationError("Resource does not belong to the specified course.");
+        }
+        if (expectedChapterId.HasValue && courseItem.ChapterId != expectedChapterId.Value)
+        {
+            return CurriculumOperationResult.ValidationError("Resource does not belong to the specified module.");
+        }
+
+        _context.CourseItems.Remove(courseItem);
+        await _context.SaveChangesAsync();
+        _logger.LogInformation("Book CourseItem ID {CourseItemId} deleted successfully.", courseItemId);
+        return CurriculumOperationResult.Success(courseItemId, courseItem.Title, "Resource / Book deleted successfully.", courseItem.Chapter?.CourseId);
+    }
+
+    public async Task<BookEditViewModel?> GetBookByIdAsync(int courseItemId)
+    {
+        if (courseItemId <= 0) return null;
+
+        var courseItem = await _context.CourseItems
+            .AsNoTracking()
+            .Include(ci => ci.Book)
+            .Include(ci => ci.Chapter)
+            .FirstOrDefaultAsync(ci => ci.Id == courseItemId && ci.Type == ItemType.Book);
+
+        if (courseItem == null || courseItem.Book == null) return null;
+
+        return new BookEditViewModel
+        {
+            CourseItemId = courseItem.Id,
+            BookId = courseItem.Book.Id,
+            ChapterId = courseItem.ChapterId,
+            CourseId = courseItem.Chapter.CourseId,
+            Title = courseItem.Title,
+            FileUrl = courseItem.Book.FileUrl,
+            FileType = courseItem.Book.FileType,
+            FileSize = courseItem.Book.FileSize,
+            Position = courseItem.Position
+        };
+    }
+
+    public async Task<CurriculumOperationResult> CreateAssignmentAsync(AssignmentCreateViewModel model)
+    {
+        if (model == null) return CurriculumOperationResult.ValidationError("Invalid assignment data.");
+        if (string.IsNullOrWhiteSpace(model.Title)) return CurriculumOperationResult.ValidationError("Assignment title is required.");
+        if (string.IsNullOrWhiteSpace(model.Instruction)) return CurriculumOperationResult.ValidationError("Instructions are required.");
+        if (model.ChapterId <= 0) return CurriculumOperationResult.ValidationError("Valid Module ID is required.");
+
+        var chapter = await _context.Chapters.Include(ch => ch.Course).FirstOrDefaultAsync(ch => ch.Id == model.ChapterId);
+        if (chapter == null) return CurriculumOperationResult.NotFound("Module not found.");
+        if (model.CourseId > 0 && chapter.CourseId != model.CourseId)
+        {
+            return CurriculumOperationResult.ValidationError("Module does not belong to the specified course.");
+        }
+
+        int position = model.Position ?? await GetNextItemPositionAsync(model.ChapterId);
+
+        var courseItem = new CourseItem
+        {
+            Title = model.Title.Trim(),
+            Position = position,
+            Type = ItemType.Assignment,
+            ChapterId = model.ChapterId
+        };
+        _context.CourseItems.Add(courseItem);
+        await _context.SaveChangesAsync();
+
+        var assignment = new Assignment
+        {
+            CourseItemId = courseItem.Id,
+            Instruction = model.Instruction.Trim(),
+            MaxScore = model.MaxScore > 0 ? model.MaxScore : 100.0,
+            DueDate = model.DueDate != default ? model.DueDate : DateTime.UtcNow.AddDays(7)
+        };
+        _context.Assignments.Add(assignment);
+        await _context.SaveChangesAsync();
+
+        _logger.LogInformation("Assignment ID {AssignmentId} created under CourseItem ID {CourseItemId} in Chapter {ChapterId}.",
+            assignment.Id, courseItem.Id, model.ChapterId);
+
+        return CurriculumOperationResult.Ok("Assignment created successfully.", courseItem.Id);
+    }
+
+    public async Task<CurriculumOperationResult> UpdateAssignmentAsync(AssignmentEditViewModel model)
+    {
+        if (model == null) return CurriculumOperationResult.ValidationError("Invalid assignment edit data.");
+        if (string.IsNullOrWhiteSpace(model.Title)) return CurriculumOperationResult.ValidationError("Assignment title is required.");
+        if (string.IsNullOrWhiteSpace(model.Instruction)) return CurriculumOperationResult.ValidationError("Instructions are required.");
+        if (model.CourseItemId <= 0) return CurriculumOperationResult.ValidationError("Valid CourseItem ID is required.");
+
+        var courseItem = await _context.CourseItems
+            .Include(ci => ci.Assignment)
+            .Include(ci => ci.Chapter)
+            .FirstOrDefaultAsync(ci => ci.Id == model.CourseItemId && ci.Type == ItemType.Assignment);
+
+        if (courseItem == null || courseItem.Assignment == null) return CurriculumOperationResult.NotFound("Assignment not found.");
+
+        if (model.CourseId > 0 && courseItem.Chapter.CourseId != model.CourseId)
+        {
+            return CurriculumOperationResult.ValidationError("Assignment does not belong to the specified course.");
+        }
+        if (model.ChapterId > 0 && courseItem.ChapterId != model.ChapterId)
+        {
+            return CurriculumOperationResult.ValidationError("Assignment does not belong to the specified module.");
+        }
+
+        courseItem.Title = model.Title.Trim();
+        courseItem.Position = model.Position;
+        courseItem.Assignment.Instruction = model.Instruction.Trim();
+        courseItem.Assignment.MaxScore = model.MaxScore > 0 ? model.MaxScore : 100.0;
+        courseItem.Assignment.DueDate = model.DueDate != default ? model.DueDate : courseItem.Assignment.DueDate;
+
+        await _context.SaveChangesAsync();
+        _logger.LogInformation("Assignment ID {AssignmentId} updated successfully.", courseItem.Assignment.Id);
+        return CurriculumOperationResult.Ok("Assignment updated successfully.");
+    }
+
+    public async Task<CurriculumOperationResult> DeleteAssignmentAsync(int courseItemId, int? expectedChapterId = null, int? expectedCourseId = null)
+    {
+        if (courseItemId <= 0) return CurriculumOperationResult.ValidationError("Invalid assignment item ID.");
+
+        var courseItem = await _context.CourseItems
+            .Include(ci => ci.Assignment)
+                .ThenInclude(a => a!.Submissions)
+            .Include(ci => ci.Chapter)
+            .FirstOrDefaultAsync(ci => ci.Id == courseItemId && ci.Type == ItemType.Assignment);
+
+        if (courseItem == null) return CurriculumOperationResult.NotFound("Assignment not found.");
+
+        if (expectedCourseId.HasValue && courseItem.Chapter.CourseId != expectedCourseId.Value)
+        {
+            return CurriculumOperationResult.ValidationError("Assignment does not belong to the specified course.");
+        }
+        if (expectedChapterId.HasValue && courseItem.ChapterId != expectedChapterId.Value)
+        {
+            return CurriculumOperationResult.ValidationError("Assignment does not belong to the specified module.");
+        }
+
+        if (courseItem.Assignment != null && courseItem.Assignment.Submissions.Any())
+        {
+            _logger.LogWarning("Safe delete blocked for Assignment ID {AssignmentId}: Student submissions exist.", courseItem.Assignment.Id);
+            return CurriculumOperationResult.BlockedByStudentData(courseItemId, courseItem.Title, "Cannot delete assignment because student submissions already exist. Deletion is blocked to preserve student academic records.", 0, courseItem.Assignment.Submissions.Count);
+        }
+
+        _context.CourseItems.Remove(courseItem);
+        await _context.SaveChangesAsync();
+        _logger.LogInformation("Assignment CourseItem ID {CourseItemId} safely deleted.", courseItemId);
+        return CurriculumOperationResult.Success(courseItemId, courseItem.Title, "Assignment deleted successfully.", courseItem.Chapter?.CourseId);
+    }
+
+    public async Task<AssignmentEditViewModel?> GetAssignmentByIdAsync(int courseItemId)
+    {
+        if (courseItemId <= 0) return null;
+
+        var courseItem = await _context.CourseItems
+            .AsNoTracking()
+            .Include(ci => ci.Assignment)
+            .Include(ci => ci.Chapter)
+            .FirstOrDefaultAsync(ci => ci.Id == courseItemId && ci.Type == ItemType.Assignment);
+
+        if (courseItem == null || courseItem.Assignment == null) return null;
+
+        return new AssignmentEditViewModel
+        {
+            CourseItemId = courseItem.Id,
+            AssignmentId = courseItem.Assignment.Id,
+            ChapterId = courseItem.ChapterId,
+            CourseId = courseItem.Chapter.CourseId,
+            Title = courseItem.Title,
+            Instruction = courseItem.Assignment.Instruction,
+            MaxScore = courseItem.Assignment.MaxScore,
+            DueDate = courseItem.Assignment.DueDate,
+            Position = courseItem.Position
         };
     }
 
@@ -1377,6 +1648,10 @@ public class CurriculumService : ICurriculumService
             .ToListAsync();
 
         var latestSubmission = allSubmissions.FirstOrDefault();
+        var firstSubmission = allSubmissions.LastOrDefault();
+        int effectiveMaxAttempts = firstSubmission != null && firstSubmission.MaxAttemptsAllowed > 0
+            ? firstSubmission.MaxAttemptsAllowed
+            : (quiz.MaxAttempts > 0 ? quiz.MaxAttempts : 3);
         var bestScore = allSubmissions.Any() ? allSubmissions.Max(s => s.Score) : (double?)null;
 
         // Query completed lesson IDs for progress
@@ -1432,7 +1707,7 @@ public class CurriculumService : ICurriculumService
             QuizTitle = currentItem.Title,
             QuizPosition = currentItem.Position,
             TimeLimitMinutes = quiz.TimeLimitMinutes,
-            MaxAttempts = quiz.MaxAttempts,
+            MaxAttempts = effectiveMaxAttempts,
             PassingScore = quiz.PassingScore,
             IsPublished = quiz.IsPublished,
             HasSubmission = latestSubmission != null,
@@ -1506,15 +1781,28 @@ public class CurriculumService : ICurriculumService
 
         var quiz = courseItem.Quiz;
 
+        // Query student's first attempt to determine effective MaxAttempts (future-only limit rule)
+        var firstAttempt = await _context.QuizSubmissions
+            .AsNoTracking()
+            .Where(qs => qs.QuizId == quiz.Id && qs.StudentId == studentId)
+            .OrderBy(qs => qs.SubmittedAt)
+            .FirstOrDefaultAsync();
+
+        int effectiveMaxAttempts = firstAttempt != null && firstAttempt.MaxAttemptsAllowed > 0
+            ? firstAttempt.MaxAttemptsAllowed
+            : (quiz.MaxAttempts > 0 ? quiz.MaxAttempts : 3);
+
         // Enforce attempt limit
         var existingAttemptsCount = await _context.QuizSubmissions
             .CountAsync(qs => qs.QuizId == quiz.Id && qs.StudentId == studentId);
-        if (existingAttemptsCount >= quiz.MaxAttempts)
+        if (existingAttemptsCount >= effectiveMaxAttempts)
         {
             _logger.LogWarning("SubmitQuizAsync: Student {StudentId} has reached MaxAttempts ({Max}) for Quiz {QuizId}.",
-                studentId, quiz.MaxAttempts, quiz.Id);
-            return (CurriculumOperationResult.Forbidden($"You have reached the maximum allowed attempts ({quiz.MaxAttempts}) for this quiz."), null);
+                studentId, effectiveMaxAttempts, quiz.Id);
+            return (CurriculumOperationResult.Forbidden($"You have reached the maximum allowed attempts ({effectiveMaxAttempts}) for this quiz."), null);
         }
+
+        bool areAttemptsExhausted = (existingAttemptsCount + 1) >= effectiveMaxAttempts;
 
         var questions = quiz.Questions.OrderBy(q => q.Order).ToList();
 
@@ -1557,7 +1845,7 @@ public class CurriculumService : ICurriculumService
                 {
                     OptionId = o.Id,
                     Text = o.Text,
-                    IsCorrect = o.IsCorrect,
+                    IsCorrect = areAttemptsExhausted ? o.IsCorrect : false,
                     IsSelected = selectedOptId.HasValue && selectedOptId.Value == o.Id
                 }).ToList()
             });
@@ -1574,7 +1862,7 @@ public class CurriculumService : ICurriculumService
         }
 
         double score = totalPoints > 0 ? Math.Round((earnedPoints / totalPoints) * 100.0, 2) : 0.0;
-        bool isPassed = totalPoints > 0 && score >= quiz.PassingScore;
+        bool isPassed = totalPoints > 0 && score >= 50.0;
 
         var submission = new QuizSubmission
         {
@@ -1582,6 +1870,7 @@ public class CurriculumService : ICurriculumService
             StudentId = studentId,
             Score = score,
             IsPassed = isPassed,
+            MaxAttemptsAllowed = effectiveMaxAttempts,
             SubmittedAt = DateTime.UtcNow
         };
 
@@ -1614,10 +1903,11 @@ public class CurriculumService : ICurriculumService
             CourseItemId = courseItemId,
             QuizId = quiz.Id,
             QuizTitle = courseItem.Title,
-            PassingScore = quiz.PassingScore,
+            PassingScore = 50.0,
             SubmissionId = submission.Id,
             AttemptNumber = existingAttemptsCount + 1,
-            MaxAttempts = quiz.MaxAttempts,
+            MaxAttempts = effectiveMaxAttempts,
+            AreAttemptsExhausted = areAttemptsExhausted,
             Score = score,
             BestScore = bestScore,
             IsPassed = isPassed,
@@ -1681,8 +1971,13 @@ public class CurriculumService : ICurriculumService
 
         int attemptIndex = allStudentAttempts.FindIndex(s => s.Id == submissionId);
         int attemptNumber = attemptIndex >= 0 ? attemptIndex + 1 : 1;
+        var firstAttempt = allStudentAttempts.FirstOrDefault();
+        int effectiveMaxAttempts = firstAttempt != null && firstAttempt.MaxAttemptsAllowed > 0
+            ? firstAttempt.MaxAttemptsAllowed
+            : (quiz.MaxAttempts > 0 ? quiz.MaxAttempts : 3);
         double bestScore = allStudentAttempts.Any() ? allStudentAttempts.Max(s => s.Score) : submission.Score;
-        bool canRetake = allStudentAttempts.Count < quiz.MaxAttempts;
+        bool canRetake = allStudentAttempts.Count < effectiveMaxAttempts;
+        bool areAttemptsExhausted = allStudentAttempts.Count >= effectiveMaxAttempts;
 
         var answersMap = submission.Answers.ToDictionary(a => a.QuestionId);
         int correctCount = submission.Answers.Count(a => a.IsCorrect == true);
@@ -1709,7 +2004,7 @@ public class CurriculumService : ICurriculumService
                 {
                     OptionId = o.Id,
                     Text = o.Text,
-                    IsCorrect = o.IsCorrect,
+                    IsCorrect = areAttemptsExhausted ? o.IsCorrect : false,
                     IsSelected = selectedOptId.HasValue && selectedOptId.Value == o.Id
                 }).ToList()
             };
@@ -1723,10 +2018,11 @@ public class CurriculumService : ICurriculumService
             CourseItemId = courseItemId,
             QuizId = quiz.Id,
             QuizTitle = courseItem.Title,
-            PassingScore = quiz.PassingScore,
+            PassingScore = 50.0,
             SubmissionId = submission.Id,
             AttemptNumber = attemptNumber,
-            MaxAttempts = quiz.MaxAttempts,
+            MaxAttempts = effectiveMaxAttempts,
+            AreAttemptsExhausted = areAttemptsExhausted,
             Score = submission.Score,
             BestScore = bestScore,
             IsPassed = submission.IsPassed,
@@ -1897,6 +2193,7 @@ public class CurriculumService : ICurriculumService
             .AsNoTracking()
             .Where(s => s.AssignmentId == assignment.Id && s.StudentId == studentId)
             .Include(s => s.GradedBy)
+            .Include(s => s.Attachments.Where(a => !a.IsDeleted))
             .OrderByDescending(s => s.AttemptNumber)
             .ToListAsync();
 
@@ -1913,8 +2210,18 @@ public class CurriculumService : ICurriculumService
             Feedback = s.Feedback,
             FileUrl = s.FileUrl,
             OriginalFileName = s.OriginalFileName,
+            ExternalUrl = s.ExternalUrl,
             TextResponse = s.TextResponse,
-            IsLatest = s.IsLatest
+            IsLatest = s.IsLatest,
+            Attachments = s.Attachments.Where(a => !a.IsDeleted).Select(a => new StudentAttachmentViewModel
+            {
+                Id = a.Id,
+                OriginalFileName = a.OriginalFileName,
+                FileSizeBytes = a.FileSizeBytes,
+                ContentType = a.ContentType,
+                StoragePath = a.StoragePath,
+                IsDeleted = a.IsDeleted
+            }).ToList()
         }).OrderBy(s => s.AttemptNumber).ToList();
 
         var nav = await BuildStudentCurriculumNavigationAsync(courseId, studentId, courseItemId, courseItem.ChapterId);
@@ -1946,7 +2253,17 @@ public class CurriculumService : ICurriculumService
             LatestGradedByName = latestSub?.GradedBy?.FullName ?? latestSub?.GradedBy?.UserName,
             LatestFileUrl = latestSub?.FileUrl,
             LatestOriginalFileName = latestSub?.OriginalFileName,
+            LatestExternalUrl = latestSub?.ExternalUrl,
             LatestTextResponse = latestSub?.TextResponse,
+            LatestAttachments = latestSub?.Attachments.Where(a => !a.IsDeleted).Select(a => new StudentAttachmentViewModel
+            {
+                Id = a.Id,
+                OriginalFileName = a.OriginalFileName,
+                FileSizeBytes = a.FileSizeBytes,
+                ContentType = a.ContentType,
+                StoragePath = a.StoragePath,
+                IsDeleted = a.IsDeleted
+            }).ToList() ?? new(),
             SubmissionHistory = submissionHistory,
             Modules = nav.Modules,
             CourseProgressPercentage = nav.ProgressPercentage,
@@ -1961,7 +2278,8 @@ public class CurriculumService : ICurriculumService
         string studentId,
         Microsoft.AspNetCore.Http.IFormFile? file,
         string? externalUrl,
-        string? textResponse)
+        string? textResponse,
+        IEnumerable<Microsoft.AspNetCore.Http.IFormFile>? files = null)
     {
         if (courseId <= 0 || courseItemId <= 0 || string.IsNullOrWhiteSpace(studentId))
         {
@@ -1991,43 +2309,27 @@ public class CurriculumService : ICurriculumService
 
         var assignment = courseItem.Assignment;
 
-        // Check if at least one content method is provided
-        bool hasFile = file != null && file.Length > 0;
-        bool hasUrl = !string.IsNullOrWhiteSpace(externalUrl);
-        bool hasText = !string.IsNullOrWhiteSpace(textResponse);
-
-        if (!hasFile && !hasUrl && !hasText)
+        // Combine files
+        var uploadFiles = new List<Microsoft.AspNetCore.Http.IFormFile>();
+        if (files != null)
         {
-            return (CurriculumOperationResult.ValidationError("Please provide a file upload, external URL, or written text response."), null);
+            uploadFiles.AddRange(files.Where(f => f != null && f.Length > 0));
+        }
+        if (file != null && file.Length > 0 && !uploadFiles.Contains(file))
+        {
+            uploadFiles.Insert(0, file);
         }
 
-        string? savedFileUrl = null;
-        string? originalFileName = null;
-        long? fileSizeBytes = null;
-        string? contentType = null;
-
-        if (hasFile)
+        if (uploadFiles.Count > 5)
         {
-            if (_storageService == null)
-            {
-                return (CurriculumOperationResult.Failed("File storage service is not configured."), null);
-            }
-
-            var saveResult = await _storageService.SaveAssignmentFileAsync(file!, studentId, assignment.Id);
-            if (!saveResult.Success)
-            {
-                return (CurriculumOperationResult.ValidationError(saveResult.ErrorMessage ?? "File upload failed."), null);
-            }
-
-            savedFileUrl = saveResult.StoredPath;
-            originalFileName = saveResult.OriginalName;
-            fileSizeBytes = saveResult.FileSize;
-            contentType = saveResult.ContentType;
+            return (CurriculumOperationResult.ValidationError("You can upload a maximum of 5 files per submission."), null);
         }
 
-        if (hasUrl)
+        // Validate External URL
+        string? validExternalUrl = null;
+        if (!string.IsNullOrWhiteSpace(externalUrl))
         {
-            var trimmedUrl = externalUrl!.Trim();
+            var trimmedUrl = externalUrl.Trim();
             var lower = trimmedUrl.ToLowerInvariant();
             if (lower.StartsWith("javascript:") || lower.StartsWith("data:") || lower.StartsWith("file:") || lower.StartsWith("vbscript:"))
             {
@@ -2037,13 +2339,65 @@ public class CurriculumService : ICurriculumService
             {
                 return (CurriculumOperationResult.ValidationError("URL must begin with http:// or https://."), null);
             }
-            if (savedFileUrl == null)
+            validExternalUrl = trimmedUrl;
+        }
+
+        bool hasFiles = uploadFiles.Any();
+        bool hasUrl = !string.IsNullOrWhiteSpace(validExternalUrl);
+        bool hasText = !string.IsNullOrWhiteSpace(textResponse);
+
+        if (!hasFiles && !hasUrl && !hasText)
+        {
+            return (CurriculumOperationResult.ValidationError("Please provide a file upload, external URL, or written text response."), null);
+        }
+
+        var createdAttachments = new List<AssignmentAttachment>();
+        string? firstSavedPath = null;
+        string? firstOriginalName = null;
+        long? firstFileSizeBytes = null;
+        string? firstContentType = null;
+
+        if (hasFiles)
+        {
+            if (_storageService == null)
             {
-                savedFileUrl = trimmedUrl;
+                return (CurriculumOperationResult.Failed("File storage service is not configured."), null);
+            }
+
+            foreach (var f in uploadFiles)
+            {
+                if (f.Length > 10 * 1024 * 1024)
+                {
+                    return (CurriculumOperationResult.ValidationError($"File '{f.FileName}' exceeds the maximum allowed size of 10 MB."), null);
+                }
+
+                var saveResult = await _storageService.SaveAssignmentFileAsync(f, studentId, assignment.Id);
+                if (!saveResult.Success)
+                {
+                    return (CurriculumOperationResult.ValidationError(saveResult.ErrorMessage ?? $"File upload failed for '{f.FileName}'."), null);
+                }
+
+                if (firstSavedPath == null)
+                {
+                    firstSavedPath = saveResult.StoredPath;
+                    firstOriginalName = saveResult.OriginalName;
+                    firstFileSizeBytes = saveResult.FileSize;
+                    firstContentType = saveResult.ContentType;
+                }
+
+                createdAttachments.Add(new AssignmentAttachment
+                {
+                    StoragePath = saveResult.StoredPath ?? string.Empty,
+                    OriginalFileName = saveResult.OriginalName ?? f.FileName,
+                    FileSizeBytes = saveResult.FileSize ?? f.Length,
+                    ContentType = saveResult.ContentType ?? "application/octet-stream",
+                    UploadedAt = DateTime.UtcNow,
+                    IsDeleted = false
+                });
             }
         }
 
-        // Determine status (Late vs Submitted)
+        // Determine status (Late vs Submitted - late allowed with zero penalties)
         var now = DateTime.UtcNow;
         var status = now > assignment.DueDate ? SubmissionStatus.Late : SubmissionStatus.Submitted;
 
@@ -2066,20 +2420,22 @@ public class CurriculumService : ICurriculumService
             StudentId = studentId,
             AttemptNumber = nextAttemptNumber,
             IsLatest = true,
-            FileUrl = savedFileUrl,
-            OriginalFileName = originalFileName,
-            FileSizeBytes = fileSizeBytes,
-            ContentType = contentType,
+            FileUrl = firstSavedPath ?? validExternalUrl,
+            OriginalFileName = firstOriginalName,
+            FileSizeBytes = firstFileSizeBytes,
+            ContentType = firstContentType,
+            ExternalUrl = validExternalUrl,
             TextResponse = hasText ? textResponse!.Trim() : null,
             SubmittedAt = now,
-            Status = status
+            Status = status,
+            Attachments = createdAttachments
         };
 
         _context.AssignmentSubmissions.Add(newSubmission);
         await _context.SaveChangesAsync();
 
-        _logger.LogInformation("Student {StudentId} submitted Assignment {AssignmentId} (Attempt {Attempt}, Status {Status}).",
-            studentId, assignment.Id, nextAttemptNumber, status);
+        _logger.LogInformation("Student {StudentId} submitted Assignment {AssignmentId} (Attempt {Attempt}, Status {Status}, Attachments {Count}, ExternalUrl {HasUrl}).",
+            studentId, assignment.Id, nextAttemptNumber, status, createdAttachments.Count, hasUrl);
 
         return (CurriculumOperationResult.Ok($"Assignment submitted successfully! (Attempt #{nextAttemptNumber}{(status == SubmissionStatus.Late ? " - Submitted Late" : "")})", newSubmission.Id), newSubmission);
     }
@@ -2270,7 +2626,7 @@ public class CurriculumService : ICurriculumService
             bool isCompleted = bestSub != null;
             double? score = bestSub?.Score;
             double maxScore = 100.0;
-            bool isPassed = bestSub != null && (bestSub.IsPassed || (bestSub.Score >= q.PassingScore));
+            bool isPassed = bestSub != null && (bestSub.Score >= 50.0);
 
             string statusDisplay = "Not Attempted";
             if (bestSub != null)
@@ -2293,7 +2649,7 @@ public class CurriculumService : ICurriculumService
                 IsCompleted = isCompleted,
                 StatusDisplay = statusDisplay,
                 Date = bestSub?.SubmittedAt ?? DateTime.UtcNow,
-                Feedback = isPassed ? $"Passed with score {score}%" : (score.HasValue ? $"Score: {score}% (Passing: {q.PassingScore}%)" : null),
+                Feedback = isPassed ? $"Passed with score {score}%" : (score.HasValue ? $"Score: {score}% (Passing: 50%)" : null),
                 DetailUrl = $"/Student/Course/{q.CourseItem.Chapter.CourseId}/Quiz/{q.CourseItemId}"
             });
         }

@@ -392,6 +392,7 @@ public class TeacherService : ITeacherService
             .Where(s => s.AssignmentId == assignmentId)
             .Include(s => s.Student)
             .Include(s => s.GradedBy)
+            .Include(s => s.Attachments.Where(a => !a.IsDeleted))
             .OrderByDescending(s => s.SubmittedAt)
             .ToListAsync();
 
@@ -409,6 +410,15 @@ public class TeacherService : ITeacherService
             FileUrl = s.FileUrl,
             OriginalFileName = s.OriginalFileName,
             FileSizeBytes = s.FileSizeBytes,
+            ExternalUrl = s.ExternalUrl,
+            Attachments = s.Attachments.Where(a => !a.IsDeleted).Select(a => new TeacherAttachmentItemViewModel
+            {
+                Id = a.Id,
+                OriginalFileName = a.OriginalFileName,
+                FileSizeBytes = a.FileSizeBytes,
+                ContentType = a.ContentType,
+                IsDeleted = a.IsDeleted
+            }).ToList(),
             AttemptNumber = s.AttemptNumber,
             IsLatest = s.IsLatest,
             TextResponse = s.TextResponse,
@@ -435,6 +445,15 @@ public class TeacherService : ITeacherService
         if (submission == null)
         {
             return new TeacherGradingResult { Success = false, Message = "Submission not found." };
+        }
+
+        if (!submission.IsLatest)
+        {
+            return new TeacherGradingResult
+            {
+                Success = false,
+                Message = "Only the latest assignment submission attempt can be graded. Historical attempts are read-only."
+            };
         }
 
         var course = submission.Assignment?.CourseItem?.Chapter?.Course;

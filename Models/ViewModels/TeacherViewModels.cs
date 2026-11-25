@@ -147,6 +147,8 @@ public class TeacherSubmissionItemViewModel
     public string? FileUrl { get; set; }
     public string? OriginalFileName { get; set; }
     public long? FileSizeBytes { get; set; }
+    public string? ExternalUrl { get; set; }
+    public List<TeacherAttachmentItemViewModel> Attachments { get; set; } = new();
     public int AttemptNumber { get; set; } = 1;
     public bool IsLatest { get; set; } = true;
     public string? TextResponse { get; set; }
@@ -158,6 +160,15 @@ public class TeacherSubmissionItemViewModel
     public string? GradedByName { get; set; }
     public int CourseId { get; set; }
     public bool CanGrade { get; set; }
+}
+
+public class TeacherAttachmentItemViewModel
+{
+    public int Id { get; set; }
+    public string OriginalFileName { get; set; } = string.Empty;
+    public long FileSizeBytes { get; set; }
+    public string ContentType { get; set; } = string.Empty;
+    public bool IsDeleted { get; set; }
 }
 
 public class GradeSubmissionInputModel
