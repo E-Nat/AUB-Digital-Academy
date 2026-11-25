@@ -278,9 +278,16 @@
                                             @foreach (var lesson in mod.Lessons.OrderBy(l => l.Position))
                                             {
                                                 var isQuiz = lesson.Type == AUBDigitalAcademy.Models.Enums.ItemType.Quiz;
-                                                var itemUrl = isQuiz
-                                                    ? $"/Student/Course/{Model.CourseId}/Quiz/{lesson.CourseItemId}"
-                                                    : $"/Student/Course/{Model.CourseId}/Lesson/{lesson.CourseItemId}";
+                                                var isAssignment = lesson.Type == AUBDigitalAcademy.Models.Enums.ItemType.Assignment;
+                                                var isBook = lesson.Type == AUBDigitalAcademy.Models.Enums.ItemType.Book;
+
+                                                string itemUrl = lesson.Type switch
+                                                {
+                                                    AUBDigitalAcademy.Models.Enums.ItemType.Quiz => $"/Student/Course/{Model.CourseId}/Quiz/{lesson.CourseItemId}",
+                                                    AUBDigitalAcademy.Models.Enums.ItemType.Assignment => $"/Student/Course/{Model.CourseId}/Assignment/{lesson.CourseItemId}",
+                                                    AUBDigitalAcademy.Models.Enums.ItemType.Book => $"/Student/Course/{Model.CourseId}/Book/{lesson.CourseItemId}",
+                                                    _ => $"/Student/Course/{Model.CourseId}/Lesson/{lesson.CourseItemId}"
+                                                };
 
                                                 <a href="@itemUrl"
                                                    class="player-lesson-link d-flex align-items-center gap-2 text-decoration-none @(lesson.IsCurrent ? "current-lesson" : "")"
@@ -292,11 +299,19 @@
                                                     }
                                                     else if (lesson.IsCurrent)
                                                     {
-                                                        <i class="bi @(isQuiz ? "bi-patch-question-fill" : "bi-play-circle-fill") text-primary fs-6 flex-shrink-0" title="@(isQuiz ? "Current Quiz" : "Current Lesson")"></i>
+                                                        <i class="bi bi-arrow-right-circle-fill text-primary fs-6 flex-shrink-0" title="Current"></i>
                                                     }
                                                     else if (isQuiz)
                                                     {
                                                         <i class="bi bi-patch-question-fill text-warning fs-6 flex-shrink-0" title="Quiz"></i>
+                                                    }
+                                                    else if (isAssignment)
+                                                    {
+                                                        <i class="bi bi-file-earmark-arrow-up-fill text-info fs-6 flex-shrink-0" title="Assignment"></i>
+                                                    }
+                                                    else if (isBook)
+                                                    {
+                                                        <i class="bi bi-book-fill text-secondary fs-6 flex-shrink-0" title="Book"></i>
                                                     }
                                                     else
                                                     {
@@ -308,7 +323,7 @@
                                                             @lesson.Title
                                                         </div>
                                                         <span class="text-muted" style="font-size: 0.75rem;">
-                                                            @(isQuiz ? "Quiz" : "Lesson") @lesson.Position
+                                                            @lesson.Type.ToString() @lesson.Position
                                                         </span>
                                                     </div>
 

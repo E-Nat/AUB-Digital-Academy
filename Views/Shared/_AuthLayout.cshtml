@@ -5,107 +5,180 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>@ViewData["Title"] - AUB Digital Academy</title>
     
+    <!-- Google Fonts Inter -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- Bootstrap 5 CSS & Icons -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    
+    <link rel="icon" type="image/x-icon" href="~/logos/rel_icon.png">
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+    <link rel="stylesheet" href="~/css/login-left.css" asp-append-version="true" />
+    <style>
+        .login-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            min-height: 100vh;
+            width: 100%;
+            max-width: 100%;
+            overflow-x: hidden;
+            background-color: #FFFFFF;
+        }
+        .login-section {
+            min-width: 0;
+            width: 100%;
+            height: 100%;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: #FFFFFF;
+            box-sizing: border-box;
+            position: relative;
+            overflow-y: auto;
+        }
+        @@media (min-width: 768px) and (max-width: 1023.98px) {
+            .login-container {
+                grid-template-columns: 1fr 1fr !important;
+            }
+            .login-section {
+                display: flex !important;
+                padding: 24px 20px !important;
+            }
+        }
+        @@media (max-width: 767.98px) {
+            .login-container {
+                display: flex !important;
+                flex-direction: column !important;
+            }
+            .login-section {
+                width: 100% !important;
+                min-height: auto !important;
+                padding: 24px 18px !important;
+            }
+        }
+    </style>
     @await RenderSectionAsync("Styles", required: false)
 </head>
 <body class="bg-white">
-    <div class="d-flex min-vh-100">
+
+    <div class="login-container auth-layout">
         
-        <!-- Left Panel: University Branding (Desktop) -->
-        <aside class="auth-left-panel d-none d-lg-flex flex-column position-relative overflow-hidden w-50" aria-label="University Brand Showcase">
-            <!-- Background Elements -->
-            <div class="auth-bg-overlay"></div>
-            
-            <div class="auth-left-content position-relative z-3 d-flex flex-column h-100 p-5">
-                <!-- Header / Logo -->
-                <div class="d-flex align-items-center gap-3">
-                    <div class="auth-logo-icon">
-                        <i class="bi bi-mortarboard-fill" aria-hidden="true"></i>
-                    </div>
-                    <div class="d-flex align-items-center gap-1">
-                        <span class="text-white fw-bold fs-3 letter-spacing-tight">AUB</span>
-                        <div class="d-flex flex-column lh-1 mt-1">
-                            <span class="text-white fw-semibold" style="font-size: 0.75rem; letter-spacing: 1px;">DIGITAL</span>
-                            <span class="text-gold fw-bold" style="font-size: 0.75rem; letter-spacing: 1px;">ACADEMY</span>
+        <!-- Left Panel: University Branding & Showcase (50% Desktop & Tablet) -->
+        <aside class="hero-section auth-left-panel position-relative overflow-hidden" aria-label="University Brand Showcase">
+            <!-- Ambient Glow Blobs -->
+            <div class="hero-glow-blob hero-glow-cyan" aria-hidden="true"></div>
+            <div class="hero-glow-blob hero-glow-gold" aria-hidden="true"></div>
+
+            <!-- Background Network Constellation Canvas -->
+            <canvas id="loginNetworkCanvas" class="login-network-canvas" aria-hidden="true"></canvas>
+
+            <div class="hero-content-wrapper">
+                <!-- Institutional Brand Header -->
+                <div class="brand-block hero-entry-item hero-entry-delay-1">
+                    <img src="~/logos/rel_icon.png" alt="AUB University Emblem" class="brand-logo-img" />
+                    <div class="brand-text-block">
+                        <span class="brand-subtitle">AUB &bull; ACLEDA UNIVERSITY OF BUSINESS</span>
+                        <div class="brand-title">
+                            DIGITAL <span class="gold-accent">ACADEMY</span>
                         </div>
+                        <div class="brand-gold-line" aria-hidden="true"></div>
                     </div>
                 </div>
-                
-                <!-- Main Value Proposition -->
-                <div class="my-auto py-4">
-                    <p class="text-white fs-5 mb-2 fw-light opacity-90">Welcome to</p>
-                    <h1 class="text-white display-5 fw-bold mb-3" style="letter-spacing: -0.5px;">
-                        AUB <span class="text-gold">Digital Academy</span>
+
+                <!-- Centerpiece Digital Graduation Artwork & Typography -->
+                <div class="hero-center-stage">
+                    <div class="hero-art-container hero-entry-item hero-entry-delay-2" aria-hidden="true">
+                        <!-- Concentric pulsed rings and rotating orbit -->
+                        <div class="hero-rings-wrapper">
+                            <div class="platform-glow"></div>
+                            <div class="platform-pulse-ring-1"></div>
+                            <div class="platform-pulse-ring-2"></div>
+                            <div class="platform-ring"></div>
+                            <div class="platform-orbit-ring"></div>
+                        </div>
+
+                        <!-- Central Floating Graduation Cap -->
+                        <div class="hero-cap-float-wrapper">
+                            <img src="~/images/digital_graduation_cap_transparent.png"
+                                 alt="Futuristic Digital Graduation Cap"
+                                 class="hero-cap-img" />
+                        </div>
+
+                        <!-- 4 Floating Feature Badges with staggered offset timing -->
+                        <div class="hero-card-anchor card-anchor-book">
+                            <div class="hero-feature-card float-card-1">
+                                <i class="bi bi-journal-bookmark-fill" aria-hidden="true"></i>
+                                <span>Curriculum</span>
+                            </div>
+                        </div>
+
+                        <div class="hero-card-anchor card-anchor-laptop">
+                            <div class="hero-feature-card float-card-2">
+                                <i class="bi bi-laptop" aria-hidden="true"></i>
+                                <span>Smart Campus</span>
+                            </div>
+                        </div>
+
+                        <div class="hero-card-anchor card-anchor-people">
+                            <div class="hero-feature-card float-card-3">
+                                <i class="bi bi-people-fill" aria-hidden="true"></i>
+                                <span>Mentorship</span>
+                            </div>
+                        </div>
+
+                        <div class="hero-card-anchor card-anchor-chart">
+                            <div class="hero-feature-card float-card-4">
+                                <i class="bi bi-graph-up-arrow" aria-hidden="true"></i>
+                                <span>Analytics</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Headline with balanced wrapping and gold shimmer -->
+                    <h1 class="hero-headline hero-entry-item hero-entry-delay-3">
+                        Empowering Future Leaders in<br />
+                        <span class="gold-shimmer-text">Digital Excellence.</span>
                     </h1>
-                    <div class="auth-title-underline mb-4"></div>
-                    <p class="text-white opacity-80 fs-6 fw-light mb-4" style="max-width: 440px; line-height: 1.65;">
-                        Empowering students, faculty, and administration with a secure, unified academic workspace, interactive coursework, and digital learning tools.
+
+                    <!-- Descriptive Paragraph -->
+                    <p class="hero-paragraph hero-entry-item hero-entry-delay-4">
+                        Access your personalized academic workspace, interactive coursework, faculty consultations, and student learning resources.
                     </p>
-
-                    <!-- Feature Badges -->
-                    <div class="d-flex flex-column gap-3 mb-4" style="max-width: 420px;">
-                        <div class="d-flex align-items-center gap-3 text-white">
-                            <div class="rounded-circle d-flex align-items-center justify-content-center bg-white bg-opacity-10 text-gold flex-shrink-0" style="width: 38px; height: 38px;">
-                                <i class="bi bi-award fs-5" aria-hidden="true"></i>
-                            </div>
-                            <div class="small lh-sm">
-                                <strong class="d-block text-white">Accredited Academic Programs</strong>
-                                <span class="opacity-75">Curriculum standards & international certifications</span>
-                            </div>
-                        </div>
-
-                        <div class="d-flex align-items-center gap-3 text-white">
-                            <div class="rounded-circle d-flex align-items-center justify-content-center bg-white bg-opacity-10 text-gold flex-shrink-0" style="width: 38px; height: 38px;">
-                                <i class="bi bi-person-video3 fs-5" aria-hidden="true"></i>
-                            </div>
-                            <div class="small lh-sm">
-                                <strong class="d-block text-white">Faculty Mentorship & Consultation</strong>
-                                <span class="opacity-75">Live course consultations & academic guidance</span>
-                            </div>
-                        </div>
-
-                        <div class="d-flex align-items-center gap-3 text-white">
-                            <div class="rounded-circle d-flex align-items-center justify-content-center bg-white bg-opacity-10 text-gold flex-shrink-0" style="width: 38px; height: 38px;">
-                                <i class="bi bi-shield-lock-fill fs-5" aria-hidden="true"></i>
-                            </div>
-                            <div class="small lh-sm">
-                                <strong class="d-block text-white">Secure Institutional Gateway</strong>
-                                <span class="opacity-75">Role-based student, faculty, and administrative portals</span>
-                            </div>
-                        </div>
-                    </div>
                 </div>
-                
-                <!-- Bottom Live Status -->
-                <div class="d-flex align-items-center justify-content-between pt-3 border-top border-white border-opacity-15">
-                    <div class="auth-status-pill d-flex align-items-center gap-2 px-3 py-1.5 rounded-pill bg-white bg-opacity-10 text-white small">
-                        <span class="auth-status-indicator" aria-hidden="true"></span>
-                        <span class="opacity-90">All Systems Operational &bull; 2026/27</span>
+
+                <!-- Bottom Status Bar -->
+                <div class="hero-footer-bar hero-entry-item hero-entry-delay-5">
+                    <div class="status-badge-pill" role="status">
+                        <span class="status-dot-container" aria-hidden="true">
+                            <span class="status-dot-pulse"></span>
+                            <span class="status-dot-core"></span>
+                        </span>
+                        <span class="status-badge-text">All Academic Systems Operational &bull; 2026/27</span>
                     </div>
-                    <span class="text-white opacity-60 small">v2.4 LTS</span>
+                    <a href="/" class="hero-public-link">
+                        <i class="bi bi-arrow-left" aria-hidden="true"></i>
+                        <span>Public Website</span>
+                    </a>
                 </div>
             </div>
-            
-            <!-- Graphic/Building Illustration Placeholder -->
-            <div class="auth-abstract-bg position-absolute bottom-0 start-0 w-100 z-1" aria-hidden="true"></div>
         </aside>
-        
-        <!-- Right Panel: Authentication Form -->
-        <main class="auth-right-panel d-flex flex-column justify-content-center align-items-center w-100 w-lg-50 bg-white position-relative" id="mainContent">
-            <div class="auth-form-wrapper w-100 p-4 p-md-5" style="max-width: 520px;">
+
+        <!-- Right Panel: Authentication Form (50% Desktop & Tablet) -->
+        <main class="login-section auth-right-panel position-relative min-vh-100" id="mainContent">
+            <div class="auth-form-wrapper w-100 p-4 p-sm-5" style="max-width: 560px;">
                 @RenderBody()
             </div>
         </main>
-        
+
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="~/js/site.js" asp-append-version="true"></script>
+    <script src="~/js/login-left.js" asp-append-version="true"></script>
     @await RenderSectionAsync("Scripts", required: false)
 </body>
 </html>

@@ -66,11 +66,11 @@ public static class CurriculumEndToEndIntegrationTestRunner
         Pass("SQL Server connection verified successfully");
 
         // Dependencies lookup
-        var adminUser = await context.Users.FirstOrDefaultAsync(u => u.Email == "admin@aub.edu.kh")
+        var adminUser = await context.Users.FirstOrDefaultAsync(u => u.Email == "admin@aub.com")
                         ?? (await userManager.GetUsersInRoleAsync("Admin")).FirstOrDefault();
         var teacher = (await userManager.GetUsersInRoleAsync("Teacher")).FirstOrDefault(u => u.IsActive)
                       ?? await context.Users.FirstOrDefaultAsync(u => u.IsActive);
-        var student = await context.Users.FirstOrDefaultAsync(u => u.Email == "student@aub.edu.kh")
+        var student = await context.Users.FirstOrDefaultAsync(u => u.Email == "student@aub.com")
                       ?? (await userManager.GetUsersInRoleAsync("Student")).FirstOrDefault();
         var major = await context.Majors.FirstOrDefaultAsync();
         var semester = await context.Semesters.FirstOrDefaultAsync();

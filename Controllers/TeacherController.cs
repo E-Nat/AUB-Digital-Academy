@@ -5,24 +5,37 @@ using Microsoft.EntityFrameworkCore;
 using AUBDigitalAcademy.Data;
 using AUBDigitalAcademy.Models;
 using AUBDigitalAcademy.Models.ViewModels;
+using AUBDigitalAcademy.Services.Interfaces;
 
 namespace AUBDigitalAcademy.Controllers;
 
-[Authorize(Roles = "Teacher,Admin")]
+[Authorize(Roles = "Teacher,Assistance,Admin")]
 public class TeacherController : Controller
 {
-    private readonly ApplicationDbContext? _context;
-    private readonly UserManager<User>? _userManager;
-    private readonly ILogger<TeacherController>? _logger;
+    private readonly ITeacherService _teacherService;
+    private readonly IAssignmentStorageService _assignmentStorageService;
+    private readonly ApplicationDbContext _context;
+    private readonly UserManager<User> _userManager;
+    private readonly ILogger<TeacherController> _logger;
 
     public TeacherController(
-        ApplicationDbContext? context = null,
-        UserManager<User>? userManager = null,
-        ILogger<TeacherController>? logger = null)
+        ITeacherService teacherService,
+        IAssignmentStorageService assignmentStorageService,
+        ApplicationDbContext context,
+        UserManager<User> userManager,
+        ILogger<TeacherController> logger)
     {
+        _teacherService = teacherService;
+        _assignmentStorageService = assignmentStorageService;
         _context = context;
         _userManager = userManager;
         _logger = logger;
+    }
+
+    private async Task<string> GetCurrentTeacherIdAsync()
+    {
+        var user = await _userManager.GetUserAsync(User);
+        return user?.Id ?? string.Empty;
     }
 
     [HttpGet]
@@ -31,200 +44,208 @@ public class TeacherController : Controller
         ViewData["Title"] = "Teacher Dashboard";
         ViewData["ActivePage"] = "Dashboard";
 
-        var viewModel = new TeacherDashboardViewModel
+        var teacherId = await GetCurrentTeacherIdAsync();
+        if (string.IsNullOrEmpty(teacherId))
         {
-            CurrentTerm = "Spring Semester 2026",
-            AvailableTerms = new List<string>
-            {
-                "Spring Semester 2026",
-                "Fall Semester 2025",
-                "Summer Term 2025"
-            },
-            ActiveCoursesCount = 3,
-            PendingReviewsCount = 14,
-            UpcomingSessionsCount = 5,
-            AttentionItems = new List<TeacherAttentionItemViewModel>
-            {
-                new()
-                {
-                    AssignmentId = 101,
-                    Title = "REST API Project",
-                    CourseName = "Full-Stack Web Development",
-                    PendingCount = 8,
-                    IsUrgent = true,
-                    DueDateFormatted = "Due yesterday",
-                    ReviewUrl = "/Teacher/Submissions?assignmentId=101"
-                },
-                new()
-                {
-                    AssignmentId = 102,
-                    Title = "Frontend Responsive UI Layout",
-                    CourseName = "Full-Stack Web Development",
-                    PendingCount = 4,
-                    IsUrgent = false,
-                    DueDateFormatted = "Due in 2 days",
-                    ReviewUrl = "/Teacher/Submissions?assignmentId=102"
-                },
-                new()
-                {
-                    AssignmentId = 103,
-                    Title = "Data Cleaning & Visualization",
-                    CourseName = "Python for Data Science & AI",
-                    PendingCount = 2,
-                    IsUrgent = false,
-                    DueDateFormatted = "Due in 3 days",
-                    ReviewUrl = "/Teacher/Submissions?assignmentId=103"
-                }
-            },
-            TodaySchedule = new List<TeacherScheduleItemViewModel>
-            {
-                new()
-                {
-                    Id = 1,
-                    StudentName = "Sokha Chan",
-                    StudentAvatar = "",
-                    StudentInitials = "SC",
-                    Topic = "Backend Architecture",
-                    TimeDisplay = "Today · 3:00 PM",
-                    SessionUrl = "/Teacher/Sessions/1",
-                    IsToday = true
-                },
-                new()
-                {
-                    Id = 2,
-                    StudentName = "Sreyneng Sok",
-                    StudentAvatar = "",
-                    StudentInitials = "SS",
-                    Topic = "Database Schema Normalization",
-                    TimeDisplay = "Tomorrow · 2:00 PM",
-                    SessionUrl = "/Teacher/Sessions/2",
-                    IsToday = false
-                }
-            },
-            Courses = new List<TeacherCourseItemViewModel>
-            {
-                new()
-                {
-                    Id = 1,
-                    Title = "Full-Stack Web Development",
-                    CoverImageUrl = "",
-                    StudentCount = 45,
-                    ModuleCount = 5,
-                    ManageUrl = "/Teacher/Courses/1",
-                    GradientClass = "course-gradient-1",
-                    IconClass = "bi-code-slash"
-                },
-                new()
-                {
-                    Id = 2,
-                    Title = "Python for Data Science & AI",
-                    CoverImageUrl = "",
-                    StudentCount = 38,
-                    ModuleCount = 6,
-                    ManageUrl = "/Teacher/Courses/2",
-                    GradientClass = "course-gradient-2",
-                    IconClass = "bi-cpu"
-                },
-                new()
-                {
-                    Id = 3,
-                    Title = "Database Systems & Architecture",
-                    CoverImageUrl = "",
-                    StudentCount = 52,
-                    ModuleCount = 4,
-                    ManageUrl = "/Teacher/Courses/3",
-                    GradientClass = "course-gradient-3",
-                    IconClass = "bi-database"
-                }
-            }
-        };
-
-        // If context and current user exist with real courses, blend DB counts
-        if (_context != null && _userManager != null && User.Identity?.IsAuthenticated == true)
-        {
-            try
-            {
-                var currentUser = await _userManager.GetUserAsync(User);
-                if (currentUser != null)
-                {
-                    var dbCourses = await _context.Courses
-                        .Where(c => c.TeacherId == currentUser.Id)
-                        .Include(c => c.Enrollments)
-                        .Include(c => c.Chapters)
-                        .Take(3)
-                        .ToListAsync();
-
-                    if (dbCourses.Any())
-                    {
-                        viewModel.ActiveCoursesCount = await _context.Courses.CountAsync(c => c.TeacherId == currentUser.Id);
-                        viewModel.Courses = dbCourses.Select((c, index) => new TeacherCourseItemViewModel
-                        {
-                            Id = c.Id,
-                            Title = c.Title,
-                            CoverImageUrl = c.Thumbnail ?? "",
-                            StudentCount = c.Enrollments.Count,
-                            ModuleCount = c.Chapters.Count,
-                            ManageUrl = $"/Teacher/Courses/{c.Id}",
-                            GradientClass = $"course-gradient-{(index % 3) + 1}",
-                            IconClass = index % 3 == 0 ? "bi-code-slash" : index % 3 == 1 ? "bi-cpu" : "bi-database"
-                        }).ToList();
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger?.LogWarning(ex, "Could not fetch dynamic teacher dashboard DB data, using default view model.");
-            }
+            return RedirectToAction("Login", "Account");
         }
 
+        var viewModel = await _teacherService.GetTeacherDashboardAsync(teacherId);
         return View(viewModel);
     }
 
     [HttpGet]
-    public IActionResult Courses()
+    public async Task<IActionResult> Courses()
     {
         ViewData["Title"] = "My Courses";
         ViewData["ActivePage"] = "Courses";
-        return View();
+
+        var teacherId = await GetCurrentTeacherIdAsync();
+        if (string.IsNullOrEmpty(teacherId)) return RedirectToAction("Login", "Account");
+
+        var courses = await _teacherService.GetTeacherCoursesAsync(teacherId);
+        return View(courses);
     }
 
     [HttpGet]
-    public IActionResult Assignments()
+    public async Task<IActionResult> CourseDetails(int id)
+    {
+        ViewData["Title"] = "Course Details";
+        ViewData["ActivePage"] = "Courses";
+
+        var teacherId = await GetCurrentTeacherIdAsync();
+        if (string.IsNullOrEmpty(teacherId)) return RedirectToAction("Login", "Account");
+
+        var courseDetails = await _teacherService.GetTeacherCourseDetailsAsync(id, teacherId);
+        if (courseDetails == null)
+        {
+            TempData["ErrorMessage"] = "Course not found or you do not have permission to view it.";
+            return RedirectToAction(nameof(Courses));
+        }
+
+        return View(courseDetails);
+    }
+
+    [HttpGet]
+    public async Task<IActionResult> Assignments(int? courseId = null)
     {
         ViewData["Title"] = "Assignments";
         ViewData["ActivePage"] = "Assignments";
-        return View();
+
+        var teacherId = await GetCurrentTeacherIdAsync();
+        if (string.IsNullOrEmpty(teacherId)) return RedirectToAction("Login", "Account");
+
+        ViewData["SelectedCourseId"] = courseId;
+        var assignments = await _teacherService.GetTeacherAssignmentsAsync(teacherId, courseId);
+        return View(assignments);
     }
 
     [HttpGet]
-    public IActionResult Submissions()
+    public async Task<IActionResult> Submissions(int assignmentId)
     {
-        ViewData["Title"] = "Submissions";
-        ViewData["ActivePage"] = "Submissions";
-        return View("Assignments");
+        ViewData["Title"] = "Assignment Submissions";
+        ViewData["ActivePage"] = "Assignments";
+
+        var teacherId = await GetCurrentTeacherIdAsync();
+        if (string.IsNullOrEmpty(teacherId)) return RedirectToAction("Login", "Account");
+
+        var assignment = await _context.Assignments
+            .Include(a => a.CourseItem)
+                .ThenInclude(ci => ci.Chapter)
+            .FirstOrDefaultAsync(a => a.Id == assignmentId);
+
+        if (assignment == null)
+        {
+            TempData["ErrorMessage"] = "Assignment not found.";
+            return RedirectToAction(nameof(Assignments));
+        }
+
+        var courseId = assignment.CourseItem?.Chapter?.CourseId ?? 0;
+        if (!await _teacherService.HasAccessToCourseAsync(courseId, teacherId))
+        {
+            TempData["ErrorMessage"] = "You do not have access to this course's submissions.";
+            return RedirectToAction(nameof(Assignments));
+        }
+
+        ViewData["AssignmentId"] = assignmentId;
+        var submissions = (await _teacherService.GetAssignmentSubmissionsAsync(assignmentId, teacherId)).ToList();
+        ViewBag.CanGrade = await _teacherService.CanGradeCourseAsync(courseId, teacherId);
+        ViewBag.AssignmentTitle = assignment.CourseItem?.Title ?? "Assignment";
+        ViewBag.MaxScore = assignment.MaxScore;
+        return View(submissions);
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> GradeSubmission(GradeSubmissionInputModel model)
+    {
+        var teacherId = await GetCurrentTeacherIdAsync();
+        if (string.IsNullOrEmpty(teacherId)) return RedirectToAction("Login", "Account");
+
+        var submission = await _context.AssignmentSubmissions.FirstOrDefaultAsync(s => s.Id == model.SubmissionId);
+        int assignmentId = submission?.AssignmentId ?? 0;
+
+        if (!ModelState.IsValid)
+        {
+            TempData["ErrorMessage"] = "Invalid grade data submitted. Score must be a positive number.";
+            return RedirectToAction(nameof(Submissions), new { assignmentId = assignmentId > 0 ? assignmentId : model.SubmissionId });
+        }
+
+        var result = await _teacherService.GradeSubmissionAsync(model.SubmissionId, model.Score, model.Feedback, teacherId);
+        if (result.Success)
+        {
+            TempData["SuccessMessage"] = result.Message;
+        }
+        else
+        {
+            TempData["ErrorMessage"] = result.Message;
+        }
+
+        if (assignmentId > 0)
+        {
+            return RedirectToAction(nameof(Submissions), new { assignmentId });
+        }
+
+        return RedirectToAction(nameof(Assignments));
     }
 
     [HttpGet]
-    public IActionResult Grades()
+    [Route("Teacher/Assignment/Download/{submissionId:int}")]
+    public async Task<IActionResult> DownloadSubmission(int submissionId)
     {
-        ViewData["Title"] = "Grades";
+        var teacherId = await GetCurrentTeacherIdAsync();
+        if (string.IsNullOrEmpty(teacherId)) return Challenge();
+
+        var submission = await _context.AssignmentSubmissions
+            .Include(s => s.Assignment)
+                .ThenInclude(a => a.CourseItem)
+                    .ThenInclude(ci => ci.Chapter)
+            .FirstOrDefaultAsync(s => s.Id == submissionId);
+
+        if (submission == null) return NotFound("Submission not found.");
+
+        var courseId = submission.Assignment?.CourseItem?.Chapter?.CourseId ?? 0;
+        if (!await _teacherService.HasAccessToCourseAsync(courseId, teacherId))
+        {
+            return Forbid();
+        }
+
+        if (string.IsNullOrEmpty(submission.FileUrl))
+        {
+            return BadRequest("No file attached to this submission.");
+        }
+
+        if (submission.FileUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+            submission.FileUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            return Redirect(submission.FileUrl);
+        }
+
+        var fileResult = await _assignmentStorageService.GetAssignmentFileAsync(submission.FileUrl, submission.OriginalFileName);
+        if (fileResult == null || fileResult.Value.FileBytes == null)
+        {
+            return NotFound("File not found on server.");
+        }
+
+        return File(fileResult.Value.FileBytes, fileResult.Value.ContentType, fileResult.Value.DownloadFileName);
+    }
+
+    [HttpGet]
+    public async Task<IActionResult> Grades(int? courseId = null)
+    {
+        ViewData["Title"] = "Student Grades";
         ViewData["ActivePage"] = "Grades";
-        return View();
+
+        var teacherId = await GetCurrentTeacherIdAsync();
+        if (string.IsNullOrEmpty(teacherId)) return RedirectToAction("Login", "Account");
+
+        var grades = await _teacherService.GetTeacherGradesAsync(teacherId, courseId);
+        return View(grades);
     }
 
     [HttpGet]
-    public IActionResult Books()
+    public async Task<IActionResult> Quizzes(int? courseId = null)
+    {
+        ViewData["Title"] = "Quizzes Overview";
+        ViewData["ActivePage"] = "Quizzes";
+
+        var teacherId = await GetCurrentTeacherIdAsync();
+        if (string.IsNullOrEmpty(teacherId)) return RedirectToAction("Login", "Account");
+
+        var quizzes = await _teacherService.GetTeacherQuizzesAsync(teacherId, courseId);
+        return View(quizzes);
+    }
+
+    [HttpGet]
+    public async Task<IActionResult> Books(int? courseId = null)
     {
         ViewData["Title"] = "Books & Resources";
         ViewData["ActivePage"] = "Books";
-        return View();
-    }
 
-    [HttpGet]
-    public IActionResult Quizzes()
-    {
-        ViewData["Title"] = "Quizzes";
-        ViewData["ActivePage"] = "Quizzes";
-        return View();
+        var teacherId = await GetCurrentTeacherIdAsync();
+        if (string.IsNullOrEmpty(teacherId)) return RedirectToAction("Login", "Account");
+
+        var books = await _teacherService.GetTeacherBooksAsync(teacherId, courseId);
+        return View(books);
     }
 }

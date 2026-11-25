@@ -66,8 +66,13 @@
                     : $"You scored {Model.Score}%. The required passing score for this quiz is {Model.PassingScore}%. You may review the material and retake the quiz.")
             </p>
 
-            <div class="d-inline-flex align-items-center justify-content-center p-3 px-5 rounded-pill bg-white shadow-sm mb-4 border">
+            <div class="d-inline-flex flex-column align-items-center justify-content-center p-3 px-5 rounded-4 bg-white shadow-sm mb-4 border">
                 <span class="fs-1 fw-bolder @(Model.IsPassed ? "text-success" : "text-danger") font-monospace">@Model.Score%</span>
+                <span class="badge bg-light text-dark border mt-1">Attempt @Model.AttemptNumber of @Model.MaxAttempts</span>
+                @if (Model.BestScore.HasValue && Model.BestScore.Value != Model.Score)
+                {
+                    <span class="small text-muted mt-1">Best Score: <strong>@Model.BestScore.Value%</strong></span>
+                }
             </div>
 
             <!-- Metrics Grid -->
@@ -102,10 +107,20 @@
 
             <!-- Action Buttons -->
             <div class="d-flex align-items-center justify-content-center gap-3 mt-4 flex-wrap">
-                <a href="/Student/Course/@Model.CourseId/Quiz/@Model.CourseItemId" class="btn btn-primary px-4 py-2 d-inline-flex align-items-center gap-2 shadow-sm">
-                    <i class="bi bi-arrow-repeat"></i>
-                    <span>Retake Quiz</span>
-                </a>
+                @if (Model.CanRetake)
+                {
+                    <a href="/Student/Course/@Model.CourseId/Quiz/@Model.CourseItemId" class="btn btn-primary px-4 py-2 d-inline-flex align-items-center gap-2 shadow-sm">
+                        <i class="bi bi-arrow-repeat"></i>
+                        <span>Retake Quiz (Attempt @(Model.AttemptNumber + 1) of @Model.MaxAttempts)</span>
+                    </a>
+                }
+                else
+                {
+                    <span class="badge bg-secondary p-2 px-3 text-sm d-inline-flex align-items-center gap-1">
+                        <i class="bi bi-lock-fill"></i>
+                        <span>All @Model.MaxAttempts attempts completed</span>
+                    </span>
+                }
                 <a href="/Student/Course/@Model.CourseId" class="btn btn-outline-secondary bg-white px-4 py-2 d-inline-flex align-items-center gap-2 shadow-sm">
                     <i class="bi bi-grid-3x3-gap"></i>
                     <span>Back to Course Overview</span>

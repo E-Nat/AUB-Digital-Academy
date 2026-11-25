@@ -41,6 +41,7 @@ public class UserCountsViewModel
     public int TotalUsers { get; set; }
     public int TotalStudents { get; set; }
     public int TotalTeachers { get; set; }
+    public int TotalAssistants { get; set; }
     public int TotalAdmins { get; set; }
     public int ActiveUsers { get; set; }
     public int InactiveUsers { get; set; }

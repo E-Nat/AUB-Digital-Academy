@@ -203,4 +203,38 @@ public interface ICurriculumService
     /// Loads student quiz submission result, strictly verifying student ownership and course hierarchy.
     /// </summary>
     Task<StudentQuizResultViewModel?> GetStudentQuizResultAsync(int courseId, int courseItemId, int submissionId, string studentId);
+
+    // ==========================================
+    // PHASE 4 — ASSIGNMENTS, BOOKS & GRADEBOOK
+    // ==========================================
+
+    /// <summary>
+    /// Loads complete Student Assignment view data for a specific course and assignment item,
+    /// verifying student enrollment, course ownership, and loading submission history and grades.
+    /// </summary>
+    Task<StudentAssignmentViewModel?> GetStudentAssignmentAsync(int courseId, int courseItemId, string studentId);
+
+    /// <summary>
+    /// Handles assignment submission (file upload, external URL, or text response) with multi-versioning,
+    /// due-date checking, and storage validation.
+    /// </summary>
+    Task<(CurriculumOperationResult Result, AssignmentSubmission? Submission)> SubmitAssignmentAsync(
+        int courseId,
+        int courseItemId,
+        string studentId,
+        Microsoft.AspNetCore.Http.IFormFile? file,
+        string? externalUrl,
+        string? textResponse);
+
+    /// <summary>
+    /// Loads complete Student Book Reader view data for a specific course and book item,
+    /// verifying student enrollment, course ownership, and tracking completion.
+    /// </summary>
+    Task<StudentBookViewModel?> GetStudentBookAsync(int courseId, int courseItemId, string studentId);
+
+    /// <summary>
+    /// Computes and aggregates the comprehensive student gradebook across all enrolled courses,
+    /// evaluating assignments and quizzes against the 50% threshold.
+    /// </summary>
+    Task<StudentGradesViewModel> GetStudentGradesAsync(string studentId, int? courseId = null);
 }

@@ -1,0 +1,530 @@
+@model AUBDigitalAcademy.Models.ViewModels.AdminDashboardViewModel
+@{
+    ViewData["Title"] = "Executive Command Center";
+    ViewData["ActivePage"] = "Dashboard";
+
+    int totalMajorStudents = Model.MajorsDistribution.Sum(m => m.StudentCount);
+    int maxSemesterMetric = 1;
+    if (Model.SemesterDistribution.Any())
+    {
+        maxSemesterMetric = Math.Max(1, Model.SemesterDistribution.Max(s => Math.Max(s.CourseCount, s.EnrollmentCount)));
+    }
+}
+
+@section Styles {
+    <link rel="stylesheet" href="~/css/admin.css" asp-append-version="true" />
+    <link rel="stylesheet" href="~/css/dashboard.css" asp-append-version="true" />
+}
+
+<div class="admin-content p-0">
+    <!-- ── 1. DASHBOARD HEADER & OPERATIONAL CONTROLS ── -->
+    <div class="dash-welcome-header">
+        <div class="dash-welcome-left">
+            <div class="dash-welcome-badge">
+                <span class="dash-live-dot"></span>
+                <span id="semesterLabel">@Model.CurrentSemesterName</span>
+                <span class="dash-badge-divider">•</span>
+                <span id="currentDateBadge">@Model.CurrentDateFormatted</span>
+            </div>
+            <h1 class="dash-welcome-title">Welcome back, @Model.AdminFullName!</h1>
+            <p class="dash-welcome-sub">Executive Command Center: Institutional metrics, active rosters, and curriculum operations.</p>
+        </div>
+
+        <div class="dash-welcome-right">
+            <div class="dash-header-controls">
+                <select class="adm-form-control dash-period-select" id="timeframeSelect" aria-label="Select operational timeframe">
+                    <option value="all_time" selected>All Time Operational Data</option>
+                    <option value="current_semester">Current Term (@Model.CurrentSemesterName)</option>
+                </select>
+                <button class="adm-btn adm-btn-outline dash-export-btn" id="exportReportBtn" type="button" onclick="window.print()" title="Export or print current dashboard report">
+                    <i class="bi bi-printer"></i>
+                    <span>Print Report</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── 2. QUICK ACTIONS BAR ── -->
+    <div class="dash-quick-actions mb-4">
+        <div class="dash-qa-title">
+            <i class="bi bi-lightning-charge-fill text-primary"></i>
+            <span>Quick Actions</span>
+        </div>
+        <div class="dash-qa-buttons">
+            <a asp-controller="Academic" asp-action="CreateCourse" class="dash-qa-action" id="qaAddCourseBtn">
+                <div class="dash-qa-icon"><i class="bi bi-plus-circle-fill"></i></div>
+                <span>Add Course</span>
+            </a>
+            <a asp-controller="Academic" asp-action="Course" class="dash-qa-action" id="qaCatalogBtn">
+                <div class="dash-qa-icon"><i class="bi bi-journal-bookmark-fill"></i></div>
+                <span>Course Catalog</span>
+            </a>
+            <a asp-controller="Enrollment" asp-action="Index" class="dash-qa-action" id="qaEnrollStudentBtn">
+                <div class="dash-qa-icon"><i class="bi bi-person-check-fill"></i></div>
+                <span>Enroll Student</span>
+            </a>
+            <a asp-controller="User" asp-action="Index" asp-route-role="Student" class="dash-qa-action" id="qaRostersBtn">
+                <div class="dash-qa-icon"><i class="bi bi-people-fill"></i></div>
+                <span>Student Rosters</span>
+            </a>
+        </div>
+    </div>
+
+    <!-- ── 3. KPI CARDS (5 Core Institutional Indicators) ── -->
+    <div class="dash-kpi-grid">
+        <!-- 1. Total Students -->
+        <a asp-controller="User" asp-action="Index" asp-route-role="Student" class="dash-kpi-card text-decoration-none">
+            <div class="dash-kpi-header">
+                <span class="dash-kpi-label">Total students</span>
+                <div class="dash-kpi-icon-wrap icon-blue">
+                    <i class="bi bi-people-fill"></i>
+                </div>
+            </div>
+            <div class="dash-kpi-value" id="kpiTotalStudents">@Model.TotalStudents</div>
+            <div class="dash-kpi-footer">
+                <span class="dash-kpi-badge badge-positive">
+                    <i class="bi bi-person-check"></i> Active Roster
+                </span>
+                <span class="dash-kpi-subtext">registered students</span>
+            </div>
+        </a>
+
+        <!-- 2. Active Courses -->
+        <a asp-controller="Academic" asp-action="Course" class="dash-kpi-card text-decoration-none">
+            <div class="dash-kpi-header">
+                <span class="dash-kpi-label">Active courses</span>
+                <div class="dash-kpi-icon-wrap icon-cyan">
+                    <i class="bi bi-journal-bookmark-fill"></i>
+                </div>
+            </div>
+            <div class="dash-kpi-value" id="kpiActiveCourses">@Model.PublishedCourses</div>
+            <div class="dash-kpi-footer">
+                <span class="dash-kpi-badge badge-neutral">
+                    <i class="bi bi-check2-circle"></i> @Model.PublishedCourses published
+                </span>
+                <span class="dash-kpi-subtext">of @Model.TotalCourses in catalog</span>
+            </div>
+        </a>
+
+        <!-- 3. Enrollments -->
+        <a asp-controller="Enrollment" asp-action="Index" class="dash-kpi-card text-decoration-none">
+            <div class="dash-kpi-header">
+                <span class="dash-kpi-label">Total enrollments</span>
+                <div class="dash-kpi-icon-wrap icon-green">
+                    <i class="bi bi-person-check-fill"></i>
+                </div>
+            </div>
+            <div class="dash-kpi-value" id="kpiEnrollments">@Model.TotalEnrollments</div>
+            <div class="dash-kpi-footer">
+                <span class="dash-kpi-badge badge-positive">
+                    <i class="bi bi-mortarboard-fill"></i> Academic
+                </span>
+                <span class="dash-kpi-subtext">course registrations</span>
+            </div>
+        </a>
+
+        <!-- 4. Faculty & Instructors -->
+        <a asp-controller="User" asp-action="Index" asp-route-role="Teacher" class="dash-kpi-card text-decoration-none">
+            <div class="dash-kpi-header">
+                <span class="dash-kpi-label">Faculty staff</span>
+                <div class="dash-kpi-icon-wrap icon-purple">
+                    <i class="bi bi-person-badge-fill"></i>
+                </div>
+            </div>
+            <div class="dash-kpi-value" id="kpiTeachers">@Model.TotalTeachers</div>
+            <div class="dash-kpi-footer">
+                <span class="dash-kpi-badge badge-purple">
+                    <i class="bi bi-shield-check"></i> Teaching Staff
+                </span>
+                <span class="dash-kpi-subtext">active instructors</span>
+            </div>
+        </a>
+
+        <!-- 5. Quizzes & Assessments -->
+        <a asp-controller="Academic" asp-action="Course" class="dash-kpi-card text-decoration-none">
+            <div class="dash-kpi-header">
+                <span class="dash-kpi-label">Assessments &amp; quizzes</span>
+                <div class="dash-kpi-icon-wrap icon-amber">
+                    <i class="bi bi-clipboard-check-fill"></i>
+                </div>
+            </div>
+            <div class="dash-kpi-value" id="kpiQuizzes">@Model.TotalQuizzes</div>
+            <div class="dash-kpi-footer">
+                <span class="dash-kpi-badge badge-warning">
+                    <i class="bi bi-collection"></i> @Model.TotalModules modules
+                </span>
+                <span class="dash-kpi-subtext">active assessments</span>
+            </div>
+        </a>
+    </div>
+
+    <!-- ── 4. NEEDS ATTENTION & OPERATIONAL STATUS ── -->
+    <div class="dash-attention-card mb-4">
+        @if (Model.DraftCourses > 0)
+        {
+            <div class="dash-attention-content d-flex align-items-center justify-content-between flex-wrap gap-3">
+                <div class="d-flex align-items-center gap-3">
+                    <div class="dash-attention-icon-wrap warning">
+                        <i class="bi bi-exclamation-triangle-fill"></i>
+                    </div>
+                    <div>
+                        <div class="dash-attention-title">Needs Attention: @Model.DraftCourses Course(s) in Draft State</div>
+                        <div class="dash-attention-desc">These courses have been created but are not yet published to the student catalog.</div>
+                    </div>
+                </div>
+                <a asp-controller="Academic" asp-action="Course" class="adm-btn adm-btn-primary adm-btn-sm text-decoration-none">
+                    <span>Review Draft Courses</span>
+                    <i class="bi bi-arrow-right"></i>
+                </a>
+            </div>
+        }
+        else
+        {
+            <div class="dash-attention-content d-flex align-items-center justify-content-between flex-wrap gap-3">
+                <div class="d-flex align-items-center gap-3">
+                    <div class="dash-attention-icon-wrap success">
+                        <i class="bi bi-check-circle-fill"></i>
+                    </div>
+                    <div>
+                        <div class="dash-attention-title">Academic Operations: All Curriculum Published</div>
+                        <div class="dash-attention-desc">All @Model.TotalCourses course(s) in catalog are published and active for student enrollments.</div>
+                    </div>
+                </div>
+                <a asp-controller="Academic" asp-action="CreateCourse" class="adm-btn adm-btn-outline adm-btn-sm text-decoration-none">
+                    <i class="bi bi-plus-circle me-1"></i>
+                    <span>Create New Course</span>
+                </a>
+            </div>
+        }
+    </div>
+
+    <!-- ── 5. ANALYTICS SECTION (2 Columns) ── -->
+    <div class="dash-analytics-grid">
+        <!-- Left: Students by Major (Donut Visualization) -->
+        <div class="admin-card mb-0">
+            <div class="admin-card-header">
+                <div>
+                    <div class="admin-card-title">Students by Academic Major</div>
+                    <div class="admin-card-subtitle">Active student enrollment by academic specialization</div>
+                </div>
+            </div>
+            <div class="admin-card-body">
+                @if (Model.MajorsDistribution.Any() && totalMajorStudents > 0)
+                {
+                    <div class="dash-donut-layout">
+                        <div class="dash-donut-chart-container">
+                            <svg viewBox="0 0 36 36" class="dash-donut-svg" id="enrollmentDonutSvg" aria-label="Donut chart showing student distribution by major">
+                                <circle cx="18" cy="18" r="15.915" fill="transparent" class="dash-donut-track" stroke-width="3.8"></circle>
+                                @{
+                                    double accumulatedOffset = 0;
+                                    foreach (var item in Model.MajorsDistribution)
+                                    {
+                                        if (item.Percentage > 0)
+                                        {
+                                            <circle cx="18" cy="18" r="15.915" fill="transparent"
+                                                    class="dash-donut-segment"
+                                                    stroke="@item.ColorHex"
+                                                    stroke-width="3.8"
+                                                    stroke-dasharray="@item.Percentage @(100 - item.Percentage)"
+                                                    stroke-dashoffset="-@accumulatedOffset">
+                                                <title>@item.MajorName: @item.StudentCount Students (@item.Percentage%)</title>
+                                            </circle>
+                                            accumulatedOffset += item.Percentage;
+                                        }
+                                    }
+                                }
+                            </svg>
+                            <div class="dash-donut-center-info">
+                                <span class="dash-donut-center-label">TOTAL</span>
+                                <span class="dash-donut-center-val" id="donutTotalNumber">@totalMajorStudents</span>
+                                <span class="dash-donut-center-sub">Students</span>
+                            </div>
+                        </div>
+                        <div class="dash-donut-legend" id="enrollmentCategoriesList">
+                            @foreach (var item in Model.MajorsDistribution)
+                            {
+                                <div class="dash-major-item" title="@item.MajorName">
+                                    <span class="dash-major-dot" style="background:@item.ColorHex"></span>
+                                    <span class="dash-major-name">@item.MajorName</span>
+                                    <span class="dash-major-count">@item.StudentCount</span>
+                                    <span class="dash-major-pct">@item.Percentage%</span>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <div class="text-center py-5 text-muted">
+                        <i class="bi bi-pie-chart fs-2 d-block mb-2 text-secondary opacity-50"></i>
+                        <div class="fw-semibold small">No major enrollment data</div>
+                        <div class="text-xs text-secondary mt-1">Student registrations will appear here once students enroll in major courses.</div>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <!-- Right: Enrollment & Term Distribution (Comparative Visualization) -->
+        <div class="admin-card mb-0">
+            <div class="admin-card-header">
+                <div>
+                    <div class="admin-card-title">Enrollment &amp; Term Distribution</div>
+                    <div class="admin-card-subtitle">Active courses and student registrations per semester</div>
+                </div>
+                <div class="dash-trend-legend">
+                    <div class="dash-trend-legend-item">
+                        <span class="dash-trend-dot dot-enroll"></span>
+                        <span>Courses</span>
+                    </div>
+                    <div class="dash-trend-legend-item">
+                        <span class="dash-trend-dot dot-exam"></span>
+                        <span>Enrollments</span>
+                    </div>
+                </div>
+            </div>
+            <div class="admin-card-body pb-2">
+                @if (Model.SemesterDistribution.Any())
+                {
+                    <div class="dash-trend-chart-wrap">
+                        <div class="dash-bar-chart" id="enrollmentBarChart">
+                            @foreach (var sem in Model.SemesterDistribution)
+                            {
+                                int courseHeightPct = Math.Max(12, (int)Math.Round((double)sem.CourseCount / maxSemesterMetric * 100));
+                                int enrollHeightPct = Math.Max(12, (int)Math.Round((double)sem.EnrollmentCount / maxSemesterMetric * 100));
+
+                                <div class="dash-bar-group" data-bs-toggle="tooltip" data-bs-placement="top" title="@sem.SemesterName: @sem.CourseCount Courses, @sem.EnrollmentCount Enrollments">
+                                    <div class="dash-bar enroll" style="height:@courseHeightPct%"></div>
+                                    <div class="dash-bar results" style="height:@enrollHeightPct%"></div>
+                                </div>
+                            }
+                        </div>
+                        <div class="dash-bar-labels" id="enrollmentBarLabels">
+                            @foreach (var sem in Model.SemesterDistribution)
+                            {
+                                <div class="dash-bar-month text-truncate" title="@sem.SemesterName">
+                                    @(string.IsNullOrEmpty(sem.SemesterCode) ? sem.SemesterName : sem.SemesterCode)
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <div class="text-center text-muted py-5">
+                        <i class="bi bi-bar-chart-line fs-2 d-block mb-2 text-secondary opacity-50"></i>
+                        <div class="fw-semibold small">No semester distributions recorded</div>
+                        <div class="text-xs text-secondary mt-1">Configure academic semesters to visualize enrollment trends over time.</div>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+
+    <!-- ── 6. TABLES SECTION (Recent Enrollments & Published Quizzes) ── -->
+    <div class="dash-tables-grid mt-4">
+        <!-- Left: Recent Enrollments Table -->
+        <div class="admin-card mb-0">
+            <div class="admin-card-header">
+                <div>
+                    <div class="admin-card-title">Recent Enrollments</div>
+                    <div class="admin-card-subtitle">Latest student course registrations and learning progress</div>
+                </div>
+                <a asp-controller="Enrollment" asp-action="Index" class="adm-btn adm-btn-outline adm-btn-sm text-decoration-none">
+                    <span>View All</span>
+                    <i class="bi bi-arrow-right"></i>
+                </a>
+            </div>
+            <div class="admin-table-responsive">
+                <table class="admin-table">
+                    <thead>
+                        <tr>
+                            <th>Student</th>
+                            <th>Course</th>
+                            <th>Enrolled Date</th>
+                            <th>Progress</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="recentEnrollmentsTableBody">
+                        @if (Model.RecentEnrollments.Any())
+                        {
+                            foreach (var item in Model.RecentEnrollments)
+                            {
+                                bool isDone = item.Status == "Completed";
+                                string initials = !string.IsNullOrWhiteSpace(item.StudentName)
+                                    ? string.Join("", item.StudentName.Split(' ', StringSplitOptions.RemoveEmptyEntries).Select(n => n[0])).ToUpper()
+                                    : "ST";
+                                if (initials.Length > 2) initials = initials.Substring(0, 2);
+
+                                <tr>
+                                    <td>
+                                        <div class="d-flex align-items-center gap-2.5">
+                                            @if (!string.IsNullOrEmpty(item.AvatarUrl))
+                                            {
+                                                <img src="@item.AvatarUrl" alt="@item.StudentName" class="dash-avatar" />
+                                            }
+                                            else
+                                            {
+                                                <span class="dash-avatar-fallback">@initials</span>
+                                            }
+                                            <div class="lh-sm">
+                                                <div class="dash-student-name">@item.StudentName</div>
+                                                <div class="dash-student-id">@item.UniversityId</div>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <span class="dash-course-pill" title="@item.CourseTitle">
+                                            [@item.CourseCode] @item.CourseTitle
+                                        </span>
+                                    </td>
+                                    <td class="dash-date-col">@item.EnrolledAt.ToString("MMM d, yyyy")</td>
+                                    <td>
+                                        <div class="d-flex align-items-center gap-2">
+                                            <div class="dash-progress flex-grow-1">
+                                                <div class="dash-progress-bar @(isDone ? "complete" : "")" style="width:@item.ProgressPercentage%"></div>
+                                            </div>
+                                            <span class="dash-pct-text">@item.ProgressPercentage%</span>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <span class="badge @(isDone ? "bg-success-subtle text-success border-success-subtle" : "bg-primary-subtle text-primary border-primary-subtle") border px-2.5 py-1">
+                                            @item.Status
+                                        </span>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                        else
+                        {
+                            <tr>
+                                <td colspan="5" class="text-center py-5 text-muted">
+                                    <i class="bi bi-inbox fs-3 d-block mb-1 text-secondary opacity-50"></i>
+                                    <span class="small fw-semibold d-block">No student enrollments recorded yet</span>
+                                    <a asp-controller="Enrollment" asp-action="Index" class="btn btn-sm btn-outline-primary mt-2">
+                                        <i class="bi bi-person-plus me-1"></i> Enroll Students
+                                    </a>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Right: Academic Quizzes & Evaluations Card -->
+        <div class="admin-card mb-0">
+            <div class="admin-card-header">
+                <div>
+                    <div class="admin-card-title">Academic Quizzes &amp; Evaluations</div>
+                    <div class="admin-card-subtitle">Published curriculum assessments in catalog</div>
+                </div>
+                <a asp-controller="Academic" asp-action="Course" class="adm-btn adm-btn-outline adm-btn-sm text-decoration-none">
+                    <span>Manage Courses</span>
+                    <i class="bi bi-arrow-right"></i>
+                </a>
+            </div>
+            <div class="admin-card-body p-0">
+                <div class="dash-exam-list" id="upcomingExamsList">
+                    @if (Model.RecentQuizzes.Any())
+                    {
+                        foreach (var quiz in Model.RecentQuizzes)
+                        {
+                            <div class="dash-exam-item">
+                                <div class="dash-exam-main">
+                                    <div class="dash-exam-title">@quiz.Title</div>
+                                    <div class="dash-exam-meta">
+                                        <div class="dash-exam-meta-item">
+                                            <i class="bi bi-journal-text text-primary"></i>
+                                            <span>@quiz.CourseCode - @quiz.CourseTitle</span>
+                                        </div>
+                                        <div class="dash-exam-meta-item">
+                                            <i class="bi bi-clock text-secondary"></i>
+                                            <span>@quiz.TimeLimitMinutes mins</span>
+                                        </div>
+                                        <div class="dash-exam-meta-item">
+                                            <i class="bi bi-question-circle text-secondary"></i>
+                                            <span>@quiz.QuestionCount questions</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <span class="dash-exam-badge">
+                                    <i class="bi bi-check2"></i> Pass: @quiz.PassingScore%
+                                </span>
+                            </div>
+                        }
+                    }
+                    else
+                    {
+                        <div class="text-center text-muted py-5">
+                            <i class="bi bi-clipboard2-x fs-3 d-block mb-1 text-secondary opacity-50"></i>
+                            <span class="small fw-semibold d-block">No active course quizzes created yet</span>
+                            <div class="text-xs text-secondary mt-1">Quizzes created inside curriculum chapters will appear here.</div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── 7. RECENT INSTITUTIONAL ACTIVITY FEED ── -->
+    <div class="admin-card mt-4 mb-0">
+        <div class="admin-card-header">
+            <div>
+                <div class="admin-card-title">Recent Institutional Activity</div>
+                <div class="admin-card-subtitle">Real-time audit log of actual enrollments, quiz evaluations, and course events</div>
+            </div>
+            <span class="dash-activity-live-tag">
+                <i class="bi bi-activity"></i> Live System Feed
+            </span>
+        </div>
+        <div class="admin-card-body p-0">
+            <div class="dash-activity-list" id="recentActivityList">
+                @if (Model.RecentActivities.Any())
+                {
+                    foreach (var act in Model.RecentActivities)
+                    {
+                        <div class="dash-activity-item">
+                            <div class="dash-activity-icon @act.IconColorClass">
+                                <i class="bi @act.IconClass"></i>
+                            </div>
+                            <div class="dash-activity-body">
+                                <div class="dash-activity-title">@act.Title</div>
+                                <div class="dash-activity-detail">@act.Description</div>
+                            </div>
+                            <div class="dash-activity-time">@act.TimeAgo</div>
+                        </div>
+                    }
+                }
+                else
+                {
+                    <div class="text-center text-muted py-5">
+                        <i class="bi bi-clock-history fs-3 d-block mb-1 text-secondary opacity-50"></i>
+                        <span class="small fw-semibold d-block">No recent administrative events recorded</span>
+                        <div class="text-xs text-secondary mt-1">Actions taken across courses, users, and enrollments will appear in real time.</div>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+
+    <!-- ── 8. FINANCIAL INTELLIGENCE ARCHITECTURE NOTICE ── -->
+    <div class="dash-finance-notice mt-4">
+        <div class="d-flex align-items-center justify-content-between flex-wrap gap-3">
+            <div class="d-flex align-items-center gap-3">
+                <div class="dash-finance-icon">
+                    <i class="bi bi-credit-card-2-front"></i>
+                </div>
+                <div>
+                    <div class="dash-finance-title">Financial Intelligence Module Status</div>
+                    <div class="dash-finance-desc">@Model.FinancialStatusNotice Active student tuition and billing records will appear once financial ledger tables are configured.</div>
+                </div>
+            </div>
+            <span class="badge bg-secondary-subtle text-secondary border px-2.5 py-1" style="font-size: 11.5px;">Schema Ready</span>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script src="~/js/dashboard.js" asp-append-version="true"></script>
+}

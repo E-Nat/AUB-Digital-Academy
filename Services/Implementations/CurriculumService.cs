@@ -11,11 +11,16 @@ public class CurriculumService : ICurriculumService
 {
     private readonly ApplicationDbContext _context;
     private readonly ILogger<CurriculumService> _logger;
+    private readonly IAssignmentStorageService? _storageService;
 
-    public CurriculumService(ApplicationDbContext context, ILogger<CurriculumService> logger)
+    public CurriculumService(
+        ApplicationDbContext context,
+        ILogger<CurriculumService> logger,
+        IAssignmentStorageService? storageService = null)
     {
         _context = context;
         _logger = logger;
+        _storageService = storageService;
     }
 
     public async Task<CourseCurriculumViewModel?> GetCurriculumAsync(int courseId)
@@ -1364,12 +1369,15 @@ public class CurriculumService : ICurriculumService
 
         var quiz = currentItem.Quiz;
 
-        // Student latest submission for this quiz
-        var latestSubmission = await _context.QuizSubmissions
+        // Student submissions for this quiz
+        var allSubmissions = await _context.QuizSubmissions
             .AsNoTracking()
             .Where(qs => qs.QuizId == quiz.Id && qs.StudentId == studentId)
             .OrderByDescending(qs => qs.SubmittedAt)
-            .FirstOrDefaultAsync();
+            .ToListAsync();
+
+        var latestSubmission = allSubmissions.FirstOrDefault();
+        var bestScore = allSubmissions.Any() ? allSubmissions.Max(s => s.Score) : (double?)null;
 
         // Query completed lesson IDs for progress
         var completedList = await _context.CourseProgresses
@@ -1424,11 +1432,14 @@ public class CurriculumService : ICurriculumService
             QuizTitle = currentItem.Title,
             QuizPosition = currentItem.Position,
             TimeLimitMinutes = quiz.TimeLimitMinutes,
+            MaxAttempts = quiz.MaxAttempts,
             PassingScore = quiz.PassingScore,
             IsPublished = quiz.IsPublished,
             HasSubmission = latestSubmission != null,
+            AttemptCount = allSubmissions.Count,
             LatestSubmissionId = latestSubmission?.Id,
             LatestScore = latestSubmission?.Score,
+            BestScore = bestScore,
             LatestIsPassed = latestSubmission?.IsPassed,
             LatestSubmittedAt = latestSubmission?.SubmittedAt,
             CourseProgressPercentage = progressPct,
@@ -1494,6 +1505,17 @@ public class CurriculumService : ICurriculumService
         }
 
         var quiz = courseItem.Quiz;
+
+        // Enforce attempt limit
+        var existingAttemptsCount = await _context.QuizSubmissions
+            .CountAsync(qs => qs.QuizId == quiz.Id && qs.StudentId == studentId);
+        if (existingAttemptsCount >= quiz.MaxAttempts)
+        {
+            _logger.LogWarning("SubmitQuizAsync: Student {StudentId} has reached MaxAttempts ({Max}) for Quiz {QuizId}.",
+                studentId, quiz.MaxAttempts, quiz.Id);
+            return (CurriculumOperationResult.Forbidden($"You have reached the maximum allowed attempts ({quiz.MaxAttempts}) for this quiz."), null);
+        }
+
         var questions = quiz.Questions.OrderBy(q => q.Order).ToList();
 
         double totalPoints = questions.Sum(q => q.Points > 0 ? q.Points : 1.0);
@@ -1501,6 +1523,7 @@ public class CurriculumService : ICurriculumService
         int correctCount = 0;
 
         var questionBreakdown = new List<StudentQuestionResultItemViewModel>();
+        var answersToInsert = new List<QuizSubmissionAnswer>();
 
         foreach (var q in questions)
         {
@@ -1538,6 +1561,16 @@ public class CurriculumService : ICurriculumService
                     IsSelected = selectedOptId.HasValue && selectedOptId.Value == o.Id
                 }).ToList()
             });
+
+            answersToInsert.Add(new QuizSubmissionAnswer
+            {
+                QuestionId = q.Id,
+                SelectedOptionId = selectedOptId,
+                AnswerText = selectedOpt?.Text,
+                PointsEarned = isQuestionCorrect ? qPoints : 0.0,
+                IsCorrect = isQuestionCorrect,
+                CreatedAt = DateTime.UtcNow
+            });
         }
 
         double score = totalPoints > 0 ? Math.Round((earnedPoints / totalPoints) * 100.0, 2) : 0.0;
@@ -1555,8 +1588,23 @@ public class CurriculumService : ICurriculumService
         _context.QuizSubmissions.Add(submission);
         await _context.SaveChangesAsync();
 
-        _logger.LogInformation("Student {StudentId} submitted Quiz ID {QuizId} (Submission ID {SubmissionId}): Score={Score}%, IsPassed={IsPassed}.",
-            studentId, quiz.Id, submission.Id, score, isPassed);
+        // Persist individual answers linked to this submission
+        foreach (var ans in answersToInsert)
+        {
+            ans.QuizSubmissionId = submission.Id;
+            ans.CreatedAt = submission.SubmittedAt;
+        }
+        _context.QuizSubmissionAnswers.AddRange(answersToInsert);
+        await _context.SaveChangesAsync();
+
+        _logger.LogInformation("Student {StudentId} submitted Quiz ID {QuizId} (Submission ID {SubmissionId}, Attempt {Attempt}/{Max}): Score={Score}%, IsPassed={IsPassed}.",
+            studentId, quiz.Id, submission.Id, existingAttemptsCount + 1, quiz.MaxAttempts, score, isPassed);
+
+        var allAttemptScores = await _context.QuizSubmissions
+            .Where(qs => qs.QuizId == quiz.Id && qs.StudentId == studentId)
+            .Select(qs => qs.Score)
+            .ToListAsync();
+        double bestScore = allAttemptScores.Any() ? allAttemptScores.Max() : score;
 
         var outcome = new StudentQuizResultViewModel
         {
@@ -1568,7 +1616,10 @@ public class CurriculumService : ICurriculumService
             QuizTitle = courseItem.Title,
             PassingScore = quiz.PassingScore,
             SubmissionId = submission.Id,
+            AttemptNumber = existingAttemptsCount + 1,
+            MaxAttempts = quiz.MaxAttempts,
             Score = score,
+            BestScore = bestScore,
             IsPassed = isPassed,
             SubmittedAt = submission.SubmittedAt,
             TotalPoints = totalPoints,
@@ -1594,6 +1645,8 @@ public class CurriculumService : ICurriculumService
             .Include(qs => qs.Quiz)
                 .ThenInclude(q => q.Questions)
                     .ThenInclude(qu => qu.Options)
+            .Include(qs => qs.Answers)
+                .ThenInclude(a => a.SelectedOption)
             .FirstOrDefaultAsync(qs => qs.Id == submissionId);
 
         if (submission == null) return null;
@@ -1619,6 +1672,49 @@ public class CurriculumService : ICurriculumService
         var questions = quiz.Questions.OrderBy(q => q.Order).ToList();
         double totalPoints = questions.Sum(q => q.Points > 0 ? q.Points : 1.0);
 
+        // Load all attempts for attempt number and highest score
+        var allStudentAttempts = await _context.QuizSubmissions
+            .AsNoTracking()
+            .Where(qs => qs.QuizId == quiz.Id && qs.StudentId == studentId)
+            .OrderBy(qs => qs.SubmittedAt)
+            .ToListAsync();
+
+        int attemptIndex = allStudentAttempts.FindIndex(s => s.Id == submissionId);
+        int attemptNumber = attemptIndex >= 0 ? attemptIndex + 1 : 1;
+        double bestScore = allStudentAttempts.Any() ? allStudentAttempts.Max(s => s.Score) : submission.Score;
+        bool canRetake = allStudentAttempts.Count < quiz.MaxAttempts;
+
+        var answersMap = submission.Answers.ToDictionary(a => a.QuestionId);
+        int correctCount = submission.Answers.Count(a => a.IsCorrect == true);
+        double earnedPoints = submission.Answers.Any() ? submission.Answers.Sum(a => a.PointsEarned) : Math.Round((submission.Score / 100.0) * totalPoints, 2);
+
+        var questionBreakdown = questions.Select(q =>
+        {
+            answersMap.TryGetValue(q.Id, out var savedAnswer);
+            int? selectedOptId = savedAnswer?.SelectedOptionId;
+            string selectedText = savedAnswer?.SelectedOption?.Text ?? savedAnswer?.AnswerText ?? "No answer provided";
+            bool isCorrect = savedAnswer?.IsCorrect ?? false;
+            double qEarnedPoints = savedAnswer?.PointsEarned ?? 0.0;
+
+            return new StudentQuestionResultItemViewModel
+            {
+                QuestionId = q.Id,
+                Text = q.Text,
+                Points = q.Points,
+                EarnedPoints = qEarnedPoints,
+                IsCorrect = isCorrect,
+                SelectedOptionId = selectedOptId,
+                SelectedOptionText = selectedText,
+                Options = q.Options.Select(o => new StudentOptionResultItemViewModel
+                {
+                    OptionId = o.Id,
+                    Text = o.Text,
+                    IsCorrect = o.IsCorrect,
+                    IsSelected = selectedOptId.HasValue && selectedOptId.Value == o.Id
+                }).ToList()
+            };
+        }).ToList();
+
         return new StudentQuizResultViewModel
         {
             CourseId = courseId,
@@ -1629,25 +1725,581 @@ public class CurriculumService : ICurriculumService
             QuizTitle = courseItem.Title,
             PassingScore = quiz.PassingScore,
             SubmissionId = submission.Id,
+            AttemptNumber = attemptNumber,
+            MaxAttempts = quiz.MaxAttempts,
             Score = submission.Score,
+            BestScore = bestScore,
             IsPassed = submission.IsPassed,
             SubmittedAt = submission.SubmittedAt,
             TotalPoints = totalPoints,
-            EarnedPoints = Math.Round((submission.Score / 100.0) * totalPoints, 2),
+            EarnedPoints = earnedPoints,
             TotalQuestions = questions.Count,
-            CorrectQuestionsCount = 0,
-            Questions = questions.Select(q => new StudentQuestionResultItemViewModel
-            {
-                QuestionId = q.Id,
-                Text = q.Text,
-                Points = q.Points,
-                Options = q.Options.Select(o => new StudentOptionResultItemViewModel
-                {
-                    OptionId = o.Id,
-                    Text = o.Text,
-                    IsCorrect = o.IsCorrect
-                }).ToList()
-            }).ToList()
+            CorrectQuestionsCount = correctCount,
+            Questions = questionBreakdown
         };
+    }
+
+    // =========================================================================
+    // PHASE 4 — SHARED CURRICULUM NAVIGATION HELPER
+    // =========================================================================
+
+    private async Task<(List<StudentPlayerModuleViewModel> Modules, int CompletedLessonsCount, int TotalLessonsCount, int ProgressPercentage)> BuildStudentCurriculumNavigationAsync(
+        int courseId,
+        string studentId,
+        int currentCourseItemId,
+        int currentChapterId)
+    {
+        var course = await _context.Courses
+            .AsNoTracking()
+            .Include(c => c.Chapters.OrderBy(ch => ch.Position))
+                .ThenInclude(ch => ch.CourseItems.OrderBy(ci => ci.Position))
+                    .ThenInclude(ci => ci.Lesson)
+            .Include(c => c.Chapters)
+                .ThenInclude(ch => ch.CourseItems)
+                    .ThenInclude(ci => ci.Quiz)
+            .Include(c => c.Chapters)
+                .ThenInclude(ch => ch.CourseItems)
+                    .ThenInclude(ci => ci.Assignment)
+            .Include(c => c.Chapters)
+                .ThenInclude(ch => ch.CourseItems)
+                    .ThenInclude(ci => ci.Book)
+            .FirstOrDefaultAsync(c => c.Id == courseId);
+
+        if (course == null)
+        {
+            return (new List<StudentPlayerModuleViewModel>(), 0, 0, 0);
+        }
+
+        var completedList = await _context.CourseProgresses
+            .AsNoTracking()
+            .Where(cp => cp.StudentId == studentId && cp.IsCompleted && cp.CourseItem.Chapter.CourseId == courseId)
+            .Select(cp => cp.CourseItemId)
+            .ToListAsync();
+        var completedItemIds = new HashSet<int>(completedList);
+
+        // Quiz submissions for passed status
+        var quizSubmissions = await _context.QuizSubmissions
+            .AsNoTracking()
+            .Where(qs => qs.StudentId == studentId && qs.Quiz.CourseItem.Chapter.CourseId == courseId)
+            .ToListAsync();
+        var quizPassedMap = quizSubmissions
+            .GroupBy(qs => qs.QuizId)
+            .ToDictionary(g => g.Key, g => new { HasPassed = g.Any(s => s.IsPassed), BestScore = g.Max(s => s.Score) });
+
+        // Assignment submissions for completed status
+        var assignmentSubmissions = await _context.AssignmentSubmissions
+            .AsNoTracking()
+            .Where(s => s.StudentId == studentId && s.Assignment.CourseItem.Chapter.CourseId == courseId)
+            .ToListAsync();
+        var assignmentCompletedMap = assignmentSubmissions
+            .GroupBy(s => s.AssignmentId)
+            .ToDictionary(g => g.Key, g => g.Any(s => s.Status == SubmissionStatus.Graded || s.Status == SubmissionStatus.Submitted || s.Status == SubmissionStatus.Late));
+
+        var allItems = course.Chapters.SelectMany(ch => ch.CourseItems).ToList();
+        var totalLessons = allItems.Count(ci => ci.Type == ItemType.Lesson);
+
+        var modules = course.Chapters
+            .OrderBy(ch => ch.Position)
+            .ThenBy(ch => ch.Id)
+            .Select(ch => new StudentPlayerModuleViewModel
+            {
+                ModuleId = ch.Id,
+                Title = ch.Title,
+                Position = ch.Position,
+                IsCurrentModule = ch.Id == currentChapterId,
+                Lessons = ch.CourseItems
+                    .OrderBy(ci => ci.Position)
+                    .ThenBy(ci => ci.Id)
+                    .Select(ci =>
+                    {
+                        bool isPassedQuiz = false;
+                        double? bestQuizScore = null;
+                        if (ci.Quiz != null && quizPassedMap.TryGetValue(ci.Quiz.Id, out var qStat))
+                        {
+                            isPassedQuiz = qStat.HasPassed;
+                            bestQuizScore = qStat.BestScore;
+                        }
+
+                        bool isCompleted = completedItemIds.Contains(ci.Id);
+                        if (ci.Type == ItemType.Quiz && isPassedQuiz) isCompleted = true;
+                        if (ci.Type == ItemType.Assignment && ci.Assignment != null && assignmentCompletedMap.TryGetValue(ci.Assignment.Id, out var aComp) && aComp)
+                        {
+                            isCompleted = true;
+                        }
+
+                        return new StudentPlayerLessonItemViewModel
+                        {
+                            CourseItemId = ci.Id,
+                            LessonId = ci.Lesson?.Id ?? 0,
+                            QuizId = ci.Quiz?.Id,
+                            AssignmentId = ci.Assignment?.Id,
+                            BookId = ci.Book?.Id,
+                            Type = ci.Type,
+                            Title = ci.Title,
+                            Position = ci.Position,
+                            HasVideo = ci.Lesson != null && !string.IsNullOrWhiteSpace(ci.Lesson.VideoUrl),
+                            HasContent = ci.Lesson != null && !string.IsNullOrWhiteSpace(ci.Lesson.ContentHtml),
+                            IsCurrent = ci.Id == currentCourseItemId,
+                            IsCompleted = isCompleted,
+                            HasPassedQuiz = isPassedQuiz,
+                            BestQuizScore = bestQuizScore
+                        };
+                    }).ToList()
+            }).ToList();
+
+        int totalCompleted = completedItemIds.Count;
+        int progressPct = totalLessons > 0 ? (int)Math.Round((double)totalCompleted / totalLessons * 100) : 0;
+        if (progressPct > 100) progressPct = 100;
+
+        return (modules, totalCompleted, totalLessons, progressPct);
+    }
+
+    // =========================================================================
+    // PHASE 4 — ASSIGNMENT STUDENT PLAYER & SUBMISSION
+    // =========================================================================
+
+    public async Task<StudentAssignmentViewModel?> GetStudentAssignmentAsync(int courseId, int courseItemId, string studentId)
+    {
+        if (courseId <= 0 || courseItemId <= 0 || string.IsNullOrWhiteSpace(studentId)) return null;
+
+        var isEnrolled = await _context.Enrollments.AnyAsync(e => e.StudentId == studentId && e.CourseId == courseId);
+        if (!isEnrolled)
+        {
+            _logger.LogWarning("GetStudentAssignmentAsync: Student {StudentId} is not enrolled in Course {CourseId}.", studentId, courseId);
+            return null;
+        }
+
+        var courseItem = await _context.CourseItems
+            .AsNoTracking()
+            .Include(ci => ci.Chapter)
+                .ThenInclude(ch => ch.Course)
+                    .ThenInclude(c => c!.Teacher)
+            .Include(ci => ci.Assignment)
+            .FirstOrDefaultAsync(ci => ci.Id == courseItemId && ci.Type == ItemType.Assignment);
+
+        if (courseItem == null || courseItem.Assignment == null || courseItem.Chapter == null)
+        {
+            _logger.LogWarning("GetStudentAssignmentAsync: Assignment CourseItem ID {CourseItemId} not found.", courseItemId);
+            return null;
+        }
+
+        if (courseItem.Chapter.CourseId != courseId)
+        {
+            _logger.LogWarning("GetStudentAssignmentAsync: CourseItem {CourseItemId} does not belong to Course {CourseId}.", courseItemId, courseId);
+            return null;
+        }
+
+        var assignment = courseItem.Assignment;
+        var course = courseItem.Chapter.Course!;
+
+        // Load student submission history for this assignment
+        var submissions = await _context.AssignmentSubmissions
+            .AsNoTracking()
+            .Where(s => s.AssignmentId == assignment.Id && s.StudentId == studentId)
+            .Include(s => s.GradedBy)
+            .OrderByDescending(s => s.AttemptNumber)
+            .ToListAsync();
+
+        var latestSub = submissions.FirstOrDefault(s => s.IsLatest) ?? submissions.FirstOrDefault();
+
+        var submissionHistory = submissions.Select(s => new StudentAssignmentAttemptViewModel
+        {
+            SubmissionId = s.Id,
+            AttemptNumber = s.AttemptNumber,
+            SubmittedAt = s.SubmittedAt,
+            Status = s.Status,
+            Score = s.Score,
+            MaxScore = assignment.MaxScore,
+            Feedback = s.Feedback,
+            FileUrl = s.FileUrl,
+            OriginalFileName = s.OriginalFileName,
+            TextResponse = s.TextResponse,
+            IsLatest = s.IsLatest
+        }).OrderBy(s => s.AttemptNumber).ToList();
+
+        var nav = await BuildStudentCurriculumNavigationAsync(courseId, studentId, courseItemId, courseItem.ChapterId);
+
+        return new StudentAssignmentViewModel
+        {
+            CourseId = course.Id,
+            CourseCode = course.Code,
+            CourseTitle = course.Title,
+            TeacherName = course.Teacher?.FullName ?? course.Teacher?.UserName,
+            ModuleId = courseItem.Chapter.Id,
+            ModuleTitle = courseItem.Chapter.Title,
+            ModulePosition = courseItem.Chapter.Position,
+            CourseItemId = courseItem.Id,
+            AssignmentId = assignment.Id,
+            Title = courseItem.Title,
+            Position = courseItem.Position,
+            Instruction = assignment.Instruction,
+            DueDate = assignment.DueDate,
+            MaxScore = assignment.MaxScore,
+            HasSubmission = latestSub != null,
+            LatestSubmissionId = latestSub?.Id,
+            LatestAttemptNumber = latestSub?.AttemptNumber ?? 0,
+            LatestStatus = latestSub?.Status,
+            LatestScore = latestSub?.Score,
+            LatestFeedback = latestSub?.Feedback,
+            LatestSubmittedAt = latestSub?.SubmittedAt,
+            LatestGradedAt = latestSub?.GradedAt,
+            LatestGradedByName = latestSub?.GradedBy?.FullName ?? latestSub?.GradedBy?.UserName,
+            LatestFileUrl = latestSub?.FileUrl,
+            LatestOriginalFileName = latestSub?.OriginalFileName,
+            LatestTextResponse = latestSub?.TextResponse,
+            SubmissionHistory = submissionHistory,
+            Modules = nav.Modules,
+            CourseProgressPercentage = nav.ProgressPercentage,
+            CompletedLessonsCount = nav.CompletedLessonsCount,
+            TotalLessonsCount = nav.TotalLessonsCount
+        };
+    }
+
+    public async Task<(CurriculumOperationResult Result, AssignmentSubmission? Submission)> SubmitAssignmentAsync(
+        int courseId,
+        int courseItemId,
+        string studentId,
+        Microsoft.AspNetCore.Http.IFormFile? file,
+        string? externalUrl,
+        string? textResponse)
+    {
+        if (courseId <= 0 || courseItemId <= 0 || string.IsNullOrWhiteSpace(studentId))
+        {
+            return (CurriculumOperationResult.ValidationError("Invalid course, item, or student information."), null);
+        }
+
+        var isEnrolled = await _context.Enrollments.AnyAsync(e => e.StudentId == studentId && e.CourseId == courseId);
+        if (!isEnrolled)
+        {
+            return (CurriculumOperationResult.Forbidden("Student is not enrolled in this course."), null);
+        }
+
+        var courseItem = await _context.CourseItems
+            .Include(ci => ci.Chapter)
+            .Include(ci => ci.Assignment)
+            .FirstOrDefaultAsync(ci => ci.Id == courseItemId && ci.Type == ItemType.Assignment);
+
+        if (courseItem == null || courseItem.Assignment == null || courseItem.Chapter == null)
+        {
+            return (CurriculumOperationResult.NotFound("Assignment not found."), null);
+        }
+
+        if (courseItem.Chapter.CourseId != courseId)
+        {
+            return (CurriculumOperationResult.ValidationError("Assignment does not belong to the specified course."), null);
+        }
+
+        var assignment = courseItem.Assignment;
+
+        // Check if at least one content method is provided
+        bool hasFile = file != null && file.Length > 0;
+        bool hasUrl = !string.IsNullOrWhiteSpace(externalUrl);
+        bool hasText = !string.IsNullOrWhiteSpace(textResponse);
+
+        if (!hasFile && !hasUrl && !hasText)
+        {
+            return (CurriculumOperationResult.ValidationError("Please provide a file upload, external URL, or written text response."), null);
+        }
+
+        string? savedFileUrl = null;
+        string? originalFileName = null;
+        long? fileSizeBytes = null;
+        string? contentType = null;
+
+        if (hasFile)
+        {
+            if (_storageService == null)
+            {
+                return (CurriculumOperationResult.Failed("File storage service is not configured."), null);
+            }
+
+            var saveResult = await _storageService.SaveAssignmentFileAsync(file!, studentId, assignment.Id);
+            if (!saveResult.Success)
+            {
+                return (CurriculumOperationResult.ValidationError(saveResult.ErrorMessage ?? "File upload failed."), null);
+            }
+
+            savedFileUrl = saveResult.StoredPath;
+            originalFileName = saveResult.OriginalName;
+            fileSizeBytes = saveResult.FileSize;
+            contentType = saveResult.ContentType;
+        }
+
+        if (hasUrl)
+        {
+            var trimmedUrl = externalUrl!.Trim();
+            var lower = trimmedUrl.ToLowerInvariant();
+            if (lower.StartsWith("javascript:") || lower.StartsWith("data:") || lower.StartsWith("file:") || lower.StartsWith("vbscript:"))
+            {
+                return (CurriculumOperationResult.ValidationError("Invalid URL protocol. Only HTTP and HTTPS URLs are permitted."), null);
+            }
+            if (!trimmedUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) && !trimmedUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            {
+                return (CurriculumOperationResult.ValidationError("URL must begin with http:// or https://."), null);
+            }
+            if (savedFileUrl == null)
+            {
+                savedFileUrl = trimmedUrl;
+            }
+        }
+
+        // Determine status (Late vs Submitted)
+        var now = DateTime.UtcNow;
+        var status = now > assignment.DueDate ? SubmissionStatus.Late : SubmissionStatus.Submitted;
+
+        // Count prior attempts to set AttemptNumber
+        var priorSubmissions = await _context.AssignmentSubmissions
+            .Where(s => s.AssignmentId == assignment.Id && s.StudentId == studentId)
+            .ToListAsync();
+
+        int nextAttemptNumber = priorSubmissions.Count + 1;
+
+        // Mark previous submissions as not latest
+        foreach (var prev in priorSubmissions)
+        {
+            prev.IsLatest = false;
+        }
+
+        var newSubmission = new AssignmentSubmission
+        {
+            AssignmentId = assignment.Id,
+            StudentId = studentId,
+            AttemptNumber = nextAttemptNumber,
+            IsLatest = true,
+            FileUrl = savedFileUrl,
+            OriginalFileName = originalFileName,
+            FileSizeBytes = fileSizeBytes,
+            ContentType = contentType,
+            TextResponse = hasText ? textResponse!.Trim() : null,
+            SubmittedAt = now,
+            Status = status
+        };
+
+        _context.AssignmentSubmissions.Add(newSubmission);
+        await _context.SaveChangesAsync();
+
+        _logger.LogInformation("Student {StudentId} submitted Assignment {AssignmentId} (Attempt {Attempt}, Status {Status}).",
+            studentId, assignment.Id, nextAttemptNumber, status);
+
+        return (CurriculumOperationResult.Ok($"Assignment submitted successfully! (Attempt #{nextAttemptNumber}{(status == SubmissionStatus.Late ? " - Submitted Late" : "")})", newSubmission.Id), newSubmission);
+    }
+
+    // =========================================================================
+    // PHASE 4 — BOOK READER
+    // =========================================================================
+
+    public async Task<StudentBookViewModel?> GetStudentBookAsync(int courseId, int courseItemId, string studentId)
+    {
+        if (courseId <= 0 || courseItemId <= 0 || string.IsNullOrWhiteSpace(studentId)) return null;
+
+        var isEnrolled = await _context.Enrollments.AnyAsync(e => e.StudentId == studentId && e.CourseId == courseId);
+        if (!isEnrolled)
+        {
+            _logger.LogWarning("GetStudentBookAsync: Student {StudentId} is not enrolled in Course {CourseId}.", studentId, courseId);
+            return null;
+        }
+
+        var courseItem = await _context.CourseItems
+            .AsNoTracking()
+            .Include(ci => ci.Chapter)
+                .ThenInclude(ch => ch.Course)
+                    .ThenInclude(c => c!.Teacher)
+            .Include(ci => ci.Book)
+            .FirstOrDefaultAsync(ci => ci.Id == courseItemId && ci.Type == ItemType.Book);
+
+        if (courseItem == null || courseItem.Book == null || courseItem.Chapter == null)
+        {
+            _logger.LogWarning("GetStudentBookAsync: Book CourseItem ID {CourseItemId} not found.", courseItemId);
+            return null;
+        }
+
+        if (courseItem.Chapter.CourseId != courseId)
+        {
+            _logger.LogWarning("GetStudentBookAsync: CourseItem {CourseItemId} does not belong to Course {CourseId}.", courseItemId, courseId);
+            return null;
+        }
+
+        var book = courseItem.Book;
+        var course = courseItem.Chapter.Course!;
+
+        // Auto mark as completed for course progress
+        await MarkLessonCompleteAsync(studentId, courseId, courseItemId);
+
+        var nav = await BuildStudentCurriculumNavigationAsync(courseId, studentId, courseItemId, courseItem.ChapterId);
+
+        string fileType = "PDF";
+        if (!string.IsNullOrEmpty(book.FileUrl))
+        {
+            var ext = Path.GetExtension(book.FileUrl).TrimStart('.').ToUpperInvariant();
+            if (!string.IsNullOrEmpty(ext)) fileType = ext;
+        }
+
+        return new StudentBookViewModel
+        {
+            CourseId = course.Id,
+            CourseCode = course.Code,
+            CourseTitle = course.Title,
+            TeacherName = course.Teacher?.FullName ?? course.Teacher?.UserName,
+            ModuleId = courseItem.Chapter.Id,
+            ModuleTitle = courseItem.Chapter.Title,
+            ModulePosition = courseItem.Chapter.Position,
+            CourseItemId = courseItem.Id,
+            BookId = book.Id,
+            Title = courseItem.Title,
+            Position = courseItem.Position,
+            FileUrl = book.FileUrl ?? "",
+            FileType = fileType,
+            FileSize = book.FileSize,
+            IsCompleted = true,
+            Modules = nav.Modules,
+            CourseProgressPercentage = nav.ProgressPercentage,
+            CompletedLessonsCount = nav.CompletedLessonsCount,
+            TotalLessonsCount = nav.TotalLessonsCount
+        };
+    }
+
+    // =========================================================================
+    // PHASE 4 — STUDENT GRADEBOOK
+    // =========================================================================
+
+    public async Task<StudentGradesViewModel> GetStudentGradesAsync(string studentId, int? courseId = null)
+    {
+        var student = await _context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == studentId);
+        var viewModel = new StudentGradesViewModel
+        {
+            StudentId = studentId,
+            StudentName = student?.FullName ?? student?.UserName ?? "Student",
+            UniversityId = student?.UniversityId,
+            StudentEmail = student?.Email ?? "",
+            Avatar = student?.Avatar,
+            SelectedCourseId = courseId
+        };
+
+        // Load enrolled courses
+        var enrollments = await _context.Enrollments
+            .AsNoTracking()
+            .Where(e => e.StudentId == studentId)
+            .Include(e => e.Course)
+            .OrderBy(e => e.Course.Code)
+            .ToListAsync();
+
+        viewModel.EnrolledCourses = enrollments.Select(e => new StudentGradeCourseOptionViewModel
+        {
+            CourseId = e.CourseId,
+            Code = e.Course.Code,
+            Title = e.Course.Title
+        }).ToList();
+
+        var enrolledCourseIds = enrollments.Select(e => e.CourseId).ToList();
+        if (!enrolledCourseIds.Any())
+        {
+            return viewModel;
+        }
+
+        var targetCourseIds = courseId.HasValue && courseId.Value > 0 && enrolledCourseIds.Contains(courseId.Value)
+            ? new List<int> { courseId.Value }
+            : enrolledCourseIds;
+
+        // Load assignments for target courses
+        var assignments = await _context.Assignments
+            .AsNoTracking()
+            .Where(a => targetCourseIds.Contains(a.CourseItem.Chapter.CourseId))
+            .Include(a => a.CourseItem)
+                .ThenInclude(ci => ci.Chapter)
+                    .ThenInclude(ch => ch.Course)
+            .Include(a => a.Submissions.Where(s => s.StudentId == studentId))
+                .ThenInclude(s => s.GradedBy)
+            .ToListAsync();
+
+        foreach (var a in assignments)
+        {
+            var latestSub = a.Submissions.FirstOrDefault(s => s.IsLatest)
+                ?? a.Submissions.OrderByDescending(s => s.AttemptNumber).FirstOrDefault();
+
+            bool isCompleted = latestSub != null && latestSub.Status == SubmissionStatus.Graded;
+            double? score = latestSub?.Score;
+            double maxScore = a.MaxScore > 0 ? a.MaxScore : 100.0;
+            bool isPassed = score.HasValue && (score.Value / maxScore) >= 0.5; // 50% threshold
+
+            string statusDisplay = "Not Submitted";
+            if (latestSub != null)
+            {
+                statusDisplay = latestSub.Status switch
+                {
+                    SubmissionStatus.Graded => isPassed ? "Passed" : "Needs Improvement",
+                    SubmissionStatus.Submitted => "Submitted",
+                    SubmissionStatus.Late => "Submitted Late",
+                    _ => latestSub.Status.ToString()
+                };
+            }
+
+            viewModel.GradeItems.Add(new StudentGradeItemViewModel
+            {
+                CourseId = a.CourseItem.Chapter.CourseId,
+                CourseCode = a.CourseItem.Chapter.Course.Code,
+                CourseTitle = a.CourseItem.Chapter.Course.Title,
+                AssessmentId = a.Id,
+                CourseItemId = a.CourseItemId,
+                AssessmentTitle = a.CourseItem.Title,
+                AssessmentType = "Assignment",
+                Score = score,
+                MaxScore = maxScore,
+                IsPassed = isPassed,
+                IsCompleted = isCompleted,
+                StatusDisplay = statusDisplay,
+                Date = latestSub?.SubmittedAt ?? a.DueDate,
+                Feedback = latestSub?.Feedback,
+                GradedByName = latestSub?.GradedBy?.FullName ?? latestSub?.GradedBy?.UserName,
+                DetailUrl = $"/Student/Course/{a.CourseItem.Chapter.CourseId}/Assignment/{a.CourseItemId}"
+            });
+        }
+
+        // Load quizzes for target courses
+        var quizzes = await _context.Quizzes
+            .AsNoTracking()
+            .Where(q => targetCourseIds.Contains(q.CourseItem.Chapter.CourseId))
+            .Include(q => q.CourseItem)
+                .ThenInclude(ci => ci.Chapter)
+                    .ThenInclude(ch => ch.Course)
+            .Include(q => q.Submissions.Where(s => s.StudentId == studentId))
+            .ToListAsync();
+
+        foreach (var q in quizzes)
+        {
+            var bestSub = q.Submissions.OrderByDescending(s => s.Score).FirstOrDefault();
+            bool isCompleted = bestSub != null;
+            double? score = bestSub?.Score;
+            double maxScore = 100.0;
+            bool isPassed = bestSub != null && (bestSub.IsPassed || (bestSub.Score >= q.PassingScore));
+
+            string statusDisplay = "Not Attempted";
+            if (bestSub != null)
+            {
+                statusDisplay = isPassed ? "Passed" : "Failed";
+            }
+
+            viewModel.GradeItems.Add(new StudentGradeItemViewModel
+            {
+                CourseId = q.CourseItem.Chapter.CourseId,
+                CourseCode = q.CourseItem.Chapter.Course.Code,
+                CourseTitle = q.CourseItem.Chapter.Course.Title,
+                AssessmentId = q.Id,
+                CourseItemId = q.CourseItemId,
+                AssessmentTitle = q.CourseItem.Title,
+                AssessmentType = "Quiz",
+                Score = score,
+                MaxScore = maxScore,
+                IsPassed = isPassed,
+                IsCompleted = isCompleted,
+                StatusDisplay = statusDisplay,
+                Date = bestSub?.SubmittedAt ?? DateTime.UtcNow,
+                Feedback = isPassed ? $"Passed with score {score}%" : (score.HasValue ? $"Score: {score}% (Passing: {q.PassingScore}%)" : null),
+                DetailUrl = $"/Student/Course/{q.CourseItem.Chapter.CourseId}/Quiz/{q.CourseItemId}"
+            });
+        }
+
+        viewModel.GradeItems = viewModel.GradeItems.OrderByDescending(g => g.Date).ToList();
+
+        return viewModel;
     }
 }

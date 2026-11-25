@@ -1,4 +1,14 @@
-// DashboardController.cs
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+
 namespace AUBDigitalAcademy.Controllers;
 
-public class DashboardController : Microsoft.AspNetCore.Mvc.Controller { }
+[Authorize(Roles = "Admin")]
+public class DashboardController : Controller
+{
+    [HttpGet]
+    public IActionResult Index()
+    {
+        return RedirectToAction("Index", "Admin");
+    }
+}

@@ -1,1 +1,128 @@
-<!-- Create.cshtml -->
+@model AUBDigitalAcademy.Models.ViewModels.CreateUserViewModel
+@{
+    ViewData["Title"] = "Create New User";
+}
+
+<div class="container-fluid px-0" style="max-width: 800px;">
+    <!-- Header -->
+    <div class="d-flex align-items-center justify-content-between mb-4">
+        <div>
+            <h1 class="h3 fw-bold text-dark mb-1">Create New User Account</h1>
+            <p class="text-muted mb-0">Register a new administrator, faculty member, or student into AUB Digital Academy.</p>
+        </div>
+        <a asp-action="Index" class="btn btn-outline-secondary d-inline-flex align-items-center gap-2">
+            <i class="bi bi-arrow-left"></i>
+            <span>Back to Users</span>
+        </a>
+    </div>
+
+    <!-- Form Card -->
+    <div class="card border-0 shadow-sm rounded-3">
+        <div class="card-body p-4">
+            <form asp-action="Create" method="post">
+                @Html.AntiForgeryToken()
+
+                <div asp-validation-summary="ModelOnly" class="alert alert-danger mb-4 rounded-3" role="alert"></div>
+
+                <div class="row g-3">
+                    <!-- Full Name -->
+                    <div class="col-12 col-md-6">
+                        <label asp-for="FullName" class="form-label fw-semibold text-dark">Full Name <span class="text-danger">*</span></label>
+                        <div class="input-group">
+                            <span class="input-group-text bg-white text-muted border-end-0">
+                                <i class="bi bi-person"></i>
+                            </span>
+                            <input asp-for="FullName" class="form-control border-start-0 shadow-none" placeholder="e.g. John Doe" />
+                        </div>
+                        <span asp-validation-for="FullName" class="text-danger small mt-1 d-block fw-medium"></span>
+                    </div>
+
+                    <!-- Email Address -->
+                    <div class="col-12 col-md-6">
+                        <label asp-for="Email" class="form-label fw-semibold text-dark">Email Address <span class="text-danger">*</span></label>
+                        <div class="input-group">
+                            <span class="input-group-text bg-white text-muted border-end-0">
+                                <i class="bi bi-envelope"></i>
+                            </span>
+                            <input asp-for="Email" class="form-control border-start-0 shadow-none" placeholder="e.g. user@aub.com" />
+                        </div>
+                        <span asp-validation-for="Email" class="text-danger small mt-1 d-block fw-medium"></span>
+                    </div>
+
+                    <!-- University ID -->
+                    <div class="col-12 col-md-6">
+                        <label asp-for="UniversityId" class="form-label fw-semibold text-dark">University ID</label>
+                        <div class="input-group">
+                            <span class="input-group-text bg-white text-muted border-end-0">
+                                <i class="bi bi-card-heading"></i>
+                            </span>
+                            <input asp-for="UniversityId" class="form-control border-start-0 shadow-none" placeholder="e.g. STU001 or TCH001" />
+                        </div>
+                        <span asp-validation-for="UniversityId" class="text-danger small mt-1 d-block fw-medium"></span>
+                        <div class="form-text text-muted small">Optional unique institutional identifier.</div>
+                    </div>
+
+                    <!-- System Role -->
+                    <div class="col-12 col-md-6">
+                        <label asp-for="Role" class="form-label fw-semibold text-dark">System Role <span class="text-danger">*</span></label>
+                        <select asp-for="Role" class="form-select shadow-none">
+                            <option value="Student">Student (Learner Access)</option>
+                            <option value="Teacher">Teacher (Faculty Instructor Access)</option>
+                            <option value="Assistance">Assistance (Teaching Assistant Access)</option>
+                            <option value="Admin">Admin (System Administrator Access)</option>
+                        </select>
+                        <span asp-validation-for="Role" class="text-danger small mt-1 d-block fw-medium"></span>
+                    </div>
+
+                    <div class="col-12"><hr class="my-2 border-secondary-subtle"></div>
+
+                    <!-- Password -->
+                    <div class="col-12 col-md-6">
+                        <label asp-for="Password" class="form-label fw-semibold text-dark">Initial Password <span class="text-danger">*</span></label>
+                        <div class="input-group">
+                            <span class="input-group-text bg-white text-muted border-end-0">
+                                <i class="bi bi-lock"></i>
+                            </span>
+                            <input asp-for="Password" class="form-control border-start-0 shadow-none" placeholder="Min. 6 chars (Letters and Numbers)" />
+                        </div>
+                        <span asp-validation-for="Password" class="text-danger small mt-1 d-block fw-medium"></span>
+                    </div>
+
+                    <!-- Confirm Password -->
+                    <div class="col-12 col-md-6">
+                        <label asp-for="ConfirmPassword" class="form-label fw-semibold text-dark">Confirm Password <span class="text-danger">*</span></label>
+                        <div class="input-group">
+                            <span class="input-group-text bg-white text-muted border-end-0">
+                                <i class="bi bi-lock-fill"></i>
+                            </span>
+                            <input asp-for="ConfirmPassword" class="form-control border-start-0 shadow-none" placeholder="Re-enter password" />
+                        </div>
+                        <span asp-validation-for="ConfirmPassword" class="text-danger small mt-1 d-block fw-medium"></span>
+                    </div>
+
+                    <!-- Active Toggle -->
+                    <div class="col-12">
+                        <div class="form-check form-switch mt-2">
+                            <input class="form-check-input shadow-none cursor-pointer" type="checkbox" asp-for="IsActive" id="isActiveCheck">
+                            <label class="form-check-label fw-semibold text-dark cursor-pointer ms-2" for="isActiveCheck">
+                                Activate account immediately upon creation
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="d-flex align-items-center justify-content-end gap-2 mt-4 pt-3 border-top">
+                    <a asp-action="Index" class="btn btn-light border px-4">Cancel</a>
+                    <button type="submit" class="btn btn-primary px-4 fw-medium">
+                        <i class="bi bi-check-lg me-1"></i> Create User Account
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}

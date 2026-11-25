@@ -183,6 +183,14 @@
                                         <a href="@Url.Action("Curriculum", "Academic", new { id = course.Id })" class="btn btn-sm btn-outline-primary p-1" title="Manage Curriculum">
                                             <i class="bi bi-diagram-3"></i>
                                         </a>
+                                        <button type="button" class="btn btn-sm btn-outline-warning p-1 manage-ta-btn"
+                                                data-id="@course.Id"
+                                                data-title="@course.Title"
+                                                data-code="@course.Code"
+                                                data-teacher="@(course.Teacher?.FullName ?? "Instructor")"
+                                                title="Manage Teaching Assistants">
+                                            <i class="bi bi-person-gear"></i>
+                                        </button>
                                         <button type="button" class="btn btn-sm btn-outline-secondary p-1 edit-course-btn"
                                                 data-id="@course.Id"
                                                 data-title="@course.Title"
@@ -586,6 +594,84 @@
     </div>
 </div>
 
+<!-- 4. MANAGE TEACHING ASSISTANTS MODAL (MODULE F)     -->
+<div class="modal fade" id="manageAssistantsModal" tabindex="-1" aria-labelledby="manageAssistantsModalTitle" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content shadow-lg border-0">
+            <div class="modal-course-header d-flex align-items-center justify-content-between">
+                <div>
+                    <h5 class="modal-title fw-bold text-dark mb-0" id="manageAssistantsModalTitle">Teaching Assistants</h5>
+                    <p class="modal-course-subtitle mb-0" id="manageAssistantsSubtitle">Manage assistants for course</p>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-4">
+                <!-- Course Primary Teacher Context -->
+                <div class="d-flex align-items-center justify-content-between p-3 rounded-3 bg-light border mb-4">
+                    <div>
+                        <span class="text-xs text-uppercase fw-bold text-muted d-block">Primary Instructor</span>
+                        <span class="fw-bold text-dark" id="taModalTeacherName">Instructor</span>
+                    </div>
+                    <span class="badge bg-primary rounded-pill px-3 py-1 text-xs">Course Owner</span>
+                </div>
+
+                <!-- Alert Message Box -->
+                <div id="taModalAlert" class="alert py-2 px-3 small d-none mb-3" role="alert">
+                    <span id="taModalAlertText"></span>
+                </div>
+
+                <!-- Currently Assigned Assistants Table -->
+                <h6 class="fw-bold text-dark mb-2 d-flex align-items-center justify-content-between">
+                    <span>Assigned Teaching Assistants</span>
+                    <span class="badge bg-secondary rounded-pill px-2" id="taCountBadge">0</span>
+                </h6>
+                <div class="table-responsive border rounded-3 mb-4">
+                    <table class="table table-hover align-middle mb-0 text-sm">
+                        <thead class="table-light">
+                            <tr>
+                                <th class="ps-3">Assistant</th>
+                                <th>University ID</th>
+                                <th>Can Grade?</th>
+                                <th class="pe-3 text-end">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="assignedAssistantsTableBody">
+                            <tr>
+                                <td colspan="4" class="text-center text-muted py-3">Loading assistants...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Assign New Assistant Form -->
+                <div class="card border rounded-3 bg-light p-3">
+                    <h6 class="fw-bold text-dark mb-1">Assign New Teaching Assistant</h6>
+                    <p class="text-xs text-muted mb-3">Newly assigned assistants default to <strong>CanGrade = false</strong> per institutional policy.</p>
+                    <div class="row g-2 align-items-end">
+                        <div class="col-md-8">
+                            <label for="newAssistantSelect" class="form-label text-xs fw-semibold text-muted mb-1">SELECT ASSISTANT</label>
+                            <select id="newAssistantSelect" class="form-select form-select-sm">
+                                <option value="">Select an available assistant...</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <button type="button" class="btn btn-primary-aub btn-sm w-100 d-inline-flex align-items-center justify-content-center gap-1" id="btnConfirmAssignTA">
+                                <i class="bi bi-person-plus-fill"></i>
+                                <span>Assign Assistant</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer bg-light px-4 py-3 d-flex justify-content-end border-top">
+                <button type="button" class="btn btn-outline-secondary px-3 py-2 fw-medium" data-bs-dismiss="modal">
+                    Close
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 @section Scripts {
     <partial name="_ValidationScriptsPartial" />
     <script>
@@ -833,6 +919,231 @@
                     filterTable();
                 });
             });
+
+            // =========================================================================
+            // TEACHING ASSISTANTS MANAGEMENT (MODULE F)
+            // =========================================================================
+            var taModalEl = document.getElementById('manageAssistantsModal');
+            var taModal = taModalEl ? new bootstrap.Modal(taModalEl) : null;
+            var currentTaCourseId = 0;
+
+            function showTaAlert(msg, isSuccess) {
+                var alertBox = document.getElementById('taModalAlert');
+                var alertText = document.getElementById('taModalAlertText');
+                if (alertBox && alertText) {
+                    alertBox.className = 'alert py-2 px-3 small mb-3 ' + (isSuccess ? 'alert-success' : 'alert-danger');
+                    alertText.textContent = msg;
+                    alertBox.classList.remove('d-none');
+                }
+            }
+
+            function hideTaAlert() {
+                var alertBox = document.getElementById('taModalAlert');
+                if (alertBox) alertBox.classList.add('d-none');
+            }
+
+            function loadCourseAssistants(courseId) {
+                hideTaAlert();
+                var tableBody = document.getElementById('assignedAssistantsTableBody');
+                var selectEl = document.getElementById('newAssistantSelect');
+                var countBadge = document.getElementById('taCountBadge');
+
+                if (tableBody) {
+                    tableBody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3"><span class="spinner-border spinner-border-sm me-1"></span>Loading assistants...</td></tr>';
+                }
+
+                fetch('/Academic/GetCourseAssistantsJson?id=' + courseId, {
+                    headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                })
+                .then(function (res) { return res.json(); })
+                .then(function (data) {
+                    if (!data.success) {
+                        showTaAlert(data.message || 'Failed to load assistants.', false);
+                        return;
+                    }
+
+                    if (countBadge) countBadge.textContent = data.assistants ? data.assistants.length : 0;
+
+                    // Populate table
+                    if (tableBody) {
+                        if (!data.assistants || data.assistants.length === 0) {
+                            tableBody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3 fst-italic">No Teaching Assistants currently assigned to this course.</td></tr>';
+                        } else {
+                            var html = '';
+                            data.assistants.forEach(function (asst) {
+                                html += '<tr>' +
+                                    '<td class="ps-3">' +
+                                        '<div class="fw-bold text-dark">' + asst.name + '</div>' +
+                                        '<div class="text-muted text-xs">' + asst.email + '</div>' +
+                                    '</td>' +
+                                    '<td><span class="badge bg-light text-dark border font-monospace">' + asst.universityId + '</span></td>' +
+                                    '<td>' +
+                                        '<div class="form-check form-switch m-0">' +
+                                            '<input class="form-check-input toggle-can-grade-switch" type="checkbox" data-course-id="' + courseId + '" data-assistant-id="' + asst.assistantId + '" ' + (asst.canGrade ? 'checked' : '') + ' style="cursor:pointer;" />' +
+                                            '<label class="form-check-label text-xs ' + (asst.canGrade ? 'text-success fw-bold' : 'text-muted') + '">' + (asst.canGrade ? 'Authorized' : 'Disabled') + '</label>' +
+                                        '</div>' +
+                                    '</td>' +
+                                    '<td class="pe-3 text-end">' +
+                                        '<button type="button" class="btn btn-sm btn-outline-danger p-1 unassign-ta-btn" data-course-id="' + courseId + '" data-assistant-id="' + asst.assistantId + '" title="Unassign Assistant">' +
+                                            '<i class="bi bi-person-x"></i>' +
+                                        '</button>' +
+                                    '</td>' +
+                                '</tr>';
+                            });
+                            tableBody.innerHTML = html;
+
+                            // Wire switches
+                            tableBody.querySelectorAll('.toggle-can-grade-switch').forEach(function (sw) {
+                                sw.addEventListener('change', function () {
+                                    var cid = this.getAttribute('data-course-id');
+                                    var aid = this.getAttribute('data-assistant-id');
+                                    var checked = this.checked;
+                                    var label = this.nextElementSibling;
+
+                                    var token = document.querySelector('input[name="__RequestVerificationToken"]')?.value || '';
+                                    var fd = new FormData();
+                                    fd.append('courseId', cid);
+                                    fd.append('assistantId', aid);
+                                    fd.append('canGrade', checked);
+                                    fd.append('__RequestVerificationToken', token);
+
+                                    fetch('/Academic/ToggleAssistantCanGrade', {
+                                        method: 'POST',
+                                        body: fd,
+                                        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                                    })
+                                    .then(function (r) { return r.json(); })
+                                    .then(function (res) {
+                                        if (res.success) {
+                                            if (label) {
+                                                label.textContent = checked ? 'Authorized' : 'Disabled';
+                                                label.className = 'form-check-label text-xs ' + (checked ? 'text-success fw-bold' : 'text-muted');
+                                            }
+                                            showTaAlert(res.message, true);
+                                        } else {
+                                            sw.checked = !checked;
+                                            showTaAlert(res.message || 'Failed to update grading permission.', false);
+                                        }
+                                    })
+                                    .catch(function () {
+                                        sw.checked = !checked;
+                                        showTaAlert('Network error updating grading permission.', false);
+                                    });
+                                });
+                            });
+
+                            // Wire unassign buttons
+                            tableBody.querySelectorAll('.unassign-ta-btn').forEach(function (btn) {
+                                btn.addEventListener('click', function () {
+                                    if (!confirm('Are you sure you want to unassign this Teaching Assistant?')) return;
+                                    var cid = this.getAttribute('data-course-id');
+                                    var aid = this.getAttribute('data-assistant-id');
+                                    var token = document.querySelector('input[name="__RequestVerificationToken"]')?.value || '';
+                                    var fd = new FormData();
+                                    fd.append('courseId', cid);
+                                    fd.append('assistantId', aid);
+                                    fd.append('__RequestVerificationToken', token);
+
+                                    fetch('/Academic/UnassignCourseAssistant', {
+                                        method: 'POST',
+                                        body: fd,
+                                        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                                    })
+                                    .then(function (r) { return r.json(); })
+                                    .then(function (res) {
+                                        if (res.success) {
+                                            showTaAlert(res.message, true);
+                                            loadCourseAssistants(cid);
+                                        } else {
+                                            showTaAlert(res.message || 'Failed to unassign assistant.', false);
+                                        }
+                                    })
+                                    .catch(function () {
+                                        showTaAlert('Network error unassigning assistant.', false);
+                                    });
+                                });
+                            });
+                        }
+                    }
+
+                    // Populate available candidate select
+                    if (selectEl) {
+                        selectEl.innerHTML = '<option value="">Select an available assistant...</option>';
+                        if (data.availableCandidates && data.availableCandidates.length > 0) {
+                            data.availableCandidates.forEach(function (c) {
+                                var opt = document.createElement('option');
+                                opt.value = c.id;
+                                opt.textContent = c.name + ' (' + (c.universityId || c.email) + ')';
+                                selectEl.appendChild(opt);
+                            });
+                        }
+                    }
+                })
+                .catch(function (err) {
+                    showTaAlert('Failed to load assistants: ' + err.message, false);
+                });
+            }
+
+            // Wire manage-ta-btn clicks on table rows
+            document.querySelectorAll('.manage-ta-btn').forEach(function (btn) {
+                btn.addEventListener('click', function () {
+                    currentTaCourseId = parseInt(this.getAttribute('data-id'), 10);
+                    var title = this.getAttribute('data-title') || '';
+                    var code = this.getAttribute('data-code') || '';
+                    var teacher = this.getAttribute('data-teacher') || '';
+
+                    var modalTitle = document.getElementById('manageAssistantsModalTitle');
+                    var modalSub = document.getElementById('manageAssistantsSubtitle');
+                    var teacherNameEl = document.getElementById('taModalTeacherName');
+
+                    if (modalTitle) modalTitle.textContent = 'Teaching Assistants: ' + code;
+                    if (modalSub) modalSub.textContent = title;
+                    if (teacherNameEl) teacherNameEl.textContent = teacher;
+
+                    if (taModal) taModal.show();
+                    loadCourseAssistants(currentTaCourseId);
+                });
+            });
+
+            // Wire assign assistant button in modal
+            var btnAssignTA = document.getElementById('btnConfirmAssignTA');
+            if (btnAssignTA) {
+                btnAssignTA.addEventListener('click', function () {
+                    var selectEl = document.getElementById('newAssistantSelect');
+                    var assistantId = selectEl ? selectEl.value : '';
+                    if (!assistantId || currentTaCourseId <= 0) {
+                        showTaAlert('Please select an assistant from the list.', false);
+                        return;
+                    }
+
+                    btnAssignTA.disabled = true;
+                    var token = document.querySelector('input[name="__RequestVerificationToken"]')?.value || '';
+                    var fd = new FormData();
+                    fd.append('courseId', currentTaCourseId);
+                    fd.append('assistantId', assistantId);
+                    fd.append('__RequestVerificationToken', token);
+
+                    fetch('/Academic/AssignCourseAssistant', {
+                        method: 'POST',
+                        body: fd,
+                        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                    })
+                    .then(function (r) { return r.json(); })
+                    .then(function (res) {
+                        btnAssignTA.disabled = false;
+                        if (res.success) {
+                            showTaAlert(res.message, true);
+                            loadCourseAssistants(currentTaCourseId);
+                        } else {
+                            showTaAlert(res.message || 'Failed to assign assistant.', false);
+                        }
+                    })
+                    .catch(function (err) {
+                        btnAssignTA.disabled = false;
+                        showTaAlert('Network error assigning assistant: ' + err.message, false);
+                    });
+                });
+            }
         });
     </script>
 }

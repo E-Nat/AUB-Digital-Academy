@@ -1,1 +1,149 @@
-<!-- _Sidebar.cshtml -->
+@functions {
+    bool IsActiveRoute(string routePath, string[]? altPaths = null)
+    {
+        var path = Context.Request.Path.Value?.ToLower() ?? "";
+        if (string.IsNullOrEmpty(path) || path == "/" || path == "/admin" || path == "/admin/index")
+        {
+            return routePath.Equals("/admin/dashboard", StringComparison.OrdinalIgnoreCase);
+        }
+
+        var r = routePath.ToLower();
+        if (path == r || (r != "/admin/dashboard" && path.StartsWith(r)))
+        {
+            return true;
+        }
+
+        if (altPaths != null)
+        {
+            foreach (var alt in altPaths)
+            {
+                var a = alt.ToLower();
+                if (path == a || path.StartsWith(a))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+}
+@{
+    var userName = User.Identity?.Name ?? "Administrator";
+    var userRole = User.IsInRole("Admin") ? "Admin" : User.IsInRole("Teacher") ? "Teacher" : User.IsInRole("Assistance") ? "Assistance" : "Student";
+    var userInitial = !string.IsNullOrEmpty(userName) ? userName.Substring(0, 1).ToUpper() : "A";
+}
+<!-- AUB Digital Academy - Administration Portal Sidebar -->
+<aside class="admin-sidebar sidebar" id="sidebar" aria-label="Administration Sidebar Navigation">
+    <!-- Branding Header -->
+    <div class="admin-sidebar-brand">
+        <a href="/Admin/Dashboard" class="admin-brand-header text-decoration-none">
+            <img src="~/logos/rel_icon.png" alt="AUB Official Emblem" class="admin-brand-logo-img" asp-append-version="true" />
+            <div class="admin-brand-info">
+                <span class="admin-brand-title">AUB Digital Academy</span>
+                <span class="admin-brand-subtitle">ADMINISTRATION PORTAL</span>
+            </div>
+        </a>
+    </div>
+
+    <!-- Navigation Menu (All 13 Existing Items Preserved in Exact Order) -->
+    <nav class="admin-sidebar-menu" id="adminSidebarNav" aria-label="Administration Portal Navigation">
+        <!-- Group 1: Command Center -->
+        <a href="/Admin/Dashboard" class="admin-nav-item @(IsActiveRoute("/Admin/Dashboard", new[] { "/admin", "/admin/index" }) ? "active" : "")" title="Dashboard" data-bs-toggle="tooltip" data-bs-placement="right">
+            <div class="admin-nav-icon-tile"><i class="bi bi-grid-fill" aria-hidden="true"></i></div>
+            <span class="admin-nav-label">Dashboard</span>
+        </a>
+
+        <!-- Thin divider line after Dashboard -->
+        <div class="admin-sidebar-divider" aria-hidden="true"></div>
+
+        <!-- Group 2: Academic Management -->
+        <a href="/Admin/Academic" class="admin-nav-item @(IsActiveRoute("/Admin/Academic", new[] { "/academic/curriculum", "/academic/chapter" }) ? "active" : "")" title="Academic Management" data-bs-toggle="tooltip" data-bs-placement="right">
+            <div class="admin-nav-icon-tile"><i class="bi bi-mortarboard-fill" aria-hidden="true"></i></div>
+            <span class="admin-nav-label">Academic Management</span>
+        </a>
+        <a href="/Admin/Courses" class="admin-nav-item @(IsActiveRoute("/Admin/Courses", new[] { "/academic/course", "/academic/createcourse", "/academic/editcourse" }) ? "active" : "")" title="Course Management" data-bs-toggle="tooltip" data-bs-placement="right">
+            <div class="admin-nav-icon-tile"><i class="bi bi-journal-text" aria-hidden="true"></i></div>
+            <span class="admin-nav-label">Course Management</span>
+        </a>
+        <a href="/Admin/Exams" class="admin-nav-item @(IsActiveRoute("/Admin/Exams") ? "active" : "")" title="Exam & Quiz" data-bs-toggle="tooltip" data-bs-placement="right">
+            <div class="admin-nav-icon-tile"><i class="bi bi-clipboard-check-fill" aria-hidden="true"></i></div>
+            <span class="admin-nav-label">Exam &amp; Quiz</span>
+        </a>
+        <a href="/Admin/Enrollments" class="admin-nav-item @(IsActiveRoute("/Admin/Enrollments", new[] { "/enrollment" }) ? "active" : "")" title="Enrollment" data-bs-toggle="tooltip" data-bs-placement="right">
+            <div class="admin-nav-icon-tile"><i class="bi bi-person-check-fill" aria-hidden="true"></i></div>
+            <span class="admin-nav-label">Enrollment</span>
+        </a>
+        <a href="/Admin/Schedule" class="admin-nav-item @(IsActiveRoute("/Admin/Schedule") ? "active" : "")" title="Schedule" data-bs-toggle="tooltip" data-bs-placement="right">
+            <div class="admin-nav-icon-tile"><i class="bi bi-calendar3" aria-hidden="true"></i></div>
+            <span class="admin-nav-label">Schedule</span>
+        </a>
+
+        <!-- Thin divider line after Schedule -->
+        <div class="admin-sidebar-divider" aria-hidden="true"></div>
+
+        <!-- Group 3: People Management -->
+        <a href="/Admin/Users" class="admin-nav-item @(IsActiveRoute("/Admin/Users", new[] { "/user" }) ? "active" : "")" title="User Management" data-bs-toggle="tooltip" data-bs-placement="right">
+            <div class="admin-nav-icon-tile"><i class="bi bi-people-fill" aria-hidden="true"></i></div>
+            <span class="admin-nav-label">User Management</span>
+        </a>
+        <a href="/Admin/Teachers" class="admin-nav-item @(IsActiveRoute("/Admin/Teachers") ? "active" : "")" title="Teacher Management" data-bs-toggle="tooltip" data-bs-placement="right">
+            <div class="admin-nav-icon-tile"><i class="bi bi-person-badge-fill" aria-hidden="true"></i></div>
+            <span class="admin-nav-label">Teacher Management</span>
+        </a>
+
+        <!-- Thin divider line after Teacher Management -->
+        <div class="admin-sidebar-divider" aria-hidden="true"></div>
+
+        <!-- Group 4: Financial Ledger -->
+        <a href="/Admin/Payments" class="admin-nav-item @(IsActiveRoute("/Admin/Payments") ? "active" : "")" title="Payments" data-bs-toggle="tooltip" data-bs-placement="right">
+            <div class="admin-nav-icon-tile"><i class="bi bi-credit-card-2-front-fill" aria-hidden="true"></i></div>
+            <span class="admin-nav-label">Payments</span>
+        </a>
+        <a href="/Admin/Invoices" class="admin-nav-item @(IsActiveRoute("/Admin/Invoices") ? "active" : "")" title="Invoices" data-bs-toggle="tooltip" data-bs-placement="right">
+            <div class="admin-nav-icon-tile"><i class="bi bi-receipt-cutoff" aria-hidden="true"></i></div>
+            <span class="admin-nav-label">Invoices</span>
+        </a>
+        <a href="/Admin/Payroll" class="admin-nav-item @(IsActiveRoute("/Admin/Payroll") ? "active" : "")" title="Teacher Payroll" data-bs-toggle="tooltip" data-bs-placement="right">
+            <div class="admin-nav-icon-tile"><i class="bi bi-cash-stack" aria-hidden="true"></i></div>
+            <span class="admin-nav-label">Teacher Payroll</span>
+        </a>
+
+        <!-- Thin divider line after Teacher Payroll -->
+        <div class="admin-sidebar-divider" aria-hidden="true"></div>
+
+        <!-- Group 5: Reports & Settings -->
+        <a href="/Admin/Reports" class="admin-nav-item @(IsActiveRoute("/Admin/Reports") ? "active" : "")" title="Reports & Analytics" data-bs-toggle="tooltip" data-bs-placement="right">
+            <div class="admin-nav-icon-tile"><i class="bi bi-bar-chart-fill" aria-hidden="true"></i></div>
+            <span class="admin-nav-label">Reports &amp; Analytics</span>
+        </a>
+        <a href="/Admin/Settings" class="admin-nav-item @(IsActiveRoute("/Admin/Settings", new[] { "/profile", "/settings" }) ? "active" : "")" title="Settings" data-bs-toggle="tooltip" data-bs-placement="right">
+            <div class="admin-nav-icon-tile"><i class="bi bi-gear-fill" aria-hidden="true"></i></div>
+            <span class="admin-nav-label">Settings</span>
+        </a>
+    </nav>
+
+    <!-- Bottom User Profile Card & Sign Out Form -->
+    <div class="admin-sidebar-footer">
+        <div class="admin-sidebar-user-card">
+            <div class="admin-user-avatar" title="@userName">@userInitial</div>
+            <div class="admin-user-meta">
+                <div class="admin-user-name text-truncate" title="@userName">@userName</div>
+                <div class="admin-user-role">@userRole</div>
+            </div>
+            <form asp-controller="Account" asp-action="Logout" method="post" id="adminSidebarLogoutForm" class="m-0 flex-shrink-0">
+                @Html.AntiForgeryToken()
+                <button class="admin-sidebar-logout-icon-btn" id="sidebarLogoutIconBtn" type="submit" aria-label="Sign Out" title="Sign Out">
+                    <i class="bi bi-box-arrow-right" aria-hidden="true"></i>
+                </button>
+            </form>
+        </div>
+        <form asp-controller="Account" asp-action="Logout" method="post" id="adminLogoutForm" class="w-100 m-0 mt-2">
+            @Html.AntiForgeryToken()
+            <button class="admin-logout-btn" id="logoutBtn" type="submit" aria-label="Sign Out of Administration Portal" title="Sign Out">
+                <i class="bi bi-box-arrow-left" aria-hidden="true"></i>
+                <span>Logout</span>
+            </button>
+        </form>
+    </div>
+</aside>

@@ -1,1 +1,87 @@
-<!-- Grades.cshtml -->
+@model IEnumerable<AUBDigitalAcademy.Models.ViewModels.TeacherGradeItemViewModel>
+@{
+    ViewData["Title"] = "Student Grades";
+    ViewData["ActivePage"] = "Grades";
+}
+
+@section Styles {
+    <link rel="stylesheet" href="~/css/teacher.css" asp-append-version="true" />
+}
+
+<div class="container-fluid p-0">
+    <div class="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center gap-3 mb-4">
+        <div>
+            <h1 class="teacher-title">Student Grades</h1>
+            <p class="teacher-subtitle">Evaluation ledger for assignments and quizzes in your assigned courses.</p>
+        </div>
+    </div>
+
+    <div class="card border-0 shadow-sm rounded-4 overflow-hidden bg-white">
+        <div class="card-body p-0">
+            @if (Model != null && Model.Any())
+            {
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0 text-sm">
+                        <thead class="table-light">
+                            <tr>
+                                <th class="ps-4">Student</th>
+                                <th>Course</th>
+                                <th>Assessment</th>
+                                <th>Type</th>
+                                <th>Score</th>
+                                <th>Status</th>
+                                <th class="pe-4">Date</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var grade in Model)
+                            {
+                                <tr>
+                                    <td class="ps-4">
+                                        <div class="fw-bold text-dark">@grade.StudentName</div>
+                                        <div class="text-muted text-xs">@grade.StudentEmail • <code>@(grade.StudentUniversityId ?? "N/A")</code></div>
+                                    </td>
+                                    <td>
+                                        <div class="fw-semibold text-dark">@grade.CourseTitle</div>
+                                    </td>
+                                    <td>
+                                        <div class="fw-semibold text-primary">@grade.AssessmentTitle</div>
+                                    </td>
+                                    <td>
+                                        <span class="badge @(grade.AssessmentType == "Quiz" ? "bg-info bg-opacity-10 text-info" : "bg-warning bg-opacity-10 text-warning") rounded-pill px-25 py-1 text-xs">
+                                            @grade.AssessmentType
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <span class="fw-bold fs-6 text-dark">@grade.Score / @grade.MaxScore</span>
+                                    </td>
+                                    <td>
+                                        @if (grade.IsPassed)
+                                        {
+                                            <span class="badge bg-success bg-opacity-10 text-success rounded-pill px-3 py-1 text-xs">Passed</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-danger bg-opacity-10 text-danger rounded-pill px-3 py-1 text-xs">Needs Improvement</span>
+                                        }
+                                    </td>
+                                    <td class="pe-4 text-muted text-xs">
+                                        @grade.Date.ToString("MMM dd, yyyy")
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+            else
+            {
+                <div class="text-center p-5 text-muted">
+                    <i class="bi bi-clipboard-x fs-1 d-block mb-3 text-secondary"></i>
+                    <h4 class="fw-bold text-dark">No Grade Records Found</h4>
+                    <p class="text-secondary text-sm mb-0">No graded student assignment submissions or quiz attempts recorded yet.</p>
+                </div>
+            }
+        </div>
+    </div>
+</div>

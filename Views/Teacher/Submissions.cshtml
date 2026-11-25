@@ -1,0 +1,188 @@
+@model IEnumerable<AUBDigitalAcademy.Models.ViewModels.TeacherSubmissionItemViewModel>
+@{
+    ViewData["Title"] = "Assignment Submissions";
+    ViewData["ActivePage"] = "Assignments";
+    var assignmentTitle = ViewBag.AssignmentTitle ?? Model.FirstOrDefault()?.AssignmentTitle ?? "Assignment";
+    var maxScore = ViewBag.MaxScore ?? Model.FirstOrDefault()?.MaxScore ?? 100.0;
+}
+
+@section Styles {
+    <link rel="stylesheet" href="~/css/teacher.css" asp-append-version="true" />
+}
+
+<div class="container-fluid p-0">
+    <div class="mb-4">
+        <a href="/Teacher/Assignments" class="text-decoration-none text-muted text-xs mb-2 d-inline-block">
+            <i class="bi bi-arrow-left me-1"></i> Back to Assignments
+        </a>
+        <div class="d-flex justify-content-between align-items-center">
+            <div>
+                <h1 class="teacher-title fs-3 mb-1">Submissions for "@assignmentTitle"</h1>
+                <p class="teacher-subtitle">Evaluate student submissions and enter grades.</p>
+            </div>
+            <span class="badge bg-secondary rounded-pill px-3 py-2">Max Score: @maxScore pts</span>
+        </div>
+    </div>
+
+    @if (TempData["SuccessMessage"] != null)
+    {
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            <i class="bi bi-check-circle-fill me-2"></i>@TempData["SuccessMessage"]
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    }
+    @if (TempData["ErrorMessage"] != null)
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            <i class="bi bi-exclamation-triangle-fill me-2"></i>@TempData["ErrorMessage"]
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+    }
+
+    <div class="card border-0 shadow-sm rounded-4 overflow-hidden bg-white">
+        <div class="card-body p-0">
+            @if (Model != null && Model.Any())
+            {
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0 text-sm">
+                        <thead class="table-light">
+                            <tr>
+                                <th class="ps-4">Student</th>
+                                <th>Submitted Date</th>
+                                <th>Submission Content</th>
+                                <th>Status</th>
+                                <th>Score</th>
+                                <th class="pe-4 text-end">Grade Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var sub in Model)
+                            {
+                                <tr>
+                                    <td class="ps-4">
+                                        <div class="d-flex align-items-center gap-2">
+                                            <span class="badge bg-primary-subtle text-primary border border-primary-subtle rounded-pill text-xs">Attempt #@sub.AttemptNumber</span>
+                                            @if (sub.IsLatest)
+                                            {
+                                                <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill text-xs">Latest</span>
+                                            }
+                                        </div>
+                                        <div class="fw-bold text-dark mt-1">@sub.StudentName</div>
+                                        <div class="text-muted text-xs">@sub.StudentEmail • <code>@(sub.StudentUniversityId ?? "N/A")</code></div>
+                                    </td>
+                                    <td>
+                                        <div class="text-xs text-muted">@sub.SubmittedAt.ToString("MMM dd, yyyy · HH:mm")</div>
+                                    </td>
+                                    <td>
+                                        @if (!string.IsNullOrEmpty(sub.FileUrl))
+                                        {
+                                            @if (sub.FileUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || sub.FileUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                                            {
+                                                <a href="@sub.FileUrl" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-info rounded-pill px-2 py-1 text-xs me-2">
+                                                    <i class="bi bi-box-arrow-up-right me-1"></i> External Link
+                                                </a>
+                                            }
+                                            else
+                                            {
+                                                <a href="/Teacher/Assignment/Download/@sub.SubmissionId" class="btn btn-sm btn-outline-primary rounded-pill px-2 py-1 text-xs me-2">
+                                                    <i class="bi bi-file-earmark-arrow-down me-1"></i> @(sub.OriginalFileName ?? "Download File")
+                                                </a>
+                                            }
+                                        }
+                                        @if (!string.IsNullOrEmpty(sub.TextResponse))
+                                        {
+                                            <span class="text-muted text-xs d-inline-block text-truncate" style="max-width: 200px;" title="@sub.TextResponse">
+                                                "@sub.TextResponse"
+                                            </span>
+                                        }
+                                        @if (string.IsNullOrEmpty(sub.FileUrl) && string.IsNullOrEmpty(sub.TextResponse))
+                                        {
+                                            <span class="text-muted text-xs italic">No content submitted</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        @if (sub.Status == AUBDigitalAcademy.Models.Enums.SubmissionStatus.Graded)
+                                        {
+                                            <span class="badge bg-success bg-opacity-10 text-success rounded-pill px-3 py-1 text-xs">Graded</span>
+                                        }
+                                        else if (sub.Status == AUBDigitalAcademy.Models.Enums.SubmissionStatus.Late)
+                                        {
+                                            <span class="badge bg-danger bg-opacity-10 text-danger rounded-pill px-3 py-1 text-xs">Submitted Late</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-warning bg-opacity-10 text-warning rounded-pill px-3 py-1 text-xs">Pending Review</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        @if (sub.Score.HasValue)
+                                        {
+                                            <span class="fw-bold fs-6 text-dark">@sub.Score / @sub.MaxScore</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted text-xs">-- / @sub.MaxScore</span>
+                                        }
+                                    </td>
+                                    <td class="pe-4 text-end">
+                                        @if (ViewBag.CanGrade == true || sub.CanGrade)
+                                        {
+                                            <button class="btn btn-sm btn-primary rounded-pill px-3 font-semibold" data-bs-toggle="modal" data-bs-target="#gradeModal_@sub.SubmissionId">
+                                                <i class="bi bi-check2-circle me-1"></i> Grade
+                                            </button>
+
+                                            <!-- Grading Modal -->
+                                            <div class="modal fade text-start" id="gradeModal_@sub.SubmissionId" tabindex="-1" aria-hidden="true">
+                                                <div class="modal-dialog modal-dialog-centered">
+                                                    <div class="modal-content rounded-4 border-0 shadow-lg">
+                                                        <form asp-controller="Teacher" asp-action="GradeSubmission" method="post">
+                                                            @Html.AntiForgeryToken()
+                                                            <input type="hidden" name="SubmissionId" value="@sub.SubmissionId" />
+                                                            
+                                                            <div class="modal-header border-0 pb-0">
+                                                                <h5 class="modal-title fw-bold text-dark">Grade Submission: @sub.StudentName</h5>
+                                                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                                            </div>
+                                                            <div class="modal-body p-4">
+                                                                <div class="mb-3">
+                                                                    <label class="form-label text-xs fw-bold text-muted">SCORE (MAX: @sub.MaxScore)</label>
+                                                                    <input type="number" step="0.5" min="0" max="@sub.MaxScore" name="Score" value="@(sub.Score ?? 0)" class="form-control rounded-3" required />
+                                                                </div>
+                                                                <div class="mb-3">
+                                                                    <label class="form-label text-xs fw-bold text-muted">FEEDBACK / INSTRUCTOR NOTES</label>
+                                                                    <textarea name="Feedback" rows="3" class="form-control rounded-3" placeholder="Provide constructive feedback for the student...">@sub.Feedback</textarea>
+                                                                </div>
+                                                            </div>
+                                                            <div class="modal-footer border-0 pt-0">
+                                                                <button type="button" class="btn btn-light rounded-pill px-3" data-bs-dismiss="modal">Cancel</button>
+                                                                <button type="submit" class="btn btn-primary rounded-pill px-4 font-semibold">Save Grade</button>
+                                                            </div>
+                                                        </form>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-secondary bg-opacity-10 text-secondary rounded-pill px-3 py-1 text-xs" title="Grading permission required">
+                                                <i class="bi bi-lock me-1"></i> View Only
+                                            </span>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+            else
+            {
+                <div class="text-center p-5 text-muted">
+                    <i class="bi bi-inbox fs-1 d-block mb-3 text-secondary"></i>
+                    <h4 class="fw-bold text-dark">No Submissions Yet</h4>
+                    <p class="text-secondary text-sm mb-0">No student submissions have been turned in for this assignment yet.</p>
+                </div>
+            }
+        </div>
+    </div>
+</div>

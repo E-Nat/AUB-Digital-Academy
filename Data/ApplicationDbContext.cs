@@ -27,6 +27,10 @@ public class ApplicationDbContext : IdentityDbContext<User>
     public DbSet<CourseProgress> CourseProgresses { get; set; }
     public DbSet<QuizSubmission> QuizSubmissions { get; set; }
     public DbSet<AssignmentSubmission> AssignmentSubmissions { get; set; }
+    public DbSet<QuizSubmissionAnswer> QuizSubmissionAnswers { get; set; }
+    public DbSet<CourseAssistant> CourseAssistants { get; set; }
+    public DbSet<TelegramVerificationRequest> TelegramVerificationRequests { get; set; }
+    public DbSet<TelegramLinkToken> TelegramLinkTokens { get; set; }
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -36,6 +40,32 @@ public class ApplicationDbContext : IdentityDbContext<User>
         builder.Entity<User>(entity =>
         {
             entity.HasIndex(u => u.UniversityId).IsUnique().HasFilter("[UniversityId] IS NOT NULL");
+            entity.HasIndex(u => u.TelegramChatId).IsUnique().HasFilter("[TelegramChatId] IS NOT NULL");
+        });
+
+        // TelegramVerificationRequest
+        builder.Entity<TelegramVerificationRequest>(entity =>
+        {
+            entity.HasIndex(r => r.UserId);
+            entity.HasIndex(r => r.UniversityId);
+            entity.HasIndex(r => new { r.UserId, r.IsUsed, r.ExpiresAt });
+
+            entity.HasOne(r => r.User)
+                .WithMany(u => u.TelegramVerificationRequests)
+                .HasForeignKey(r => r.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // TelegramLinkToken
+        builder.Entity<TelegramLinkToken>(entity =>
+        {
+            entity.HasIndex(t => t.TokenHash).IsUnique();
+            entity.HasIndex(t => new { t.UserId, t.IsUsed, t.ExpiresAt });
+
+            entity.HasOne(t => t.User)
+                .WithMany(u => u.TelegramLinkTokens)
+                .HasForeignKey(t => t.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         // Category
@@ -201,6 +231,8 @@ public class ApplicationDbContext : IdentityDbContext<User>
         // AssignmentSubmission
         builder.Entity<AssignmentSubmission>(entity =>
         {
+            entity.HasIndex(asub => new { asub.AssignmentId, asub.StudentId, asub.IsLatest });
+
             entity.HasOne(asub => asub.Assignment)
                 .WithMany(a => a.Submissions)
                 .HasForeignKey(asub => asub.AssignmentId)
@@ -215,6 +247,44 @@ public class ApplicationDbContext : IdentityDbContext<User>
                 .WithMany(u => u.GradedSubmissions)
                 .HasForeignKey(asub => asub.GradedById)
                 .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        // QuizSubmissionAnswer
+        builder.Entity<QuizSubmissionAnswer>(entity =>
+        {
+            entity.HasIndex(qsa => new { qsa.QuizSubmissionId, qsa.QuestionId });
+
+            entity.HasOne(qsa => qsa.QuizSubmission)
+                .WithMany(qs => qs.Answers)
+                .HasForeignKey(qsa => qsa.QuizSubmissionId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(qsa => qsa.Question)
+                .WithMany()
+                .HasForeignKey(qsa => qsa.QuestionId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(qsa => qsa.SelectedOption)
+                .WithMany()
+                .HasForeignKey(qsa => qsa.SelectedOptionId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // CourseAssistant
+        builder.Entity<CourseAssistant>(entity =>
+        {
+            entity.HasIndex(ca => new { ca.CourseId, ca.AssistantId }).IsUnique();
+            entity.HasIndex(ca => ca.AssistantId);
+
+            entity.HasOne(ca => ca.Course)
+                .WithMany(c => c.CourseAssistants)
+                .HasForeignKey(ca => ca.CourseId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(ca => ca.Assistant)
+                .WithMany(u => u.AssistedCourses)
+                .HasForeignKey(ca => ca.AssistantId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
     }
 }

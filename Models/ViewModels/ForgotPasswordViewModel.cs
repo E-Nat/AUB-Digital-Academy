@@ -4,9 +4,8 @@ namespace AUBDigitalAcademy.Models.ViewModels;
 
 public class ForgotPasswordViewModel
 {
-    [Required(ErrorMessage = "Email is required.")]
-    [EmailAddress(ErrorMessage = "Please enter a valid email address.")]
-    [Display(Name = "Email Address")]
+    [Required(ErrorMessage = "Student ID or University Email is required.")]
+    [Display(Name = "Student ID or University Email")]
     public string Email { get; set; } = string.Empty;
 }
 

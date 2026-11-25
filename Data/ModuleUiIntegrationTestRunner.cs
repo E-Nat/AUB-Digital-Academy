@@ -57,7 +57,7 @@ public static class ModuleUiIntegrationTestRunner
                       ?? await context.Users.FirstOrDefaultAsync(u => u.IsActive);
         var major = await context.Majors.FirstOrDefaultAsync();
         var semester = await context.Semesters.FirstOrDefaultAsync();
-        var student = await context.Users.FirstOrDefaultAsync(u => u.Email == "student@aub.edu.kh")
+        var student = await context.Users.FirstOrDefaultAsync(u => u.Email == "student@aub.com")
                       ?? (await userManager.GetUsersInRoleAsync("Student")).FirstOrDefault();
 
         if (teacher == null || major == null || semester == null || student == null)

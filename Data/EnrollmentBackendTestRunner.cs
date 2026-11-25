@@ -96,8 +96,8 @@ public static class EnrollmentBackendTestRunner
         // Seed or retrieve required entities
         var major = await context.Majors.FirstOrDefaultAsync();
         var semester = await context.Semesters.FirstOrDefaultAsync();
-        var teacher = await userManager.FindByEmailAsync("teacher@aub.edu.kh");
-        var adminUser = await userManager.FindByEmailAsync("admin@aub.edu.kh");
+        var teacher = await userManager.FindByEmailAsync("teacher@aub.com");
+        var adminUser = await userManager.FindByEmailAsync("admin@aub.com");
 
         if (major == null || semester == null || teacher == null || adminUser == null)
         {

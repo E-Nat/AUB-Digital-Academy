@@ -1,1 +1,246 @@
-<!-- Book.cshtml -->
+@model AUBDigitalAcademy.Models.ViewModels.StudentBookViewModel
+@{
+    ViewData["Title"] = $"{Model.Title} - {Model.CourseTitle}";
+    ViewData["ActivePage"] = "Courses";
+
+    bool isExternalUrl = !string.IsNullOrEmpty(Model.FileUrl) &&
+        (Model.FileUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+         Model.FileUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase));
+
+    bool isPdf = string.Equals(Model.FileType, "PDF", StringComparison.OrdinalIgnoreCase) ||
+        (!string.IsNullOrEmpty(Model.FileUrl) && Model.FileUrl.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase));
+}
+
+@section Styles {
+    <link rel="stylesheet" href="~/css/student.css" asp-append-version="true" />
+}
+
+<div class="container-fluid p-0">
+    <!-- Breadcrumb Navigation -->
+    <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb mb-0 small">
+            <li class="breadcrumb-item"><a href="/Student/Dashboard" class="text-decoration-none">Dashboard</a></li>
+            <li class="breadcrumb-item"><a href="/Student/Courses" class="text-decoration-none">My Courses</a></li>
+            <li class="breadcrumb-item"><a href="/Student/Course/@Model.CourseId" class="text-decoration-none">@Model.CourseTitle</a></li>
+            <li class="breadcrumb-item active" aria-current="page">@Model.Title</li>
+        </ol>
+    </nav>
+
+    <!-- Top Action Banner -->
+    <div class="card border-0 shadow-sm rounded-3 mb-4 overflow-hidden" style="background: linear-gradient(135deg, #003366 0%, #004080 100%); color: white;">
+        <div class="card-body p-3 p-md-4">
+            <div class="d-flex align-items-center justify-content-between flex-wrap gap-3">
+                <div>
+                    <div class="d-flex align-items-center gap-2 mb-1 flex-wrap">
+                        <span class="badge bg-white text-dark font-monospace">@Model.CourseCode</span>
+                        <span class="badge bg-light text-dark opacity-75">Module @Model.ModulePosition: @Model.ModuleTitle</span>
+                        <span class="badge bg-info text-dark"><i class="bi bi-book me-1"></i>Book & Reference</span>
+                        <span class="badge bg-primary-subtle text-primary border border-primary-subtle">Format: @Model.FileType</span>
+                        @if (Model.FileSize.HasValue && Model.FileSize.Value > 0)
+                        {
+                            <span class="badge bg-light text-dark opacity-75">@((Model.FileSize.Value / 1024.0 / 1024.0).ToString("0.1")) MB</span>
+                        }
+                        <span class="badge bg-success text-white"><i class="bi bi-check-circle-fill me-1"></i>Completed</span>
+                    </div>
+                    <h3 class="fw-bold mb-0 text-white">@Model.Title</h3>
+                </div>
+                <div class="d-flex align-items-center gap-2">
+                    @if (!string.IsNullOrEmpty(Model.FileUrl))
+                    {
+                        <a href="@Model.FileUrl" target="_blank" rel="noopener noreferrer" class="btn btn-warning d-inline-flex align-items-center gap-2 shadow-sm fw-semibold">
+                            <i class="bi bi-box-arrow-up-right"></i>
+                            <span>Open In New Tab</span>
+                        </a>
+                    }
+                    <a href="/Student/Course/@Model.CourseId" class="btn btn-light d-inline-flex align-items-center gap-2 shadow-sm text-primary fw-semibold">
+                        <i class="bi bi-grid-3x3-gap"></i>
+                        <span>Course Overview</span>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Content Row -->
+    <div class="row g-4">
+        <!-- Left Column: Book Reader / Document Preview -->
+        <div class="col-lg-8">
+            <div class="card border rounded-3 bg-white shadow-sm mb-4 overflow-hidden">
+                <div class="card-header bg-light py-3 border-bottom d-flex align-items-center justify-content-between">
+                    <div class="d-flex align-items-center gap-2">
+                        <i class="bi bi-journal-bookmark-fill text-primary fs-5"></i>
+                        <h5 class="fw-bold mb-0 text-dark">Book Reader: @Model.Title</h5>
+                    </div>
+                    <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-3 py-1">
+                        <i class="bi bi-check-all me-1"></i>Progress Recorded
+                    </span>
+                </div>
+                <div class="card-body p-0">
+                    @if (!string.IsNullOrEmpty(Model.FileUrl))
+                    {
+                        @if (isPdf)
+                        {
+                            <div class="p-2 bg-light border-bottom d-flex align-items-center justify-content-between">
+                                <small class="text-muted"><i class="bi bi-file-earmark-pdf me-1 text-danger"></i>Interactive PDF Viewer</small>
+                                <a href="@Model.FileUrl" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-secondary">
+                                    <i class="bi bi-arrows-fullscreen me-1"></i>Full Screen
+                                </a>
+                            </div>
+                            <div class="ratio" style="height: 750px;">
+                                <iframe src="@Model.FileUrl#toolbar=1&navpanes=0" title="@Model.Title" class="w-100 h-100 border-0">
+                                    <p>Your browser does not support inline PDF viewing. <a href="@Model.FileUrl" target="_blank">Click here to view or download the book.</a></p>
+                                </iframe>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="p-5 text-center bg-light">
+                                <i class="bi bi-book text-primary fs-1 d-block mb-3"></i>
+                                <h4 class="fw-bold text-dark">@Model.Title</h4>
+                                <p class="text-secondary max-w-lg mx-auto mb-4">
+                                    This book or academic resource is available via an external digital library link. Click the button below to access or download the reading material.
+                                </p>
+                                <a href="@Model.FileUrl" target="_blank" rel="noopener noreferrer" class="btn btn-primary px-4 py-2 fw-semibold">
+                                    <i class="bi bi-box-arrow-up-right me-2"></i>Open Reading Resource
+                                </a>
+                            </div>
+                        }
+                    }
+                    else
+                    {
+                        <div class="p-5 text-center text-muted">
+                            <i class="bi bi-journal-x fs-1 d-block mb-3 text-secondary"></i>
+                            <h4 class="fw-bold text-dark">Resource Temporarily Unavailable</h4>
+                            <p class="text-secondary text-sm mb-0">The digital copy for this book has not been attached yet. Please consult your course instructor.</p>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Column: Curriculum Navigation Sidebar -->
+        <div class="col-lg-4">
+            <div class="card border rounded-3 bg-white shadow-sm overflow-hidden sticky-lg-top" style="top: 1.5rem; z-index: 10;">
+                <div class="p-3 border-bottom bg-light">
+                    <div class="d-flex align-items-center justify-content-between mb-2">
+                        <div class="d-flex align-items-center gap-2">
+                            <i class="bi bi-collection-play-fill text-primary"></i>
+                            <h6 class="fw-bold mb-0 text-dark">Course Curriculum</h6>
+                        </div>
+                        <span class="badge bg-primary-subtle text-primary border border-primary-subtle rounded-pill">
+                            @Model.CompletedLessonsCount/@Model.TotalLessonsCount Completed
+                        </span>
+                    </div>
+                    <div class="progress" style="height: 6px;">
+                        <div class="progress-bar bg-success" role="progressbar" style="width: @(Model.CourseProgressPercentage)%;" aria-valuenow="@Model.CourseProgressPercentage" aria-valuemin="0" aria-valuemax="100"></div>
+                    </div>
+                </div>
+
+                <div class="p-3" style="max-height: calc(100vh - 200px); overflow-y: auto;">
+                    @if (Model.Modules.Count == 0)
+                    {
+                        <div class="p-4 text-center text-muted small">
+                            No modules in this course.
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="accordion" id="curriculumPlayerAccordion">
+                            @foreach (var mod in Model.Modules.OrderBy(m => m.Position))
+                            {
+                                var collapseId = $"collapsePlayerMod{mod.ModuleId}";
+                                var headingId = $"headingPlayerMod{mod.ModuleId}";
+                                var isExpanded = mod.IsCurrentModule;
+
+                                <div class="player-module-card mb-2">
+                                    <div class="player-module-header @(isExpanded ? "active-module" : "")" id="@headingId">
+                                        <div class="d-flex align-items-center gap-2 flex-grow-1 me-2 text-truncate">
+                                            <span class="badge @(isExpanded ? "bg-primary text-white" : "bg-light text-dark border") rounded-pill px-2 py-1 small">
+                                                M@mod.Position
+                                            </span>
+                                            <span class="fw-semibold text-dark text-truncate small" title="@mod.Title">
+                                                @mod.Title
+                                            </span>
+                                        </div>
+                                        <div class="d-flex align-items-center gap-1">
+                                            <span class="small text-muted" style="font-size: 0.75rem;">@mod.CompletedCount/@mod.LessonCount</span>
+                                            <button class="btn btn-sm btn-link text-secondary p-0" type="button" data-bs-toggle="collapse" data-bs-target="#@collapseId" aria-expanded="@(isExpanded ? "true" : "false")" aria-controls="@collapseId">
+                                                <i class="bi bi-chevron-down small"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div id="@collapseId" class="collapse @(isExpanded ? "show" : "")" aria-labelledby="@headingId">
+                                        @if (mod.Lessons.Count == 0)
+                                        {
+                                            <div class="p-2 text-muted small text-center fst-italic">
+                                                No items in this module.
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            @foreach (var item in mod.Lessons.OrderBy(l => l.Position))
+                                            {
+                                                string itemUrl = item.Type switch
+                                                {
+                                                    AUBDigitalAcademy.Models.Enums.ItemType.Quiz => $"/Student/Course/{Model.CourseId}/Quiz/{item.CourseItemId}",
+                                                    AUBDigitalAcademy.Models.Enums.ItemType.Assignment => $"/Student/Course/{Model.CourseId}/Assignment/{item.CourseItemId}",
+                                                    AUBDigitalAcademy.Models.Enums.ItemType.Book => $"/Student/Course/{Model.CourseId}/Book/{item.CourseItemId}",
+                                                    _ => $"/Student/Course/{Model.CourseId}/Lesson/{item.CourseItemId}"
+                                                };
+
+                                                <a href="@itemUrl"
+                                                   class="player-lesson-link d-flex align-items-center gap-2 text-decoration-none @(item.IsCurrent ? "current-lesson" : "")"
+                                                   title="@item.Title"
+                                                   data-item-id="@item.CourseItemId">
+                                                    @if (item.IsCompleted || item.HasPassedQuiz)
+                                                    {
+                                                        <i class="bi bi-check-circle-fill text-success fs-6 flex-shrink-0" title="Completed"></i>
+                                                    }
+                                                    else if (item.IsCurrent)
+                                                    {
+                                                        <i class="bi bi-arrow-right-circle-fill text-primary fs-6 flex-shrink-0" title="Current"></i>
+                                                    }
+                                                    else if (item.Type == AUBDigitalAcademy.Models.Enums.ItemType.Quiz)
+                                                    {
+                                                        <i class="bi bi-patch-question-fill text-warning fs-6 flex-shrink-0" title="Quiz"></i>
+                                                    }
+                                                    else if (item.Type == AUBDigitalAcademy.Models.Enums.ItemType.Assignment)
+                                                    {
+                                                        <i class="bi bi-file-earmark-arrow-up-fill text-info fs-6 flex-shrink-0" title="Assignment"></i>
+                                                    }
+                                                    else if (item.Type == AUBDigitalAcademy.Models.Enums.ItemType.Book)
+                                                    {
+                                                        <i class="bi bi-book-fill text-secondary fs-6 flex-shrink-0" title="Book"></i>
+                                                    }
+                                                    else
+                                                    {
+                                                        <i class="bi bi-circle text-secondary opacity-50 fs-6 flex-shrink-0" title="Lesson"></i>
+                                                    }
+
+                                                    <div class="flex-grow-1 text-truncate">
+                                                        <div class="small fw-medium @(item.IsCurrent ? "text-primary fw-bold" : "text-dark") text-truncate">
+                                                            @item.Title
+                                                        </div>
+                                                        <span class="text-muted" style="font-size: 0.75rem;">
+                                                            @item.Type.ToString() @item.Position
+                                                        </span>
+                                                    </div>
+
+                                                    @if (item.IsCurrent)
+                                                    {
+                                                        <span class="badge bg-primary text-white rounded-pill px-2 py-0 text-xs">Active</span>
+                                                    }
+                                                </a>
+                                            }
+                                        }
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

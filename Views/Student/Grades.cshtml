@@ -1,1 +1,251 @@
-<!-- Grades.cshtml -->
+@model AUBDigitalAcademy.Models.ViewModels.StudentGradesViewModel
+@{
+    ViewData["Title"] = "My Grades & Academic Records";
+    ViewData["ActivePage"] = "Grades";
+}
+
+@section Styles {
+    <link rel="stylesheet" href="~/css/student.css" asp-append-version="true" />
+}
+
+<div class="container-fluid p-0">
+    <!-- Breadcrumb Navigation -->
+    <nav aria-label="breadcrumb" class="mb-3">
+        <ol class="breadcrumb mb-0 small">
+            <li class="breadcrumb-item"><a href="/Student/Dashboard" class="text-decoration-none">Dashboard</a></li>
+            <li class="breadcrumb-item active" aria-current="page">My Gradebook</li>
+        </ol>
+    </nav>
+
+    <!-- Top Action Banner -->
+    <div class="card border-0 shadow-sm rounded-3 mb-4 overflow-hidden" style="background: linear-gradient(135deg, #003366 0%, #004080 100%); color: white;">
+        <div class="card-body p-3 p-md-4">
+            <div class="d-flex align-items-center justify-content-between flex-wrap gap-3">
+                <div class="d-flex align-items-center gap-3">
+                    <div class="bg-white rounded-circle d-flex align-items-center justify-content-center text-primary fw-bold shadow-sm" style="width: 54px; height: 54px; font-size: 1.3rem;">
+                        @(string.IsNullOrEmpty(Model.StudentName) ? "S" : Model.StudentName[0].ToString().ToUpper())
+                    </div>
+                    <div>
+                        <div class="d-flex align-items-center gap-2 mb-1 flex-wrap">
+                            <span class="badge bg-white text-dark font-monospace">@(Model.UniversityId ?? "STUDENT")</span>
+                            <span class="badge bg-success text-white"><i class="bi bi-mortarboard-fill me-1"></i>Official Transcript View</span>
+                        </div>
+                        <h3 class="fw-bold mb-0 text-white">@Model.StudentName's Academic Records</h3>
+                        <p class="text-white-50 text-xs mb-0">@Model.StudentEmail</p>
+                    </div>
+                </div>
+                <div>
+                    <a href="/Student/Dashboard" class="btn btn-light d-inline-flex align-items-center gap-2 shadow-sm text-primary fw-semibold">
+                        <i class="bi bi-speedometer2"></i>
+                        <span>Dashboard</span>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Summary KPI Cards -->
+    <div class="row g-3 mb-4">
+        <div class="col-sm-6 col-xl-3">
+            <div class="card border rounded-3 bg-white shadow-sm p-3">
+                <div class="d-flex align-items-center gap-3">
+                    <div class="rounded-3 p-3 bg-primary-subtle text-primary fs-3">
+                        <i class="bi bi-journal-bookmark-fill"></i>
+                    </div>
+                    <div>
+                        <span class="text-muted text-xs text-uppercase fw-bold d-block">Enrolled Courses</span>
+                        <h3 class="fw-bold mb-0 text-dark">@Model.EnrolledCourses.Count</h3>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-sm-6 col-xl-3">
+            <div class="card border rounded-3 bg-white shadow-sm p-3">
+                <div class="d-flex align-items-center gap-3">
+                    <div class="rounded-3 p-3 bg-info-subtle text-info fs-3">
+                        <i class="bi bi-file-earmark-check-fill"></i>
+                    </div>
+                    <div>
+                        <span class="text-muted text-xs text-uppercase fw-bold d-block">Completed Assessments</span>
+                        <h3 class="fw-bold mb-0 text-dark">@Model.CompletedAssessmentsCount <span class="text-muted fs-6 fw-normal">/ @Model.TotalAssessmentsCount</span></h3>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-sm-6 col-xl-3">
+            <div class="card border rounded-3 bg-white shadow-sm p-3">
+                <div class="d-flex align-items-center gap-3">
+                    <div class="rounded-3 p-3 bg-success-subtle text-success fs-3">
+                        <i class="bi bi-patch-check-fill"></i>
+                    </div>
+                    <div>
+                        <span class="text-muted text-xs text-uppercase fw-bold d-block">Passed Assessments</span>
+                        <h3 class="fw-bold mb-0 text-dark">@Model.PassedAssessmentsCount</h3>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-sm-6 col-xl-3">
+            <div class="card border rounded-3 bg-white shadow-sm p-3">
+                <div class="d-flex align-items-center gap-3">
+                    <div class="rounded-3 p-3 bg-warning-subtle text-warning fs-3">
+                        <i class="bi bi-graph-up-arrow"></i>
+                    </div>
+                    <div>
+                        <span class="text-muted text-xs text-uppercase fw-bold d-block">Overall Average</span>
+                        <h3 class="fw-bold mb-0 text-dark">@Model.OverallAveragePercentage<small class="fs-6 text-muted">%</small></h3>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Filter and Gradebook Table Card -->
+    <div class="card border rounded-3 bg-white shadow-sm overflow-hidden mb-4">
+        <div class="card-header bg-light py-3 border-bottom d-flex align-items-center justify-content-between flex-wrap gap-2">
+            <div class="d-flex align-items-center gap-2">
+                <i class="bi bi-table text-primary fs-5"></i>
+                <h5 class="fw-bold mb-0 text-dark">Grade Details</h5>
+            </div>
+            <!-- Course Filter -->
+            <div class="d-flex align-items-center gap-2">
+                <label for="courseFilterSelect" class="text-muted text-xs fw-bold text-nowrap">Filter by Course:</label>
+                <select id="courseFilterSelect" class="form-select form-select-sm rounded-pill" style="min-width: 220px;" onchange="filterCourse(this.value)">
+                    <option value="" selected="@(!Model.SelectedCourseId.HasValue)">All Enrolled Courses</option>
+                    @foreach (var c in Model.EnrolledCourses)
+                    {
+                        <option value="@c.CourseId" selected="@(Model.SelectedCourseId == c.CourseId)">@c.Code — @c.Title</option>
+                    }
+                </select>
+            </div>
+        </div>
+
+        <div class="card-body p-0">
+            @if (Model.GradeItems != null && Model.GradeItems.Any())
+            {
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0 text-sm">
+                        <thead class="table-light">
+                            <tr>
+                                <th class="ps-4">Course</th>
+                                <th>Assessment</th>
+                                <th>Type</th>
+                                <th>Date</th>
+                                <th>Score</th>
+                                <th>Percentage</th>
+                                <th>Status</th>
+                                <th class="pe-4 text-end">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var item in Model.GradeItems)
+                            {
+                                <tr>
+                                    <td class="ps-4">
+                                        <div class="fw-bold text-dark">@item.CourseCode</div>
+                                        <div class="text-muted text-xs text-truncate" style="max-width: 180px;" title="@item.CourseTitle">@item.CourseTitle</div>
+                                    </td>
+                                    <td>
+                                        <div class="fw-semibold text-dark">@item.AssessmentTitle</div>
+                                        @if (!string.IsNullOrEmpty(item.Feedback))
+                                        {
+                                            <div class="text-muted text-xs text-truncate" style="max-width: 250px;" title="@item.Feedback">
+                                                <i class="bi bi-chat-left-text me-1 text-primary"></i>@item.Feedback
+                                            </div>
+                                        }
+                                    </td>
+                                    <td>
+                                        @if (item.AssessmentType == "Quiz")
+                                        {
+                                            <span class="badge bg-warning-subtle text-dark border border-warning-subtle rounded-pill px-2 py-1 text-xs">
+                                                <i class="bi bi-patch-question-fill me-1 text-warning"></i>Quiz
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-info-subtle text-info border border-info-subtle rounded-pill px-2 py-1 text-xs">
+                                                <i class="bi bi-file-earmark-arrow-up-fill me-1 text-info"></i>Assignment
+                                            </span>
+                                        }
+                                    </td>
+                                    <td>
+                                        <div class="text-xs text-muted">@item.Date.ToString("MMM dd, yyyy")</div>
+                                    </td>
+                                    <td>
+                                        @if (item.Score.HasValue)
+                                        {
+                                            <span class="fw-bold text-dark fs-6">@item.Score.Value / @item.MaxScore</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted text-xs">-- / @item.MaxScore</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        @if (item.ScorePercentage.HasValue)
+                                        {
+                                            <div class="d-flex align-items-center gap-2">
+                                                <div class="progress flex-grow-1" style="height: 6px; width: 60px;">
+                                                    <div class="progress-bar @(item.IsPassed ? "bg-success" : "bg-danger")" role="progressbar" style="width: @(Math.Min(item.ScorePercentage.Value, 100))%;"></div>
+                                                </div>
+                                                <span class="fw-bold text-xs @(item.IsPassed ? "text-success" : "text-danger")">@item.ScorePercentage.Value%</span>
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted text-xs">--</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        @if (item.IsPassed)
+                                        {
+                                            <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-3 py-1 text-xs">
+                                                <i class="bi bi-check-circle-fill me-1"></i>Passed
+                                            </span>
+                                        }
+                                        else if (item.IsCompleted)
+                                        {
+                                            <span class="badge bg-danger-subtle text-danger border border-danger-subtle rounded-pill px-3 py-1 text-xs">
+                                                <i class="bi bi-x-circle-fill me-1"></i>Below Passing (50%)
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle rounded-pill px-3 py-1 text-xs">
+                                                @item.StatusDisplay
+                                            </span>
+                                        }
+                                    </td>
+                                    <td class="pe-4 text-end">
+                                        <a href="@item.DetailUrl" class="btn btn-sm btn-outline-primary rounded-pill px-3 py-1 text-xs">
+                                            <span>Review</span>
+                                            <i class="bi bi-arrow-right ms-1"></i>
+                                        </a>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+            else
+            {
+                <div class="text-center p-5 text-muted">
+                    <i class="bi bi-mortarboard fs-1 d-block mb-3 text-secondary"></i>
+                    <h4 class="fw-bold text-dark">No Assessment Records Found</h4>
+                    <p class="text-secondary text-sm mb-0">There are no completed assessments or graded items for the selected course filter.</p>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+<script>
+    function filterCourse(courseId) {
+        if (courseId) {
+            window.location.href = '/Student/Grades?courseId=' + encodeURIComponent(courseId);
+        } else {
+            window.location.href = '/Student/Grades';
+        }
+    }
+</script>

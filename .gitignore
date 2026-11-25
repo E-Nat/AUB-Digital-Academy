@@ -19,6 +19,8 @@ bld/
 [Bb]in/
 [Oo]bj/
 [Ll]og/
+[Pp]ublish/
+publish/
 
 # NuGet Packages
 *.nupkg
@@ -34,6 +36,9 @@ project.assets.json
 *.db
 *.db-shm
 *.db-wal
+*.bak*
+_backups/
+App_Data/
 
 # Secrets
 appsettings.Development.json
@@ -52,3 +57,10 @@ appsettings.Production.json
 # Logs
 logs/
 *.log
+# Environment variables
+.env
+.env.Production
+.env.Development
+.env.local
+.env.*.local
+!.env.example

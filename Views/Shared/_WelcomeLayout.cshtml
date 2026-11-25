@@ -80,7 +80,7 @@
                 <div class="d-none d-lg-flex align-items-center gap-2.5">
                     @if (User.Identity != null && User.Identity.IsAuthenticated)
                     {
-                        var dashUrl = User.IsInRole("Admin") ? "/Admin" : User.IsInRole("Teacher") ? "/Teacher/Dashboard" : "/Student/Dashboard";
+                        var dashUrl = User.IsInRole("Admin") ? "/Admin" : (User.IsInRole("Teacher") || User.IsInRole("Assistance")) ? "/Teacher/Dashboard" : "/Student/Dashboard";
                         <a href="@dashUrl" class="btn btn-gold-action d-inline-flex align-items-center gap-2">
                             <i class="bi bi-grid-fill" aria-hidden="true"></i> Dashboard
                         </a>
@@ -130,7 +130,7 @@
         <div class="mobile-drawer-footer pt-3 mt-3 border-top border-white border-opacity-10">
             @if (User.Identity != null && User.Identity.IsAuthenticated)
             {
-                var dashUrl = User.IsInRole("Admin") ? "/Admin" : User.IsInRole("Teacher") ? "/Teacher/Dashboard" : "/Student/Dashboard";
+                var dashUrl = User.IsInRole("Admin") ? "/Admin" : (User.IsInRole("Teacher") || User.IsInRole("Assistance")) ? "/Teacher/Dashboard" : "/Student/Dashboard";
                 <a href="@dashUrl" class="btn btn-gold-action w-100 justify-content-center py-2.5">
                     <i class="bi bi-grid-fill me-2" aria-hidden="true"></i> Open Dashboard
                 </a>

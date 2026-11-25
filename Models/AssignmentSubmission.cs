@@ -1,4 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 using AUBDigitalAcademy.Models.Enums;
 
@@ -24,6 +24,18 @@ public class AssignmentSubmission
     public string? TextResponse { get; set; }
 
     public SubmissionStatus Status { get; set; } = SubmissionStatus.Submitted;
+
+    public int AttemptNumber { get; set; } = 1;
+
+    public bool IsLatest { get; set; } = true;
+
+    [StringLength(255)]
+    public string? OriginalFileName { get; set; }
+
+    public long? FileSizeBytes { get; set; }
+
+    [StringLength(100)]
+    public string? ContentType { get; set; }
 
     public double? Score { get; set; }
 

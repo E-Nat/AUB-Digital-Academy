@@ -44,7 +44,14 @@
                         <span class="badge bg-warning text-dark border border-warning"><i class="bi bi-patch-question me-1"></i>Quiz</span>
                         <span class="badge bg-light text-white bg-opacity-25"><i class="bi bi-clock me-1"></i>@Model.TimeLimitMinutes mins</span>
                         <span class="badge bg-light text-white bg-opacity-25"><i class="bi bi-award me-1"></i>Passing Score: @Model.PassingScore%</span>
+                        <span class="badge bg-light text-white bg-opacity-25"><i class="bi bi-arrow-repeat me-1"></i>Attempt @(Model.AttemptCount >= Model.MaxAttempts ? Model.AttemptCount : Model.CurrentAttemptNumber) of @Model.MaxAttempts</span>
                         <span class="badge bg-success-subtle text-success border border-success-subtle">Progress: @Model.CourseProgressPercentage%</span>
+                        @if (Model.TimeLimitMinutes > 0 && Model.CanAttempt)
+                        {
+                            <span class="badge bg-danger text-white border border-light d-inline-flex align-items-center gap-1 font-monospace fs-6 px-3" id="quizTimerBadge">
+                                <i class="bi bi-stopwatch"></i><span id="quizTimeRemaining">--:--</span>
+                            </span>
+                        }
                     </div>
                     <h3 class="fw-bold mb-0 text-white">@Model.QuizTitle</h3>
                 </div>
@@ -58,15 +65,35 @@
         </div>
     </div>
 
-    @if (Model.HasSubmission)
+    @if (!Model.CanAttempt)
+    {
+        <div class="alert alert-danger border rounded-3 shadow-sm mb-4 d-flex align-items-center justify-content-between flex-wrap gap-3">
+            <div class="d-flex align-items-center gap-3">
+                <i class="bi bi-slash-circle-fill text-danger fs-2"></i>
+                <div>
+                    <h6 class="fw-bold mb-0">Maximum Attempts Reached</h6>
+                    <span class="small text-muted">
+                        You have completed all <strong>@Model.MaxAttempts</strong> allowed attempts for this quiz. Your official selected score is <strong>@(Model.BestScore ?? Model.LatestScore ?? 0)%</strong>.
+                    </span>
+                </div>
+            </div>
+            @if (Model.LatestSubmissionId.HasValue)
+            {
+                <a href="/Student/Course/@Model.CourseId/Quiz/@Model.CourseItemId/Result/@Model.LatestSubmissionId.Value" class="btn btn-sm btn-outline-danger">
+                    <i class="bi bi-file-earmark-text me-1"></i> View Result
+                </a>
+            }
+        </div>
+    }
+    else if (Model.HasSubmission)
     {
         <div class="alert @(Model.LatestIsPassed == true ? "alert-success" : "alert-warning") border rounded-3 shadow-sm mb-4 d-flex align-items-center justify-content-between flex-wrap gap-3">
             <div class="d-flex align-items-center gap-3">
                 <i class="bi @(Model.LatestIsPassed == true ? "bi-check-circle-fill text-success" : "bi-exclamation-triangle-fill text-warning") fs-2"></i>
                 <div>
-                    <h6 class="fw-bold mb-0">Previous Attempt Recorded</h6>
+                    <h6 class="fw-bold mb-0">Previous Attempt Recorded (Attempt @Model.AttemptCount of @Model.MaxAttempts)</h6>
                     <span class="small text-muted">
-                        Score: <strong>@Model.LatestScore%</strong> &bull; Status:
+                        Latest Score: <strong>@Model.LatestScore%</strong> &bull; Best Score: <strong>@(Model.BestScore ?? Model.LatestScore)%</strong> &bull; Status:
                         <strong class="@(Model.LatestIsPassed == true ? "text-success" : "text-danger")">@(Model.LatestIsPassed == true ? "Passed" : "Failed")</strong> &bull;
                         Taken on @(Model.LatestSubmittedAt?.ToString("MMM dd, yyyy HH:mm") ?? "N/A")
                     </span>
@@ -230,9 +257,16 @@
                                             @foreach (var item in mod.Lessons.OrderBy(l => l.Position))
                                             {
                                                 var isQuiz = item.Type == AUBDigitalAcademy.Models.Enums.ItemType.Quiz;
-                                                var itemUrl = isQuiz
-                                                    ? $"/Student/Course/{Model.CourseId}/Quiz/{item.CourseItemId}"
-                                                    : $"/Student/Course/{Model.CourseId}/Lesson/{item.CourseItemId}";
+                                                var isAssignment = item.Type == AUBDigitalAcademy.Models.Enums.ItemType.Assignment;
+                                                var isBook = item.Type == AUBDigitalAcademy.Models.Enums.ItemType.Book;
+
+                                                string itemUrl = item.Type switch
+                                                {
+                                                    AUBDigitalAcademy.Models.Enums.ItemType.Quiz => $"/Student/Course/{Model.CourseId}/Quiz/{item.CourseItemId}",
+                                                    AUBDigitalAcademy.Models.Enums.ItemType.Assignment => $"/Student/Course/{Model.CourseId}/Assignment/{item.CourseItemId}",
+                                                    AUBDigitalAcademy.Models.Enums.ItemType.Book => $"/Student/Course/{Model.CourseId}/Book/{item.CourseItemId}",
+                                                    _ => $"/Student/Course/{Model.CourseId}/Lesson/{item.CourseItemId}"
+                                                };
 
                                                 <a href="@itemUrl"
                                                    class="player-lesson-link d-flex align-items-center gap-2 text-decoration-none @(item.IsCurrent ? "current-lesson" : "")"
@@ -244,11 +278,19 @@
                                                     }
                                                     else if (item.IsCurrent)
                                                     {
-                                                        <i class="bi @(isQuiz ? "bi-patch-question-fill" : "bi-play-circle-fill") text-primary fs-6 flex-shrink-0" title="@(isQuiz ? "Current Quiz" : "Current Lesson")"></i>
+                                                        <i class="bi @(isQuiz ? "bi-patch-question-fill" : "bi-arrow-right-circle-fill") text-primary fs-6 flex-shrink-0" title="Current"></i>
                                                     }
                                                     else if (isQuiz)
                                                     {
                                                         <i class="bi bi-patch-question-fill text-warning fs-6 flex-shrink-0" title="Quiz"></i>
+                                                    }
+                                                    else if (isAssignment)
+                                                    {
+                                                        <i class="bi bi-file-earmark-arrow-up-fill text-info fs-6 flex-shrink-0" title="Assignment"></i>
+                                                    }
+                                                    else if (isBook)
+                                                    {
+                                                        <i class="bi bi-book-fill text-secondary fs-6 flex-shrink-0" title="Book"></i>
                                                     }
                                                     else
                                                     {
@@ -260,7 +302,7 @@
                                                             @item.Title
                                                         </div>
                                                         <span class="text-muted" style="font-size: 0.75rem;">
-                                                            @(isQuiz ? "Quiz" : "Lesson") @item.Position
+                                                            @item.Type.ToString() @item.Position
                                                         </span>
                                                     </div>
 
@@ -295,3 +337,59 @@
         </div>
     </div>
 </div>
+
+@section Scripts {
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            var timeLimitMinutes = @Model.TimeLimitMinutes;
+            var canAttempt = @(Model.CanAttempt.ToString().ToLower());
+
+            if (!canAttempt) {
+                var form = document.getElementById('quizSubmissionForm');
+                if (form) {
+                    form.querySelectorAll('input').forEach(function (i) { i.disabled = true; });
+                    var submitBtn = document.getElementById('btnSubmitQuiz');
+                    if (submitBtn) {
+                        submitBtn.disabled = true;
+                        submitBtn.className = 'btn btn-secondary btn-lg px-5 disabled';
+                        submitBtn.innerHTML = '<i class="bi bi-lock-fill me-1"></i> Max Attempts Reached';
+                    }
+                }
+                return;
+            }
+
+            if (timeLimitMinutes > 0) {
+                var totalSeconds = timeLimitMinutes * 60;
+                var timerDisplay = document.getElementById('quizTimeRemaining');
+                var timerBadge = document.getElementById('quizTimerBadge');
+                var warned = false;
+
+                function updateTimer() {
+                    var m = Math.floor(totalSeconds / 60);
+                    var s = totalSeconds % 60;
+                    var mStr = m < 10 ? '0' + m : m;
+                    var sStr = s < 10 ? '0' + s : s;
+                    if (timerDisplay) timerDisplay.textContent = mStr + ':' + sStr;
+
+                    if (totalSeconds <= 120 && !warned) {
+                        warned = true;
+                        if (timerBadge) {
+                            timerBadge.classList.add('shadow-sm');
+                        }
+                    }
+
+                    if (totalSeconds <= 0) {
+                        clearInterval(interval);
+                        alert('Time limit reached! Submitting your quiz now.');
+                        var form = document.getElementById('quizSubmissionForm');
+                        if (form) form.submit();
+                    }
+                    totalSeconds--;
+                }
+
+                updateTimer();
+                var interval = setInterval(updateTimer, 1000);
+            }
+        });
+    </script>
+}

@@ -1,23 +1,19 @@
+/**
+ * AUB Digital Academy - Production Login Controller
+ * Handles credentials verification, show/hide password, UI state, and role dashboard redirection.
+ */
 document.addEventListener('DOMContentLoaded', function () {
+    'use strict';
+
     const loginForm = document.getElementById('loginForm');
-    const googleForm = document.getElementById('googleForm');
-
-    // UI View Containers
-    const loginView = document.getElementById('loginView');
-    const googleLoadingView = document.getElementById('googleLoadingView');
-    const authSuccessView = document.getElementById('authSuccessView');
-
-    // Action & Status Elements
     const btnSignIn = document.getElementById('btnSignIn');
     const btnSignInText = document.getElementById('btnSignInText');
     const btnSignInArrow = document.getElementById('btnSignInArrow');
-    const btnGoogle = document.getElementById('btnGoogle');
     const signInSpinner = document.getElementById('signInSpinner');
     const loginErrorAlert = document.getElementById('loginErrorAlert');
     const loginErrorMessage = document.getElementById('loginErrorMessage');
     const closeErrorBtn = document.getElementById('closeErrorBtn');
 
-    // Input Controls
     const loginIdInput = document.getElementById('LoginId');
     const passwordInput = document.getElementById('Password');
     const togglePasswordBtn = document.getElementById('togglePassword');
@@ -25,13 +21,13 @@ document.addEventListener('DOMContentLoaded', function () {
 
     const prefersReducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-    // ── 1. Toggle Password Visibility ─────────────────────────────────────────
+    // 1. Password Visibility Show/Hide Toggle
     if (togglePasswordBtn && passwordInput) {
         togglePasswordBtn.addEventListener('click', function (e) {
             e.preventDefault();
             const isPassword = passwordInput.getAttribute('type') === 'password';
             passwordInput.setAttribute('type', isPassword ? 'text' : 'password');
-            
+
             this.setAttribute('aria-pressed', isPassword ? 'true' : 'false');
             this.setAttribute('aria-label', isPassword ? 'Hide password' : 'Show password');
             this.setAttribute('title', isPassword ? 'Hide password' : 'Show password');
@@ -44,95 +40,18 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
-    // ── 2. Role Selector Tabs & Keyboard Navigation ───────────────────────────
-    const roleTabs = document.getElementById('roleTabs');
-    const loginIdLabel = document.getElementById('loginIdLabel');
-
-    if (roleTabs && loginIdLabel && loginIdInput) {
-        const tabs = Array.from(roleTabs.querySelectorAll('.auth-role-tab'));
-
-        function activateTab(tabBtn) {
-            tabs.forEach(t => {
-                t.classList.remove('active');
-                t.setAttribute('aria-selected', 'false');
-                t.setAttribute('tabindex', '-1');
-            });
-
-            tabBtn.classList.add('active');
-            tabBtn.setAttribute('aria-selected', 'true');
-            tabBtn.setAttribute('tabindex', '0');
-
-            const role = tabBtn.getAttribute('data-role');
-            if (role === 'STUDENT') {
-                loginIdLabel.textContent = 'Student ID or University Email';
-                loginIdInput.setAttribute('placeholder', 'e.g. STU001 or student@aub.edu.kh');
-            } else if (role === 'TEACHER') {
-                loginIdLabel.textContent = 'Faculty ID or University Email';
-                loginIdInput.setAttribute('placeholder', 'e.g. TCH001 or teacher@aub.edu.kh');
-            } else if (role === 'ADMIN') {
-                loginIdLabel.textContent = 'Administrator Email or Staff ID';
-                loginIdInput.setAttribute('placeholder', 'e.g. ADMIN001 or admin@aub.edu.kh');
-            }
-        }
-
-        roleTabs.addEventListener('click', function (e) {
-            const tabBtn = e.target.closest('.auth-role-tab');
-            if (tabBtn) {
-                activateTab(tabBtn);
-            }
-        });
-
-        // Accessible Keyboard Arrow Navigation (Left / Right / Home / End)
-        roleTabs.addEventListener('keydown', function (e) {
-            const currentTab = document.activeElement.closest('.auth-role-tab');
-            if (!currentTab) return;
-
-            const currentIndex = tabs.indexOf(currentTab);
-            let nextIndex = -1;
-
-            if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
-                e.preventDefault();
-                nextIndex = (currentIndex + 1) % tabs.length;
-            } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
-                e.preventDefault();
-                nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
-            } else if (e.key === 'Home') {
-                e.preventDefault();
-                nextIndex = 0;
-            } else if (e.key === 'End') {
-                e.preventDefault();
-                nextIndex = tabs.length - 1;
-            }
-
-            if (nextIndex !== -1) {
-                tabs[nextIndex].focus();
-                activateTab(tabs[nextIndex]);
-            }
-        });
-    }
-
-    // ── 3. Google OAuth Flow ──────────────────────────────────────────────────
-    if (btnGoogle && googleForm) {
-        btnGoogle.addEventListener('click', function () {
-            if (loginView) loginView.classList.add('d-none');
-            if (googleLoadingView) googleLoadingView.classList.remove('d-none');
-            setTimeout(() => { googleForm.submit(); }, prefersReducedMotion ? 100 : 500);
-        });
-    }
-
-    // ── 4. Dismiss Error Alert Button ─────────────────────────────────────────
+    // 2. Dismiss Error Alert Button
     if (closeErrorBtn && loginErrorAlert) {
         closeErrorBtn.addEventListener('click', function () {
             loginErrorAlert.classList.add('d-none');
         });
     }
 
-    // ── 5. Standard Login AJAX ────────────────────────────────────────────────
+    // 3. Form Submission with Progressive Enhancement (AJAX with safe fallback)
     if (loginForm) {
         loginForm.addEventListener('submit', async function (e) {
             e.preventDefault();
 
-            // Client-side validation check
             const loginIdVal = loginIdInput ? loginIdInput.value.trim() : '';
             const passwordVal = passwordInput ? passwordInput.value : '';
 
@@ -150,7 +69,6 @@ document.addEventListener('DOMContentLoaded', function () {
                 return;
             }
 
-            // Set loading state
             setLoading(true);
 
             try {
@@ -178,20 +96,14 @@ document.addEventListener('DOMContentLoaded', function () {
                     throw new Error('Unexpected server response format. Please refresh the page.');
                 }
 
-                if (data.success) {
-                    setLoading(false);
-                    if (prefersReducedMotion) {
-                        window.location.href = data.redirectUrl;
-                        return;
-                    }
-
-                    // Smooth transition to Success screen
-                    if (loginView) loginView.classList.add('d-none');
-                    if (authSuccessView) authSuccessView.classList.remove('d-none');
-
+                if (data.success && data.redirectUrl) {
+                    // Direct immediate redirect to authorized dashboard
+                    window.location.href = data.redirectUrl;
+                } else if ((data.requiresVerification || data.requiresLink) && data.redirectUrl) {
+                    showError(data.message || 'Redirecting to Telegram security verification...');
                     setTimeout(() => {
                         window.location.href = data.redirectUrl;
-                    }, 500);
+                    }, 1000);
                 } else {
                     setLoading(false);
                     showError(data.message || 'Invalid University ID/Email or password.');
@@ -212,7 +124,7 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
-    // ── 6. Clear Validation & Error State on User Input ──────────────────────
+    // 4. Clear Validation & Error State on User Input
     [loginIdInput, passwordInput].forEach(function (input) {
         if (!input) return;
         input.addEventListener('input', function () {
@@ -222,7 +134,7 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     });
 
-    // ── 7. Helper Functions ───────────────────────────────────────────────────
+    // 5. Helpers
     function setLoading(isLoading) {
         if (btnSignIn) {
             btnSignIn.disabled = isLoading;

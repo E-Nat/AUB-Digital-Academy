@@ -28,7 +28,7 @@ public static class AuthIntegrationTestRunner
         await SeedData.InitializeAsync(services);
 
         // 1. Roles Verification
-        string[] requiredRoles = { "Admin", "Teacher", "Student" };
+        string[] requiredRoles = { "Admin", "Teacher", "Assistance", "Student" };
         foreach (var role in requiredRoles)
         {
             if (!await roleManager.RoleExistsAsync(role))
@@ -36,34 +36,40 @@ public static class AuthIntegrationTestRunner
                 throw new Exception($"Required role '{role}' does not exist in database.");
             }
         }
-        Console.WriteLine("[PASS] Test 1: Identity Roles: Admin, Teacher, and Student roles exist in SQL Server.");
+        Console.WriteLine("[PASS] Test 1: Identity Roles: Admin, Teacher, Assistance, and Student roles exist in SQL Server.");
 
         // 2. Baseline Accounts Verification
-        var admin = await userManager.FindByEmailAsync("admin@aub.edu.kh");
+        var admin = await userManager.FindByEmailAsync("admin@aub.com");
         if (admin == null || admin.UniversityId != "ADMIN001")
             throw new Exception("Seed Admin account not found or UniversityId mismatch.");
 
-        var teacher = await userManager.FindByEmailAsync("teacher@aub.edu.kh");
+        var teacher = await userManager.FindByEmailAsync("teacher@aub.com");
         if (teacher == null || teacher.UniversityId != "TCH001")
             throw new Exception("Seed Teacher account not found or UniversityId mismatch.");
 
-        var student = await userManager.FindByEmailAsync("student@aub.edu.kh");
+        var assistance = await userManager.FindByEmailAsync("ta@aub.com");
+        if (assistance == null || assistance.UniversityId != "TA001")
+            throw new Exception("Seed Assistance account not found or UniversityId mismatch.");
+
+        var student = await userManager.FindByEmailAsync("student@aub.com");
         if (student == null || student.UniversityId != "STU001")
             throw new Exception("Seed Student account not found or UniversityId mismatch.");
 
-        Console.WriteLine("[PASS] Test 2: Baseline Accounts: Verified admin@aub.edu.kh, teacher@aub.edu.kh, and student@aub.edu.kh with valid University IDs.");
+        Console.WriteLine("[PASS] Test 2: Baseline Accounts: Verified admin@aub.com, teacher@aub.com, ta@aub.com, and student@aub.com with valid University IDs.");
 
         // 3. Password Verification (Identity Hash)
-        if (!await userManager.CheckPasswordAsync(admin, "Admin@123"))
+        if (!await userManager.CheckPasswordAsync(admin, "admin123"))
             throw new Exception("Admin password verification failed.");
-        if (!await userManager.CheckPasswordAsync(teacher, "Teacher@123"))
+        if (!await userManager.CheckPasswordAsync(teacher, "teacher123"))
             throw new Exception("Teacher password verification failed.");
-        if (!await userManager.CheckPasswordAsync(student, "Student@123"))
+        if (!await userManager.CheckPasswordAsync(assistance, "assistance123"))
+            throw new Exception("Assistance password verification failed.");
+        if (!await userManager.CheckPasswordAsync(student, "student123"))
             throw new Exception("Student password verification failed.");
         Console.WriteLine("[PASS] Test 3: Password Verification: ASP.NET Core Identity PBKDF2 hash verification succeeded for all accounts.");
 
         // 4. Admin Login by Email and University ID + Role Redirect
-        var adminByEmail = await userManager.FindByEmailAsync("admin@aub.edu.kh");
+        var adminByEmail = await userManager.FindByEmailAsync("admin@aub.com");
         var adminById = await userManager.Users.FirstOrDefaultAsync(u => u.UniversityId == "ADMIN001");
         if (adminByEmail?.Id != adminById?.Id)
             throw new Exception("Admin email and University ID do not resolve to the same user.");
@@ -71,10 +77,10 @@ public static class AuthIntegrationTestRunner
         var adminRoles = await userManager.GetRolesAsync(adminByEmail!);
         if (!adminRoles.Contains("Admin"))
             throw new Exception("Admin user does not have Admin role.");
-        Console.WriteLine("[PASS] Test 4: Admin Authentication: Both email ('admin@aub.edu.kh') and University ID ('ADMIN001') resolve to Admin account -> role redirect /Admin.");
+        Console.WriteLine("[PASS] Test 4: Admin Authentication: Both email ('admin@aub.com') and University ID ('ADMIN001') resolve to Admin account -> role redirect /Admin.");
 
         // 5. Teacher (Faculty) Login by Email and University ID + Role Redirect
-        var teacherByEmail = await userManager.FindByEmailAsync("teacher@aub.edu.kh");
+        var teacherByEmail = await userManager.FindByEmailAsync("teacher@aub.com");
         var teacherById = await userManager.Users.FirstOrDefaultAsync(u => u.UniversityId == "TCH001");
         if (teacherByEmail?.Id != teacherById?.Id)
             throw new Exception("Teacher email and University ID do not resolve to the same user.");
@@ -82,10 +88,10 @@ public static class AuthIntegrationTestRunner
         var teacherRoles = await userManager.GetRolesAsync(teacherByEmail!);
         if (!teacherRoles.Contains("Teacher"))
             throw new Exception("Teacher user does not have Teacher role.");
-        Console.WriteLine("[PASS] Test 5: Faculty Authentication: Both email ('teacher@aub.edu.kh') and University ID ('TCH001') resolve to Teacher account -> role redirect /Teacher/Dashboard.");
+        Console.WriteLine("[PASS] Test 5: Faculty Authentication: Both email ('teacher@aub.com') and University ID ('TCH001') resolve to Teacher account -> role redirect /Teacher/Dashboard.");
 
         // 6. Student Login by Email and University ID + Role Redirect
-        var studentByEmail = await userManager.FindByEmailAsync("student@aub.edu.kh");
+        var studentByEmail = await userManager.FindByEmailAsync("student@aub.com");
         var studentById = await userManager.Users.FirstOrDefaultAsync(u => u.UniversityId == "STU001");
         if (studentByEmail?.Id != studentById?.Id)
             throw new Exception("Student email and University ID do not resolve to the same user.");
@@ -93,7 +99,7 @@ public static class AuthIntegrationTestRunner
         var studentRoles = await userManager.GetRolesAsync(studentByEmail!);
         if (!studentRoles.Contains("Student"))
             throw new Exception("Student user does not have Student role.");
-        Console.WriteLine("[PASS] Test 6: Student Authentication: Both email ('student@aub.edu.kh') and University ID ('STU001') resolve to Student account -> role redirect /Student/Dashboard.");
+        Console.WriteLine("[PASS] Test 6: Student Authentication: Both email ('student@aub.com') and University ID ('STU001') resolve to Student account -> role redirect /Student/Dashboard.");
 
         // 7. Invalid Password Rejection
         var badPassResult = await userManager.CheckPasswordAsync(student, "WrongPassword@999");

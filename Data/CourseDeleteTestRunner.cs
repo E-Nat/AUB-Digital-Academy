@@ -87,7 +87,7 @@ public static class CourseDeleteTestRunner
             return;
         }
 
-        var student = await context.Users.FirstOrDefaultAsync(u => u.Email == "student@aub.edu.kh")
+        var student = await context.Users.FirstOrDefaultAsync(u => u.Email == "student@aub.com")
             ?? (await userManager.GetUsersInRoleAsync("Student")).FirstOrDefault();
         if (student == null)
         {

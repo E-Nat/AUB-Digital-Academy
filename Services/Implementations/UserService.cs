@@ -64,6 +64,7 @@ public class UserService : IUserService
 
         var users = await query
             .Include(u => u.TaughtCourses)
+            .Include(u => u.AssistedCourses)
             .Include(u => u.Enrollments)
             .OrderByDescending(u => u.CreatedAt)
             .ToListAsync();
@@ -90,6 +91,11 @@ public class UserService : IUserService
             {
                 count = u.TaughtCourses?.Count ?? 0;
                 countLabel = "Courses Taught";
+            }
+            else if (userRole == "Assistance")
+            {
+                count = u.AssistedCourses?.Count ?? 0;
+                countLabel = "Assisted Courses";
             }
             else if (userRole == "Student")
             {
@@ -132,6 +138,15 @@ public class UserService : IUserService
                 .ThenInclude(c => c.Semester)
             .Include(u => u.TaughtCourses)
                 .ThenInclude(c => c.Enrollments)
+            .Include(u => u.AssistedCourses)
+                .ThenInclude(ca => ca.Course)
+                    .ThenInclude(c => c.Major)
+            .Include(u => u.AssistedCourses)
+                .ThenInclude(ca => ca.Course)
+                    .ThenInclude(c => c.Semester)
+            .Include(u => u.AssistedCourses)
+                .ThenInclude(ca => ca.Course)
+                    .ThenInclude(c => c.Enrollments)
             .Include(u => u.Enrollments)
                 .ThenInclude(e => e.Course)
                     .ThenInclude(c => c.Teacher)
@@ -170,6 +185,19 @@ public class UserService : IUserService
                 SemesterName = c.Semester?.Name ?? "Term",
                 EnrollmentCount = c.Enrollments.Count,
                 Status = c.Status.ToString()
+            }).ToList();
+        }
+        else if (primaryRole == "Assistance")
+        {
+            vm.TaughtCourses = user.AssistedCourses.Where(ca => ca.Course != null).Select(ca => new UserCourseSummaryViewModel
+            {
+                CourseId = ca.Course.Id,
+                CourseCode = ca.Course.Code,
+                CourseTitle = ca.Course.Title,
+                MajorName = ca.Course.Major?.Name ?? "General",
+                SemesterName = ca.Course.Semester?.Name ?? "Term",
+                EnrollmentCount = ca.Course.Enrollments.Count,
+                Status = ca.Course.Status.ToString()
             }).ToList();
         }
         else if (primaryRole == "Student")
@@ -246,7 +274,7 @@ public class UserService : IUserService
 
         // 2. Role Validation
         var targetRole = model.Role;
-        if (!new[] { "Admin", "Teacher", "Student" }.Contains(targetRole))
+        if (!new[] { "Admin", "Teacher", "Assistance", "Student" }.Contains(targetRole))
         {
             return UserOperationResult.FailureResult($"Invalid role '{targetRole}' specified.");
         }
@@ -304,7 +332,7 @@ public class UserService : IUserService
         var trimmedUniversityId = string.IsNullOrWhiteSpace(model.UniversityId) ? null : model.UniversityId.Trim();
 
         // Protected Admin checks
-        bool isProtectedAdmin = user.Email == "admin@aub.edu.kh" || user.UniversityId == "ADMIN001";
+        bool isProtectedAdmin = user.Email == "admin@aub.com" || user.UniversityId == "ADMIN001";
 
         // 1. Uniqueness Validations
         if (!await IsEmailUniqueAsync(trimmedEmail, user.Id))
@@ -319,7 +347,7 @@ public class UserService : IUserService
 
         // 2. Role Validation & Protection
         var targetRole = model.Role;
-        if (!new[] { "Admin", "Teacher", "Student" }.Contains(targetRole))
+        if (!new[] { "Admin", "Teacher", "Assistance", "Student" }.Contains(targetRole))
         {
             return UserOperationResult.FailureResult($"Invalid role '{targetRole}' specified.");
         }
@@ -384,7 +412,7 @@ public class UserService : IUserService
             return UserOperationResult.FailureResult("You cannot deactivate your own administrative account while logged in.");
         }
 
-        if (user.Email == "admin@aub.edu.kh" || user.UniversityId == "ADMIN001")
+        if (user.Email == "admin@aub.com" || user.UniversityId == "ADMIN001")
         {
             return UserOperationResult.FailureResult("The primary system administrator account cannot be deactivated.");
         }
@@ -467,6 +495,7 @@ public class UserService : IUserService
 
         var studentCount = roleCounts.FirstOrDefault(r => r.RoleName == "Student")?.Count ?? 0;
         var teacherCount = roleCounts.FirstOrDefault(r => r.RoleName == "Teacher")?.Count ?? 0;
+        var assistantCount = roleCounts.FirstOrDefault(r => r.RoleName == "Assistance")?.Count ?? 0;
         var adminCount = roleCounts.FirstOrDefault(r => r.RoleName == "Admin")?.Count ?? 0;
 
         return new UserCountsViewModel
@@ -474,6 +503,7 @@ public class UserService : IUserService
             TotalUsers = totalUsers,
             TotalStudents = studentCount,
             TotalTeachers = teacherCount,
+            TotalAssistants = assistantCount,
             TotalAdmins = adminCount,
             ActiveUsers = activeUsers,
             InactiveUsers = inactiveUsers

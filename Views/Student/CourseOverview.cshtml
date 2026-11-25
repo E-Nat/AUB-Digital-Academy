@@ -150,22 +150,37 @@
                                             @foreach (var lesson in mod.Lessons.OrderBy(l => l.Position))
                                             {
                                                 var isQuiz = lesson.Type == AUBDigitalAcademy.Models.Enums.ItemType.Quiz;
-                                                var itemUrl = isQuiz
-                                                    ? $"/Student/Course/{Model.CourseId}/Quiz/{lesson.CourseItemId}"
-                                                    : $"/Student/Course/{Model.CourseId}/Lesson/{lesson.CourseItemId}";
+                                                var isAssignment = lesson.Type == AUBDigitalAcademy.Models.Enums.ItemType.Assignment;
+                                                var isBook = lesson.Type == AUBDigitalAcademy.Models.Enums.ItemType.Book;
+
+                                                string itemUrl = lesson.Type switch
+                                                {
+                                                    AUBDigitalAcademy.Models.Enums.ItemType.Quiz => $"/Student/Course/{Model.CourseId}/Quiz/{lesson.CourseItemId}",
+                                                    AUBDigitalAcademy.Models.Enums.ItemType.Assignment => $"/Student/Course/{Model.CourseId}/Assignment/{lesson.CourseItemId}",
+                                                    AUBDigitalAcademy.Models.Enums.ItemType.Book => $"/Student/Course/{Model.CourseId}/Book/{lesson.CourseItemId}",
+                                                    _ => $"/Student/Course/{Model.CourseId}/Lesson/{lesson.CourseItemId}"
+                                                };
 
                                                 <a href="@itemUrl" class="overview-lesson-item text-decoration-none d-flex align-items-center @(lesson.IsCompleted ? "bg-light-subtle" : "")">
                                                     @if (lesson.HasPassedQuiz)
                                                     {
                                                         <i class="bi bi-patch-check-fill text-success fs-5 me-3" title="Quiz Passed"></i>
                                                     }
-                                                    else if (lesson.IsCompleted)
-                                                    {
-                                                        <i class="bi bi-check-circle-fill text-success fs-5 me-3" title="Completed"></i>
-                                                    }
                                                     else if (isQuiz)
                                                     {
                                                         <i class="bi bi-patch-question-fill text-warning fs-5 me-3" title="Quiz"></i>
+                                                    }
+                                                    else if (isAssignment)
+                                                    {
+                                                        <i class="bi @(lesson.IsCompleted ? "bi-file-earmark-check-fill text-success" : "bi-file-earmark-arrow-up-fill text-info") fs-5 me-3" title="Assignment"></i>
+                                                    }
+                                                    else if (isBook)
+                                                    {
+                                                        <i class="bi bi-book-fill text-primary fs-5 me-3" title="Book"></i>
+                                                    }
+                                                    else if (lesson.IsCompleted)
+                                                    {
+                                                        <i class="bi bi-check-circle-fill text-success fs-5 me-3" title="Completed"></i>
                                                     }
                                                     else
                                                     {
@@ -192,6 +207,24 @@
                                                                     </span>
                                                                 }
                                                             }
+                                                            else if (isAssignment)
+                                                            {
+                                                                <span class="badge bg-info-subtle text-info border border-info-subtle small py-0 px-1" style="font-size: 0.7rem;">
+                                                                    <i class="bi bi-file-earmark-arrow-up"></i> Assignment
+                                                                </span>
+                                                                @if (lesson.IsCompleted)
+                                                                {
+                                                                    <span class="badge bg-success-subtle text-success border border-success-subtle small py-0 px-1" style="font-size: 0.7rem;">
+                                                                        <i class="bi bi-check"></i> Submitted
+                                                                    </span>
+                                                                }
+                                                            }
+                                                            else if (isBook)
+                                                            {
+                                                                <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle small py-0 px-1" style="font-size: 0.7rem;">
+                                                                    <i class="bi bi-book"></i> Book
+                                                                </span>
+                                                            }
                                                             else if (lesson.IsCompleted)
                                                             {
                                                                 <span class="badge bg-success-subtle text-success border border-success-subtle small py-0 px-1" style="font-size: 0.7rem;">
@@ -200,7 +233,7 @@
                                                             }
                                                         </div>
                                                         <div class="d-flex align-items-center gap-2 mt-1 small">
-                                                            <span class="text-muted">@(isQuiz ? "Quiz" : "Lesson") @lesson.Position</span>
+                                                            <span class="text-muted">@lesson.Type.ToString() @lesson.Position</span>
                                                             @if (lesson.HasVideo)
                                                             {
                                                                 <span class="badge bg-primary-subtle text-primary border border-primary-subtle"><i class="bi bi-camera-video me-1"></i>Video</span>
@@ -211,8 +244,8 @@
                                                             }
                                                         </div>
                                                     </div>
-                                                    <span class="btn btn-sm @(lesson.IsCompleted || lesson.HasPassedQuiz ? "btn-outline-success" : (isQuiz ? "btn-warning" : "btn-outline-primary")) rounded-pill px-3 py-1">
-                                                        <span>@(isQuiz ? (lesson.HasPassedQuiz ? "Review Quiz" : (lesson.BestQuizScore.HasValue ? "Retake Quiz" : "Take Quiz")) : (lesson.IsCompleted ? "Review" : "Open"))</span>
+                                                    <span class="btn btn-sm @(lesson.IsCompleted || lesson.HasPassedQuiz ? "btn-outline-success" : (isQuiz ? "btn-warning" : (isAssignment ? "btn-outline-info" : (isBook ? "btn-outline-secondary" : "btn-outline-primary")))) rounded-pill px-3 py-1">
+                                                        <span>@(isQuiz ? (lesson.HasPassedQuiz ? "Review Quiz" : (lesson.BestQuizScore.HasValue ? "Retake Quiz" : "Take Quiz")) : (isAssignment ? (lesson.IsCompleted ? "Review" : "Submit") : (isBook ? "Read Book" : (lesson.IsCompleted ? "Review" : "Open"))))</span>
                                                         <i class="bi bi-arrow-right ms-1"></i>
                                                     </span>
                                                 </a>

@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Identity;
 using System.ComponentModel.DataAnnotations;
 
 namespace AUBDigitalAcademy.Models;
@@ -16,6 +16,13 @@ public class User : IdentityUser
 
     public bool IsActive { get; set; } = true;
 
+    public bool IsTelegramVerified { get; set; } = false;
+
+    public long? TelegramChatId { get; set; }
+
+    [StringLength(100)]
+    public string? TelegramUsername { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
@@ -26,5 +33,7 @@ public class User : IdentityUser
     public virtual ICollection<QuizSubmission> QuizSubmissions { get; set; } = new List<QuizSubmission>();
     public virtual ICollection<AssignmentSubmission> AssignmentSubmissions { get; set; } = new List<AssignmentSubmission>();
     public virtual ICollection<AssignmentSubmission> GradedSubmissions { get; set; } = new List<AssignmentSubmission>();
+    public virtual ICollection<TelegramVerificationRequest> TelegramVerificationRequests { get; set; } = new List<TelegramVerificationRequest>();
+    public virtual ICollection<TelegramLinkToken> TelegramLinkTokens { get; set; } = new List<TelegramLinkToken>();
+    public virtual ICollection<CourseAssistant> AssistedCourses { get; set; } = new List<CourseAssistant>();
 }
-

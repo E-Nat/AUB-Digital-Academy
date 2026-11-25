@@ -1,4 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace AUBDigitalAcademy.Models;
@@ -23,5 +23,7 @@ public class QuizSubmission
     public bool IsPassed { get; set; }
 
     public DateTime SubmittedAt { get; set; } = DateTime.UtcNow;
+
+    public virtual ICollection<QuizSubmissionAnswer> Answers { get; set; } = new List<QuizSubmissionAnswer>();
 }
 

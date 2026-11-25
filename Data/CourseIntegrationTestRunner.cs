@@ -89,7 +89,7 @@ public static class CourseIntegrationTestRunner
             return;
         }
 
-        var student = await context.Users.FirstOrDefaultAsync(u => u.Email == "student@aub.edu.kh")
+        var student = await context.Users.FirstOrDefaultAsync(u => u.Email == "student@aub.com")
             ?? (await userManager.GetUsersInRoleAsync("Student")).FirstOrDefault();
         if (student == null)
         {
@@ -108,7 +108,7 @@ public static class CourseIntegrationTestRunner
             var claims = new List<Claim>
             {
                 new(ClaimTypes.NameIdentifier, "ADMIN001"),
-                new(ClaimTypes.Name, "admin@aub.edu.kh"),
+                new(ClaimTypes.Name, "admin@aub.com"),
                 new(ClaimTypes.Role, "Admin")
             };
             var identity = new ClaimsIdentity(claims, "TestAuth");

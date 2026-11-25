@@ -1,0 +1,126 @@
+@model AUBDigitalAcademy.Models.ViewModels.VerifyTelegramViewModel
+@{
+    Layout = "_AuthLayout";
+    ViewData["Title"] = "Telegram Verification";
+}
+
+<div class="auth-card-inner">
+    @* ── Form Header ──────────────────────────────────────────────────────── *@
+    <div class="auth-form-header mb-4 text-start">
+        <div class="d-inline-flex align-items-center gap-2 px-2.5 py-1 rounded-pill bg-info bg-opacity-10 text-info-emphasis small fw-semibold mb-2">
+            <i class="bi bi-shield-check"></i>
+            <span>Two-Step Activation</span>
+        </div>
+        <h2 class="auth-heading text-aub-navy fw-bold mb-1">Telegram Verification</h2>
+        <p class="auth-subheading text-secondary small mb-0">
+            Enter the single-use verification code dispatched to Telegram for your account.
+        </p>
+    </div>
+
+    @* ── User Context Badge ───────────────────────────────────────────────── *@
+    <div class="p-3 mb-3 rounded-3 bg-light border border-light-subtle d-flex align-items-center justify-content-between">
+        <div class="d-flex align-items-center gap-2.5">
+            <div class="rounded-circle bg-primary bg-opacity-10 text-primary d-flex align-items-center justify-content-center fw-bold" style="width: 38px; height: 38px;">
+                <i class="bi bi-person-badge"></i>
+            </div>
+            <div class="lh-sm">
+                <span class="d-block fw-semibold text-aub-navy small">@Model.FullName</span>
+                <span class="text-secondary font-monospace" style="font-size: 0.8rem;">ID: @Model.UniversityId</span>
+            </div>
+        </div>
+        <span class="badge bg-warning bg-opacity-15 text-warning-emphasis rounded-pill px-2.5 py-1 small">
+            Pending Code
+        </span>
+    </div>
+
+    @* ── Global Alerts ────────────────────────────────────────────────────── *@
+    @if (TempData["InfoMessage"] != null)
+    {
+        <div class="alert alert-info py-2 px-3 mb-3 small rounded-3 d-flex align-items-center gap-2" role="alert">
+            <i class="bi bi-info-circle-fill flex-shrink-0"></i>
+            <div>@TempData["InfoMessage"]</div>
+        </div>
+    }
+
+    @if (TempData["ErrorMessage"] != null)
+    {
+        <div class="alert alert-warning py-2 px-3 mb-3 small rounded-3 d-flex align-items-center gap-2" role="alert">
+            <i class="bi bi-exclamation-triangle-fill flex-shrink-0"></i>
+            <div>@TempData["ErrorMessage"]</div>
+        </div>
+    }
+
+    <div asp-validation-summary="ModelOnly"
+         class="alert alert-danger py-2 px-3 mb-3 small rounded-3 d-flex align-items-center gap-2 @(ViewData.ModelState.IsValid ? "d-none" : "")"
+         role="alert">
+        <i class="bi bi-exclamation-circle-fill flex-shrink-0"></i>
+        <div>Please check the verification code and try again.</div>
+    </div>
+
+    @* ── Verification Form ────────────────────────────────────────────────── *@
+    <form id="verifyForm" asp-action="VerifyTelegram" asp-controller="Account" method="post" novalidate>
+        @Html.AntiForgeryToken()
+        <input type="hidden" asp-for="UserId" />
+        <input type="hidden" asp-for="UniversityId" />
+        <input type="hidden" asp-for="FullName" />
+
+        <div class="mb-4">
+            <label asp-for="Code" class="form-label text-aub-navy fw-semibold small mb-1.5 text-center d-block">
+                Enter 6-Digit Verification Code
+            </label>
+            <div class="d-flex justify-content-center">
+                <input asp-for="Code"
+                       class="form-control text-center font-monospace fw-bold fs-4 py-2 shadow-none"
+                       style="max-width: 240px; letter-spacing: 6px;"
+                       placeholder="••••••"
+                       maxlength="10"
+                       autocomplete="one-time-code"
+                       inputmode="numeric"
+                       required
+                       autofocus />
+            </div>
+            <span asp-validation-for="Code" class="text-danger small mt-1 text-center d-block"></span>
+            <div class="form-text text-muted small text-center mt-2">
+                <i class="bi bi-clock me-1"></i>Codes expire after 10 minutes and allow up to 5 attempts.
+            </div>
+        </div>
+
+        @inject Microsoft.Extensions.Configuration.IConfiguration Configuration
+        @{
+            var botUsername = Configuration["Telegram:BotUsername"];
+            if (string.IsNullOrEmpty(botUsername)) botUsername = "AUBDigitalAcademyBot";
+        }
+        <div class="text-center mb-3">
+            <a href="https://t.me/@botUsername" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-primary rounded-pill px-3 py-1 text-decoration-none">
+                <i class="bi bi-telegram me-1"></i> Open @botUsername in Telegram
+            </a>
+        </div>
+
+        @* ── Verification Action Button ───────────────────────────────────── *@
+        <button type="submit"
+                id="btnVerify"
+                class="btn btn-primary-aub w-100 py-2.5 py-md-3 mb-3 rounded-3 fw-semibold fs-6 d-flex justify-content-center align-items-center gap-2">
+            <span>Verify & Activate Account</span>
+            <i class="bi bi-check2-circle" aria-hidden="true"></i>
+        </button>
+    </form>
+
+    @* ── Resend Code Section ──────────────────────────────────────────────── *@
+    <div class="d-flex align-items-center justify-content-between pt-3 border-top">
+        <form asp-action="ResendTelegramCode" asp-controller="Account" method="post" class="d-inline">
+            @Html.AntiForgeryToken()
+            <input type="hidden" name="userId" value="@Model.UserId" />
+            <button type="submit" class="btn btn-link text-decoration-none text-secondary p-0 small hover-gold">
+                <i class="bi bi-arrow-clockwise me-1"></i>Resend Code
+            </button>
+        </form>
+
+        <a asp-action="Login" asp-controller="Account" class="text-secondary small text-decoration-none hover-gold">
+            Return to Sign In
+        </a>
+    </div>
+</div>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}

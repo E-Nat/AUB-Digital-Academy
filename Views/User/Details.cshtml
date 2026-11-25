@@ -1,1 +1,253 @@
-<!-- Details.cshtml -->
+@model AUBDigitalAcademy.Models.ViewModels.UserDetailsViewModel
+@{
+    ViewData["Title"] = $"User Details - {Model.FullName}";
+}
+
+<div class="container-fluid px-0">
+    <!-- Header -->
+    <div class="d-flex align-items-center justify-content-between mb-4 flex-wrap gap-2">
+        <div>
+            <h1 class="h3 fw-bold text-dark mb-1">User Profile & Activity Details</h1>
+            <p class="text-muted mb-0">Comprehensive institutional record for @Model.FullName.</p>
+        </div>
+        <div class="d-flex gap-2">
+            <a asp-action="Index" class="btn btn-outline-secondary d-inline-flex align-items-center gap-2">
+                <i class="bi bi-arrow-left"></i>
+                <span>Back to Users</span>
+            </a>
+            <a asp-action="Edit" asp-route-id="@Model.Id" class="btn btn-primary d-inline-flex align-items-center gap-2">
+                <i class="bi bi-pencil"></i>
+                <span>Edit User</span>
+            </a>
+        </div>
+    </div>
+
+    <div class="row g-4">
+        <!-- Left Profile Overview Card -->
+        <div class="col-12 col-lg-4">
+            <div class="card border-0 shadow-sm rounded-3">
+                <div class="card-body p-4 text-center">
+                    @if (!string.IsNullOrEmpty(Model.Avatar))
+                    {
+                        <img src="@Model.Avatar" class="rounded-circle mb-3 shadow-sm" width="96" height="96" alt="@Model.FullName" />
+                    }
+                    else
+                    {
+                        <div class="rounded-circle d-flex align-items-center justify-content-center fw-bold bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 mx-auto mb-3 shadow-sm" style="width:96px; height:96px; font-size: 2.5rem;">
+                            @(string.IsNullOrEmpty(Model.FullName) ? "U" : Model.FullName.Substring(0, 1).ToUpper())
+                        </div>
+                    }
+
+                    <h2 class="h4 fw-bold text-dark mb-1">@Model.FullName</h2>
+                    <p class="text-muted small mb-3">@Model.Email</p>
+
+                    <div class="d-flex justify-content-center align-items-center gap-2 mb-4">
+                        @if (Model.Role == "Admin")
+                        {
+                            <span class="badge bg-purple-subtle text-purple border px-3 py-2 fs-6" style="background-color: #f3e8ff; color: #6b21a8; border: 1px solid #d8b4fe;">
+                                <i class="bi bi-shield-lock-fill me-1"></i> System Admin
+                            </span>
+                        }
+                        else if (Model.Role == "Teacher")
+                        {
+                            <span class="badge bg-primary-subtle text-primary border border-primary-subtle px-3 py-2 fs-6">
+                                <i class="bi bi-person-badge-fill me-1"></i> Faculty Instructor
+                            </span>
+                        }
+                        else
+                        {
+                            <span class="badge bg-success-subtle text-success border border-success-subtle px-3 py-2 fs-6">
+                                <i class="bi bi-mortarboard-fill me-1"></i> Student
+                            </span>
+                        }
+
+                        @if (Model.IsActive)
+                        {
+                            <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 px-2 py-2 fs-6">
+                                <i class="bi bi-check-circle-fill me-1"></i> Active
+                            </span>
+                        }
+                        else
+                        {
+                            <span class="badge bg-danger bg-opacity-10 text-danger border border-danger border-opacity-25 px-2 py-2 fs-6">
+                                <i class="bi bi-slash-circle-fill me-1"></i> Inactive
+                            </span>
+                        }
+                    </div>
+
+                    <div class="text-start bg-light p-3 rounded-3 border">
+                        <div class="mb-2">
+                            <span class="text-muted small d-block">University ID</span>
+                            <span class="fw-semibold text-dark font-monospace">@(string.IsNullOrEmpty(Model.UniversityId) ? "Not Assigned" : Model.UniversityId)</span>
+                        </div>
+                        <div class="mb-2">
+                            <span class="text-muted small d-block">User Account GUID</span>
+                            <span class="font-monospace small text-secondary">@Model.Id</span>
+                        </div>
+                        <div class="mb-2">
+                            <span class="text-muted small d-block">Date Created</span>
+                            <span class="fw-medium text-dark small">@Model.CreatedAt.ToString("f")</span>
+                        </div>
+                        <div>
+                            <span class="text-muted small d-block">Last Updated</span>
+                            <span class="fw-medium text-dark small">@Model.UpdatedAt.ToString("f")</span>
+                        </div>
+                    </div>
+
+                    <div class="mt-4 pt-2">
+                        <a asp-action="ResetPassword" asp-route-id="@Model.Id" class="btn btn-outline-warning text-dark w-100 fw-medium">
+                            <i class="bi bi-key-fill text-warning me-1"></i> Administrative Password Reset
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Academic Activity Section -->
+        <div class="col-12 col-lg-8">
+            @if (Model.Role == "Teacher")
+            {
+                <div class="card border-0 shadow-sm rounded-3">
+                    <div class="card-header bg-white py-3 border-bottom d-flex align-items-center justify-content-between">
+                        <h3 class="h5 fw-bold text-dark mb-0">
+                            <i class="bi bi-journal-bookmark-fill text-primary me-2"></i>Taught Courses (@Model.TaughtCourses.Count)
+                        </h3>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-hover align-middle mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th class="ps-4">Course Code & Title</th>
+                                        <th>Academic Major</th>
+                                        <th>Term</th>
+                                        <th>Enrolled Students</th>
+                                        <th>Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @if (Model.TaughtCourses.Any())
+                                    {
+                                        foreach (var c in Model.TaughtCourses)
+                                        {
+                                            <tr>
+                                                <td class="ps-4">
+                                                    <div class="fw-semibold text-dark">@c.CourseCode</div>
+                                                    <div class="small text-muted">@c.CourseTitle</div>
+                                                </td>
+                                                <td class="small">@c.MajorName</td>
+                                                <td class="small">@c.SemesterName</td>
+                                                <td>
+                                                    <span class="badge bg-light text-dark border">
+                                                        <i class="bi bi-people-fill text-primary me-1"></i>@c.EnrollmentCount Students
+                                                    </span>
+                                                </td>
+                                                <td>
+                                                    @if (c.Status == "Published")
+                                                    {
+                                                        <span class="badge bg-success-subtle text-success border border-success-subtle">Published</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle">Draft</span>
+                                                    }
+                                                </td>
+                                            </tr>
+                                        }
+                                    }
+                                    else
+                                    {
+                                        <tr>
+                                            <td colspan="5" class="text-center py-4 text-muted">
+                                                No courses assigned to this instructor.
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            }
+            else if (Model.Role == "Student")
+            {
+                <div class="card border-0 shadow-sm rounded-3">
+                    <div class="card-header bg-white py-3 border-bottom d-flex align-items-center justify-content-between">
+                        <h3 class="h5 fw-bold text-dark mb-0">
+                            <i class="bi bi-mortarboard-fill text-success me-2"></i>Enrolled Courses (@Model.EnrolledCourses.Count)
+                        </h3>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-hover align-middle mb-0">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th class="ps-4">Course Code & Title</th>
+                                        <th>Instructor</th>
+                                        <th>Enrolled Date</th>
+                                        <th>Learning Progress</th>
+                                        <th>Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @if (Model.EnrolledCourses.Any())
+                                    {
+                                        foreach (var e in Model.EnrolledCourses)
+                                        {
+                                            <tr>
+                                                <td class="ps-4">
+                                                    <div class="fw-semibold text-dark">@e.CourseCode</div>
+                                                    <div class="small text-muted">@e.CourseTitle</div>
+                                                </td>
+                                                <td class="small">@e.TeacherName</td>
+                                                <td class="small text-secondary">@e.EnrolledAt.ToString("MMM d, yyyy")</td>
+                                                <td style="min-width: 150px;">
+                                                    <div class="d-flex align-items-center gap-2">
+                                                        <div class="progress flex-grow-1" style="height: 6px;">
+                                                            <div class="progress-bar bg-success" role="progressbar" style="width: @e.ProgressPercentage%;" aria-valuenow="@e.ProgressPercentage" aria-valuemin="0" aria-valuemax="100"></div>
+                                                        </div>
+                                                        <span class="small fw-semibold text-dark">@e.ProgressPercentage%</span>
+                                                    </div>
+                                                </td>
+                                                <td>
+                                                    @if (e.Status == "Completed")
+                                                    {
+                                                        <span class="badge bg-success-subtle text-success border border-success-subtle">Completed</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="badge bg-primary-subtle text-primary border border-primary-subtle">Active</span>
+                                                    }
+                                                </td>
+                                            </tr>
+                                        }
+                                    }
+                                    else
+                                    {
+                                        <tr>
+                                            <td colspan="5" class="text-center py-4 text-muted">
+                                                No course registrations found for this student.
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="card border-0 shadow-sm rounded-3">
+                    <div class="card-body p-4 text-center">
+                        <i class="bi bi-shield-check text-purple display-4 mb-3 d-block" style="color: #6b21a8;"></i>
+                        <h3 class="h5 fw-bold text-dark mb-2">System Administrator Privileges</h3>
+                        <p class="text-muted max-w-md mx-auto" style="max-width: 450px;">
+                            This user holds complete administrative access over institutional configuration, course catalogs, faculty management, and student rosters.
+                        </p>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+</div>

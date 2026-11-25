@@ -67,6 +67,8 @@ public class StudentCourseLessonOverviewViewModel
     public int CourseItemId { get; set; }
     public int LessonId { get; set; }
     public int? QuizId { get; set; }
+    public int? AssignmentId { get; set; }
+    public int? BookId { get; set; }
     public AUBDigitalAcademy.Models.Enums.ItemType Type { get; set; } = AUBDigitalAcademy.Models.Enums.ItemType.Lesson;
     public string Title { get; set; } = string.Empty;
     public int Position { get; set; }
@@ -147,6 +149,8 @@ public class StudentPlayerLessonItemViewModel
     public int CourseItemId { get; set; }
     public int LessonId { get; set; }
     public int? QuizId { get; set; }
+    public int? AssignmentId { get; set; }
+    public int? BookId { get; set; }
     public AUBDigitalAcademy.Models.Enums.ItemType Type { get; set; } = AUBDigitalAcademy.Models.Enums.ItemType.Lesson;
     public string Title { get; set; } = string.Empty;
     public int Position { get; set; }
@@ -177,13 +181,18 @@ public class StudentQuizPlayerViewModel
     public string QuizTitle { get; set; } = string.Empty;
     public int QuizPosition { get; set; }
     public int TimeLimitMinutes { get; set; } = 30;
+    public int MaxAttempts { get; set; } = 3;
     public double PassingScore { get; set; } = 60.0;
     public bool IsPublished { get; set; }
 
     // Submission Context
     public bool HasSubmission { get; set; }
+    public int AttemptCount { get; set; }
+    public int CurrentAttemptNumber => AttemptCount + 1;
+    public bool CanAttempt => CurrentAttemptNumber <= MaxAttempts;
     public int? LatestSubmissionId { get; set; }
     public double? LatestScore { get; set; }
+    public double? BestScore { get; set; }
     public bool? LatestIsPassed { get; set; }
     public DateTime? LatestSubmittedAt { get; set; }
 
@@ -230,7 +239,11 @@ public class StudentQuizResultViewModel
 
     // Submission Outcome
     public int SubmissionId { get; set; }
+    public int AttemptNumber { get; set; } = 1;
+    public int MaxAttempts { get; set; } = 3;
+    public bool CanRetake => AttemptNumber < MaxAttempts;
     public double Score { get; set; }
+    public double? BestScore { get; set; }
     public bool IsPassed { get; set; }
     public DateTime SubmittedAt { get; set; }
     public double TotalPoints { get; set; }
@@ -260,4 +273,155 @@ public class StudentOptionResultItemViewModel
     public string Text { get; set; } = string.Empty;
     public bool IsCorrect { get; set; }
     public bool IsSelected { get; set; }
+}
+
+// =========================================================================
+// PHASE 4 — ASSIGNMENT, GRADEBOOK, AND BOOK VIEWMODELS
+// =========================================================================
+
+public class StudentAssignmentViewModel
+{
+    // Course Context
+    public int CourseId { get; set; }
+    public string CourseCode { get; set; } = string.Empty;
+    public string CourseTitle { get; set; } = string.Empty;
+    public string? TeacherName { get; set; }
+
+    // Module Context
+    public int ModuleId { get; set; }
+    public string ModuleTitle { get; set; } = string.Empty;
+    public int ModulePosition { get; set; }
+
+    // Assignment Details
+    public int CourseItemId { get; set; }
+    public int AssignmentId { get; set; }
+    public string Title { get; set; } = string.Empty;
+    public int Position { get; set; }
+    public string Instruction { get; set; } = string.Empty;
+    public DateTime DueDate { get; set; }
+    public double MaxScore { get; set; } = 100.0;
+    public bool IsPastDue => DateTime.UtcNow > DueDate;
+
+    // Latest Submission Context
+    public bool HasSubmission { get; set; }
+    public int? LatestSubmissionId { get; set; }
+    public int LatestAttemptNumber { get; set; }
+    public AUBDigitalAcademy.Models.Enums.SubmissionStatus? LatestStatus { get; set; }
+    public double? LatestScore { get; set; }
+    public string? LatestFeedback { get; set; }
+    public DateTime? LatestSubmittedAt { get; set; }
+    public DateTime? LatestGradedAt { get; set; }
+    public string? LatestGradedByName { get; set; }
+    public string? LatestFileUrl { get; set; }
+    public string? LatestOriginalFileName { get; set; }
+    public string? LatestTextResponse { get; set; }
+
+    // Version / Resubmission History
+    public List<StudentAssignmentAttemptViewModel> SubmissionHistory { get; set; } = new();
+
+    // Curriculum Navigation Sidebar
+    public List<StudentPlayerModuleViewModel> Modules { get; set; } = new();
+    public int CourseProgressPercentage { get; set; }
+    public int CompletedLessonsCount { get; set; }
+    public int TotalLessonsCount { get; set; }
+}
+
+public class StudentAssignmentAttemptViewModel
+{
+    public int SubmissionId { get; set; }
+    public int AttemptNumber { get; set; }
+    public DateTime SubmittedAt { get; set; }
+    public AUBDigitalAcademy.Models.Enums.SubmissionStatus Status { get; set; }
+    public double? Score { get; set; }
+    public double MaxScore { get; set; }
+    public string? Feedback { get; set; }
+    public string? FileUrl { get; set; }
+    public string? OriginalFileName { get; set; }
+    public string? TextResponse { get; set; }
+    public bool IsLatest { get; set; }
+}
+
+public class StudentBookViewModel
+{
+    // Course Context
+    public int CourseId { get; set; }
+    public string CourseCode { get; set; } = string.Empty;
+    public string CourseTitle { get; set; } = string.Empty;
+    public string? TeacherName { get; set; }
+
+    // Module Context
+    public int ModuleId { get; set; }
+    public string ModuleTitle { get; set; } = string.Empty;
+    public int ModulePosition { get; set; }
+
+    // Book Details
+    public int CourseItemId { get; set; }
+    public int BookId { get; set; }
+    public string Title { get; set; } = string.Empty;
+    public int Position { get; set; }
+    public string FileUrl { get; set; } = string.Empty;
+    public string FileType { get; set; } = "PDF";
+    public long? FileSize { get; set; }
+    public bool IsCompleted { get; set; }
+
+    // Curriculum Navigation Sidebar
+    public List<StudentPlayerModuleViewModel> Modules { get; set; } = new();
+    public int CourseProgressPercentage { get; set; }
+    public int CompletedLessonsCount { get; set; }
+    public int TotalLessonsCount { get; set; }
+}
+
+public class StudentGradesViewModel
+{
+    public string StudentId { get; set; } = string.Empty;
+    public string StudentName { get; set; } = string.Empty;
+    public string? UniversityId { get; set; }
+    public string StudentEmail { get; set; } = string.Empty;
+    public string? Avatar { get; set; }
+
+    // Course Filtering
+    public int? SelectedCourseId { get; set; }
+    public List<StudentGradeCourseOptionViewModel> EnrolledCourses { get; set; } = new();
+
+    // Summary Metrics
+    public int TotalAssessmentsCount => GradeItems.Count;
+    public int CompletedAssessmentsCount => GradeItems.Count(g => g.IsCompleted);
+    public int PassedAssessmentsCount => GradeItems.Count(g => g.IsPassed);
+    public double OverallAveragePercentage => GradeItems.Any(g => g.ScorePercentage.HasValue)
+        ? Math.Round(GradeItems.Where(g => g.ScorePercentage.HasValue).Average(g => g.ScorePercentage!.Value), 1)
+        : 0.0;
+
+    // Detail Items
+    public List<StudentGradeItemViewModel> GradeItems { get; set; } = new();
+}
+
+public class StudentGradeCourseOptionViewModel
+{
+    public int CourseId { get; set; }
+    public string Code { get; set; } = string.Empty;
+    public string Title { get; set; } = string.Empty;
+}
+
+public class StudentGradeItemViewModel
+{
+    public int CourseId { get; set; }
+    public string CourseCode { get; set; } = string.Empty;
+    public string CourseTitle { get; set; } = string.Empty;
+
+    public int AssessmentId { get; set; }
+    public int CourseItemId { get; set; }
+    public string AssessmentTitle { get; set; } = string.Empty;
+    public string AssessmentType { get; set; } = "Assignment"; // "Assignment" | "Quiz"
+
+    public double? Score { get; set; }
+    public double MaxScore { get; set; }
+    public double? ScorePercentage => Score.HasValue && MaxScore > 0 ? Math.Round((Score.Value / MaxScore) * 100.0, 1) : null;
+    public bool IsPassed { get; set; }
+    public bool IsCompleted { get; set; }
+    public string StatusDisplay { get; set; } = "Pending";
+
+    public DateTime Date { get; set; }
+    public string? Feedback { get; set; }
+    public string? GradedByName { get; set; }
+    public string DetailUrl { get; set; } = string.Empty;
 }

@@ -1444,4 +1444,165 @@ public class AcademicController : Controller
             })
             .ToListAsync();
     }
+
+    // =========================================================================
+    // PHASE 4 MODULE F — TEACHING ASSISTANT MANAGEMENT (ADMIN ONLY)
+    // =========================================================================
+
+    [HttpGet]
+    public async Task<IActionResult> GetCourseAssistantsJson(int id)
+    {
+        if (id <= 0)
+        {
+            return BadRequest(new { success = false, message = "Invalid course ID." });
+        }
+
+        var course = await _context.Courses
+            .Include(c => c.Teacher)
+            .Include(c => c.CourseAssistants)
+                .ThenInclude(ca => ca.Assistant)
+            .AsNoTracking()
+            .FirstOrDefaultAsync(c => c.Id == id);
+
+        if (course == null)
+        {
+            return NotFound(new { success = false, message = "Course not found." });
+        }
+
+        var assistants = course.CourseAssistants.Select(ca => new
+        {
+            id = ca.Id,
+            assistantId = ca.AssistantId,
+            name = ca.Assistant.FullName,
+            email = ca.Assistant.Email ?? "",
+            universityId = ca.Assistant.UniversityId ?? "N/A",
+            canGrade = ca.CanGrade,
+            assignedAt = ca.AssignedAt.ToString("MMM dd, yyyy")
+        }).ToList();
+
+        var assignedAssistantIds = course.CourseAssistants.Select(ca => ca.AssistantId).ToHashSet();
+        var allAssistants = await _userManager.GetUsersInRoleAsync("Assistance");
+        var availableCandidates = allAssistants
+            .Where(u => u.IsActive && !assignedAssistantIds.Contains(u.Id))
+            .OrderBy(u => u.FullName)
+            .Select(u => new
+            {
+                id = u.Id,
+                name = u.FullName,
+                email = u.Email ?? "",
+                universityId = u.UniversityId ?? ""
+            }).ToList();
+
+        return Json(new
+        {
+            success = true,
+            courseId = course.Id,
+            courseCode = course.Code,
+            courseTitle = course.Title,
+            teacherName = course.Teacher?.FullName ?? "Unassigned",
+            teacherEmail = course.Teacher?.Email ?? "",
+            assistants,
+            availableCandidates
+        });
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> AssignCourseAssistant(int courseId, string assistantId)
+    {
+        if (courseId <= 0 || string.IsNullOrWhiteSpace(assistantId))
+        {
+            return BadRequest(new { success = false, message = "Invalid course or assistant ID." });
+        }
+
+        var courseExists = await _context.Courses.AnyAsync(c => c.Id == courseId);
+        if (!courseExists)
+        {
+            return NotFound(new { success = false, message = "Course not found." });
+        }
+
+        var assistantUser = await _userManager.FindByIdAsync(assistantId);
+        if (assistantUser == null || !assistantUser.IsActive)
+        {
+            return NotFound(new { success = false, message = "Teaching Assistant account not found or inactive." });
+        }
+
+        var isAssistantRole = await _userManager.IsInRoleAsync(assistantUser, "Assistance");
+        if (!isAssistantRole)
+        {
+            return BadRequest(new { success = false, message = "The selected user does not hold the Assistance role." });
+        }
+
+        var alreadyAssigned = await _context.CourseAssistants
+            .AnyAsync(ca => ca.CourseId == courseId && ca.AssistantId == assistantId);
+        if (alreadyAssigned)
+        {
+            return BadRequest(new { success = false, message = "This Teaching Assistant is already assigned to this course." });
+        }
+
+        var assignment = new CourseAssistant
+        {
+            CourseId = courseId,
+            AssistantId = assistantId,
+            CanGrade = false, // Owner-approved rule: newly assigned Assistants default to CanGrade = false
+            AssignedAt = DateTime.UtcNow
+        };
+
+        _context.CourseAssistants.Add(assignment);
+        await _context.SaveChangesAsync();
+
+        _logger.LogInformation("Admin assigned Assistant {AssistantId} to Course {CourseId} (CanGrade=false)", assistantId, courseId);
+
+        return Json(new { success = true, message = "Teaching Assistant assigned successfully." });
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> UnassignCourseAssistant(int courseId, string assistantId)
+    {
+        if (courseId <= 0 || string.IsNullOrWhiteSpace(assistantId))
+        {
+            return BadRequest(new { success = false, message = "Invalid course or assistant ID." });
+        }
+
+        var assignment = await _context.CourseAssistants
+            .FirstOrDefaultAsync(ca => ca.CourseId == courseId && ca.AssistantId == assistantId);
+
+        if (assignment == null)
+        {
+            return NotFound(new { success = false, message = "Teaching Assistant assignment not found." });
+        }
+
+        _context.CourseAssistants.Remove(assignment);
+        await _context.SaveChangesAsync();
+
+        _logger.LogInformation("Admin unassigned Assistant {AssistantId} from Course {CourseId}", assistantId, courseId);
+
+        return Json(new { success = true, message = "Teaching Assistant unassigned successfully." });
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> ToggleAssistantCanGrade(int courseId, string assistantId, bool canGrade)
+    {
+        if (courseId <= 0 || string.IsNullOrWhiteSpace(assistantId))
+        {
+            return BadRequest(new { success = false, message = "Invalid course or assistant ID." });
+        }
+
+        var assignment = await _context.CourseAssistants
+            .FirstOrDefaultAsync(ca => ca.CourseId == courseId && ca.AssistantId == assistantId);
+
+        if (assignment == null)
+        {
+            return NotFound(new { success = false, message = "Teaching Assistant assignment not found." });
+        }
+
+        assignment.CanGrade = canGrade;
+        await _context.SaveChangesAsync();
+
+        _logger.LogInformation("Admin toggled CanGrade={CanGrade} for Assistant {AssistantId} in Course {CourseId}", canGrade, assistantId, courseId);
+
+        return Json(new { success = true, canGrade = assignment.CanGrade, message = $"Grading authority {(canGrade ? "granted" : "revoked")}." });
+    }
 }

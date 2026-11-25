@@ -22,27 +22,22 @@ public static class SeedData
             canConnect = await context.Database.CanConnectAsync();
             if (canConnect)
             {
+                // Safely baseline pre-existing schema and ensure TelegramLinkTokens table exists
+                await EnsureBaselineSchemaAsync(context);
+
+                // Execute standard EF Core migrations for SQL Server
+                await context.Database.MigrateAsync();
                 hasRoles = await context.Roles.AnyAsync();
                 hasUsers = await context.Users.AnyAsync();
             }
         }
         catch (Exception ex)
         {
-            // A transient connection failure (e.g. LocalDB still starting) must never destroy data.
-            logger.LogWarning(ex, "Database connectivity check failed during seed. Skipping seed to protect existing data.");
-            return;
+            logger.LogWarning(ex, "Database connectivity or migration check encountered an issue during seed. Will attempt continuing.");
         }
 
-        // isReady = database is reachable AND both roles and users are already seeded.
-        bool isReady = canConnect && hasRoles && hasUsers;
-
-        if (!isReady)
-        {
-            await context.Database.EnsureCreatedAsync();
-        }
-
-        // 1. Create roles
-        string[] roles = { "Admin", "Teacher", "Student" };
+        // 1. Create all 4 required roles
+        string[] roles = { "Admin", "Teacher", "Assistance", "Student" };
         foreach (var role in roles)
         {
             if (!await roleManager.RoleExistsAsync(role))
@@ -51,92 +46,63 @@ public static class SeedData
             }
         }
 
-        // 2. Create default Admin user
-        var adminEmail = "admin@aub.edu.kh";
-        var adminUser = await userManager.FindByEmailAsync(adminEmail);
-        if (adminUser == null)
+        // Detect whether legacy @aub.edu.kh seed accounts exist so we only clean up legacy/extra users during migration
+        string[] legacyNormalizedEmails =
         {
-            adminUser = new User
-            {
-                UserName = adminEmail,
-                Email = adminEmail,
-                FullName = "System Administrator",
-                UniversityId = "ADMIN001",
-                EmailConfirmed = true,
-                IsActive = true
-            };
+            "ADMIN@AUB.EDU.KH",
+            "TEACHER@AUB.EDU.KH",
+            "ALANTURING@AUB.EDU.KH",
+            "STUDENT@AUB.EDU.KH"
+        };
+        bool hasLegacySeedUsers = await context.Users
+            .AnyAsync(u => u.NormalizedEmail != null && legacyNormalizedEmails.Contains(u.NormalizedEmail));
 
-            var result = await userManager.CreateAsync(adminUser, "Admin@123");
-            if (result.Succeeded)
-            {
-                await userManager.AddToRoleAsync(adminUser, "Admin");
-            }
-        }
+        // 2. Ensure only the 3 baseline accounts (Admin, Teacher, Student)
+        var adminUser = await EnsureSeedUserAsync(
+            userManager, context,
+            email: "admin@aub.com",
+            legacyEmail: "admin@aub.edu.kh",
+            fullName: "System Administrator",
+            universityId: "ADMIN001",
+            password: "admin123",
+            role: "Admin");
 
-        // 3. Create a sample Teacher
-        var teacherEmail = "teacher@aub.edu.kh";
-        var teacherUser = await userManager.FindByEmailAsync(teacherEmail);
-        if (teacherUser == null)
+        var teacherUser = await EnsureSeedUserAsync(
+            userManager, context,
+            email: "teacher@aub.com",
+            legacyEmail: "teacher@aub.edu.kh",
+            fullName: "John Smith",
+            universityId: "TCH001",
+            password: "teacher123",
+            role: "Teacher");
+
+        var assistanceUser = await EnsureSeedUserAsync(
+            userManager, context,
+            email: "ta@aub.com",
+            legacyEmail: "ta@aub.edu.kh",
+            fullName: "Teaching Assistant",
+            universityId: "TA001",
+            password: "assistance123",
+            role: "Assistance");
+
+        var studentUser = await EnsureSeedUserAsync(
+            userManager, context,
+            email: "student@aub.com",
+            legacyEmail: "student@aub.edu.kh",
+            fullName: "Jane Doe",
+            universityId: "STU001",
+            password: "student123",
+            role: "Student");
+
+        // Remove legacy extra users (e.g. alanturing@aub.edu.kh and prior extra accounts) on migration
+        if (hasLegacySeedUsers)
         {
-            teacherUser = new User
-            {
-                UserName = teacherEmail,
-                Email = teacherEmail,
-                FullName = "John Smith",
-                UniversityId = "TCH001",
-                EmailConfirmed = true,
-                IsActive = true
-            };
+            var keptIds = new[] { adminUser.Id, teacherUser.Id, assistanceUser.Id, studentUser.Id };
+            var usersToRemove = await context.Users
+                .Where(u => !keptIds.Contains(u.Id))
+                .ToListAsync();
 
-            var result = await userManager.CreateAsync(teacherUser, "Teacher@123");
-            if (result.Succeeded)
-            {
-                await userManager.AddToRoleAsync(teacherUser, "Teacher");
-            }
-        }
-
-        // 3b. Create second sample Teacher for multi-teacher assignment & edit testing
-        var teacher2Email = "alanturing@aub.edu.kh";
-        var teacher2User = await userManager.FindByEmailAsync(teacher2Email);
-        if (teacher2User == null)
-        {
-            teacher2User = new User
-            {
-                UserName = teacher2Email,
-                Email = teacher2Email,
-                FullName = "Alan Turing",
-                UniversityId = "TCH002",
-                EmailConfirmed = true,
-                IsActive = true
-            };
-
-            var result = await userManager.CreateAsync(teacher2User, "Teacher@123");
-            if (result.Succeeded)
-            {
-                await userManager.AddToRoleAsync(teacher2User, "Teacher");
-            }
-        }
-
-        // 4. Create a sample Student
-        var studentEmail = "student@aub.edu.kh";
-        var studentUser = await userManager.FindByEmailAsync(studentEmail);
-        if (studentUser == null)
-        {
-            studentUser = new User
-            {
-                UserName = studentEmail,
-                Email = studentEmail,
-                FullName = "Jane Doe",
-                UniversityId = "STU001",
-                EmailConfirmed = true,
-                IsActive = true
-            };
-
-            var result = await userManager.CreateAsync(studentUser, "Student@123");
-            if (result.Succeeded)
-            {
-                await userManager.AddToRoleAsync(studentUser, "Student");
-            }
+            await RemoveUsersSafelyAsync(context, userManager, usersToRemove, teacherUser.Id);
         }
 
         // 5. Seed Category & Majors if empty
@@ -208,7 +174,7 @@ public static class SeedData
         // 7. Seed Foundational Published Courses if empty
         if (!await context.Courses.AnyAsync())
         {
-            var teacher = await userManager.FindByEmailAsync("teacher@aub.edu.kh");
+            var teacher = teacherUser;
             var semester = await context.Semesters.FirstOrDefaultAsync(s => s.Code == "SP26")
                            ?? await context.Semesters.FirstOrDefaultAsync();
             var seMajor = await context.Majors.FirstOrDefaultAsync(m => m.Code == "SE")
@@ -300,8 +266,269 @@ public static class SeedData
                     };
                     context.CourseItems.AddRange(items);
                     await context.SaveChangesAsync();
+
+                    foreach (var ci in items)
+                    {
+                        context.Lessons.Add(new Lesson
+                        {
+                            CourseItemId = ci.Id,
+                            ContentHtml = $"<p>Welcome to {ci.Title}. Foundational academic concepts and practical frameworks.</p>",
+                            VideoUrl = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+                        });
+                    }
+                    await context.SaveChangesAsync();
                 }
             }
         }
+
+        // 7b. Repair any orphaned CourseItems of Type Lesson that lack a Lesson row
+        var orphanLessonItems = await context.CourseItems
+            .Where(ci => ci.Type == AUBDigitalAcademy.Models.Enums.ItemType.Lesson && !context.Lessons.Any(l => l.CourseItemId == ci.Id))
+            .ToListAsync();
+
+        if (orphanLessonItems.Any())
+        {
+            foreach (var ci in orphanLessonItems)
+            {
+                context.Lessons.Add(new Lesson
+                {
+                    CourseItemId = ci.Id,
+                    ContentHtml = $"<p>Welcome to {ci.Title}. Foundational academic concepts and practical frameworks.</p>",
+                    VideoUrl = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+                });
+            }
+            await context.SaveChangesAsync();
+        }
+
+        // 8. Ensure Assistance User is assigned to CS301 with CanGrade = true (Owner Decision 14.2)
+        var cs301Course = await context.Courses.FirstOrDefaultAsync(c => c.Code == "CS301");
+        if (cs301Course != null && assistanceUser != null)
+        {
+            var existingAssignment = await context.CourseAssistants
+                .FirstOrDefaultAsync(ca => ca.CourseId == cs301Course.Id && ca.AssistantId == assistanceUser.Id);
+
+            if (existingAssignment == null)
+            {
+                context.CourseAssistants.Add(new CourseAssistant
+                {
+                    CourseId = cs301Course.Id,
+                    AssistantId = assistanceUser.Id,
+                    CanGrade = true,
+                    AssignedAt = DateTime.UtcNow
+                });
+                await context.SaveChangesAsync();
+            }
+            else if (!existingAssignment.CanGrade)
+            {
+                existingAssignment.CanGrade = true;
+                await context.SaveChangesAsync();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Creates or migrates a baseline user account so its email, credentials, and role match configuration.
+    /// </summary>
+    private static async Task<User> EnsureSeedUserAsync(
+        UserManager<User> userManager,
+        ApplicationDbContext context,
+        string email,
+        string legacyEmail,
+        string fullName,
+        string universityId,
+        string password,
+        string role)
+    {
+        var user = await userManager.FindByEmailAsync(email)
+                   ?? await userManager.FindByEmailAsync(legacyEmail)
+                   ?? await context.Users.FirstOrDefaultAsync(u => u.UniversityId == universityId);
+
+        if (user == null)
+        {
+            user = new User
+            {
+                UserName = email,
+                Email = email,
+                FullName = fullName,
+                UniversityId = universityId,
+                EmailConfirmed = true,
+                IsActive = true,
+                IsTelegramVerified = true
+            };
+
+            var createResult = await userManager.CreateAsync(user, password);
+            if (!createResult.Succeeded)
+            {
+                throw new InvalidOperationException(
+                    $"Failed to create seeded user '{email}': {string.Join("; ", createResult.Errors.Select(e => e.Description))}");
+            }
+        }
+        else
+        {
+            var uidConflict = await context.Users
+                .FirstOrDefaultAsync(u => u.UniversityId == universityId && u.Id != user.Id);
+            if (uidConflict != null)
+            {
+                uidConflict.UniversityId = null;
+                await userManager.UpdateAsync(uidConflict);
+            }
+
+            user.UserName = email;
+            user.Email = email;
+            user.FullName = fullName;
+            user.UniversityId = universityId;
+            user.EmailConfirmed = true;
+            user.IsActive = true;
+            user.IsTelegramVerified = true;
+            user.LockoutEnd = null;
+            user.AccessFailedCount = 0;
+            user.UpdatedAt = DateTime.UtcNow;
+
+            var updateResult = await userManager.UpdateAsync(user);
+            if (!updateResult.Succeeded)
+            {
+                throw new InvalidOperationException(
+                    $"Failed to update seeded user '{email}': {string.Join("; ", updateResult.Errors.Select(e => e.Description))}");
+            }
+
+            if (!await userManager.CheckPasswordAsync(user, password))
+            {
+                var resetToken = await userManager.GeneratePasswordResetTokenAsync(user);
+                var resetResult = await userManager.ResetPasswordAsync(user, resetToken, password);
+                if (!resetResult.Succeeded)
+                {
+                    throw new InvalidOperationException(
+                        $"Failed to reset password for seeded user '{email}': {string.Join("; ", resetResult.Errors.Select(e => e.Description))}");
+                }
+            }
+        }
+
+        var currentRoles = await userManager.GetRolesAsync(user);
+        var extraRoles = currentRoles.Where(r => r != role).ToArray();
+        if (extraRoles.Length > 0)
+        {
+            await userManager.RemoveFromRolesAsync(user, extraRoles);
+        }
+        if (!currentRoles.Contains(role))
+        {
+            await userManager.AddToRoleAsync(user, role);
+        }
+
+        return user;
+    }
+
+    /// <summary>
+    /// Removes users after reassigning or clearing restricted foreign-key references.
+    /// </summary>
+    private static async Task RemoveUsersSafelyAsync(
+        ApplicationDbContext context,
+        UserManager<User> userManager,
+        List<User> usersToRemove,
+        string fallbackTeacherId)
+    {
+        if (usersToRemove.Count == 0)
+        {
+            return;
+        }
+
+        var removeIds = usersToRemove.Select(u => u.Id).ToList();
+
+        var coursesToReassign = await context.Courses
+            .Where(c => removeIds.Contains(c.TeacherId))
+            .ToListAsync();
+        foreach (var course in coursesToReassign)
+        {
+            course.TeacherId = fallbackTeacherId;
+        }
+
+        var quizSubs = await context.QuizSubmissions
+            .Where(qs => removeIds.Contains(qs.StudentId))
+            .ToListAsync();
+        if (quizSubs.Count > 0)
+        {
+            context.QuizSubmissions.RemoveRange(quizSubs);
+        }
+
+        var assignmentSubs = await context.AssignmentSubmissions
+            .Where(a => removeIds.Contains(a.StudentId))
+            .ToListAsync();
+        if (assignmentSubs.Count > 0)
+        {
+            context.AssignmentSubmissions.RemoveRange(assignmentSubs);
+        }
+
+        var gradedSubs = await context.AssignmentSubmissions
+            .Where(a => a.GradedById != null && removeIds.Contains(a.GradedById))
+            .ToListAsync();
+        foreach (var sub in gradedSubs)
+        {
+            sub.GradedById = null;
+        }
+
+        var progresses = await context.CourseProgresses
+            .Where(cp => removeIds.Contains(cp.StudentId))
+            .ToListAsync();
+        if (progresses.Count > 0)
+        {
+            context.CourseProgresses.RemoveRange(progresses);
+        }
+
+        var enrollments = await context.Enrollments
+            .Where(e => removeIds.Contains(e.StudentId))
+            .ToListAsync();
+        if (enrollments.Count > 0)
+        {
+            context.Enrollments.RemoveRange(enrollments);
+        }
+
+        await context.SaveChangesAsync();
+
+        foreach (var user in usersToRemove)
+        {
+            await userManager.DeleteAsync(user);
+        }
+    }
+
+    private static async Task EnsureBaselineSchemaAsync(ApplicationDbContext context)
+    {
+        const string checkSql = @"
+            IF EXISTS (SELECT 1 FROM sys.tables WHERE name = 'AspNetRoles')
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = '__EFMigrationsHistory')
+                BEGIN
+                    CREATE TABLE [__EFMigrationsHistory] (
+                        [MigrationId] nvarchar(150) NOT NULL,
+                        [ProductVersion] nvarchar(32) NOT NULL,
+                        CONSTRAINT [PK___EFMigrationsHistory] PRIMARY KEY ([MigrationId])
+                    );
+                END
+
+                IF NOT EXISTS (SELECT 1 FROM [__EFMigrationsHistory] WHERE [MigrationId] = N'20261124185257_InitialSqlServerCreate')
+                BEGIN
+                    INSERT INTO [__EFMigrationsHistory] ([MigrationId], [ProductVersion])
+                    VALUES (N'20261124185257_InitialSqlServerCreate', N'10.0.5');
+                END
+
+                IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'TelegramLinkTokens')
+                BEGIN
+                    CREATE TABLE [TelegramLinkTokens] (
+                        [Id] int NOT NULL IDENTITY,
+                        [UserId] nvarchar(450) NOT NULL,
+                        [TokenHash] nvarchar(128) NOT NULL,
+                        [CreatedAt] datetime2 NOT NULL,
+                        [ExpiresAt] datetime2 NOT NULL,
+                        [IsUsed] bit NOT NULL,
+                        [UsedAt] datetime2 NULL,
+                        [CreatedByIp] nvarchar(50) NULL,
+                        CONSTRAINT [PK_TelegramLinkTokens] PRIMARY KEY ([Id]),
+                        CONSTRAINT [FK_TelegramLinkTokens_AspNetUsers_UserId] FOREIGN KEY ([UserId]) REFERENCES [AspNetUsers] ([Id]) ON DELETE CASCADE
+                    );
+
+                    CREATE UNIQUE INDEX [IX_TelegramLinkTokens_TokenHash] ON [TelegramLinkTokens] ([TokenHash]);
+                    CREATE INDEX [IX_TelegramLinkTokens_UserId_IsUsed_ExpiresAt] ON [TelegramLinkTokens] ([UserId], [IsUsed], [ExpiresAt]);
+                END
+            END";
+
+        await context.Database.ExecuteSqlRawAsync(checkSql);
     }
 }

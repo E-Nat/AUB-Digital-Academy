@@ -1,0 +1,179 @@
+@model AUBDigitalAcademy.Models.ViewModels.RegisterViewModel
+@{
+    Layout = "_AuthLayout";
+    ViewData["Title"] = "Student Registration";
+}
+
+<div class="auth-card-inner">
+    @* ── Form Header ──────────────────────────────────────────────────────── *@
+    <div class="auth-form-header mb-4 text-start">
+        <div class="d-inline-flex align-items-center gap-2 px-2.5 py-1 rounded-pill bg-primary bg-opacity-10 text-primary small fw-semibold mb-2">
+            <i class="bi bi-person-plus-fill"></i>
+            <span>Student Onboarding</span>
+        </div>
+        <h2 class="auth-heading text-aub-navy fw-bold mb-1">Create Student Account</h2>
+        <p class="auth-subheading text-secondary small mb-0">
+            Enter your official Student ID and name to begin your academic journey.
+        </p>
+    </div>
+
+    @* ── Global Feedback & Validation Summary ──────────────────────────────── *@
+    <div asp-validation-summary="ModelOnly"
+         class="alert alert-danger py-2 px-3 mb-3 small rounded-3 d-flex align-items-center gap-2 @(ViewData.ModelState.IsValid ? "d-none" : "")"
+         role="alert">
+        <i class="bi bi-exclamation-triangle-fill flex-shrink-0"></i>
+        <div>Please correct the errors below and try again.</div>
+    </div>
+
+    @* ── Student Registration Form ────────────────────────────────────────── *@
+    <form id="registerForm" asp-action="Register" asp-controller="Account" method="post" novalidate>
+        @Html.AntiForgeryToken()
+
+        @* ── Student Name Field ───────────────────────────────────────────── *@
+        <div class="mb-3">
+            <label asp-for="FullName" class="form-label text-aub-navy fw-semibold small mb-1.5">
+                Full Name <span class="text-danger">*</span>
+            </label>
+            <div class="input-group input-group-aub">
+                <span class="input-group-text bg-white border-end-0 text-secondary" aria-hidden="true">
+                    <i class="bi bi-person"></i>
+                </span>
+                <input asp-for="FullName"
+                       class="form-control border-start-0 ps-0 shadow-none"
+                       placeholder="e.g. Sok Dara"
+                       autocomplete="name"
+                       required />
+            </div>
+            <span asp-validation-for="FullName" class="text-danger small mt-1 d-block"></span>
+        </div>
+
+        @* ── Student ID (UniversityId) Field ──────────────────────────────── *@
+        <div class="mb-3">
+            <label asp-for="UniversityId" class="form-label text-aub-navy fw-semibold small mb-1.5">
+                Student ID <span class="text-danger">*</span>
+            </label>
+            <div class="input-group input-group-aub">
+                <span class="input-group-text bg-white border-end-0 text-secondary" aria-hidden="true">
+                    <i class="bi bi-card-heading"></i>
+                </span>
+                <input asp-for="UniversityId"
+                       class="form-control border-start-0 ps-0 shadow-none font-monospace"
+                       placeholder="e.g. 07875"
+                       autocomplete="username"
+                       required />
+            </div>
+            <span asp-validation-for="UniversityId" class="text-danger small mt-1 d-block"></span>
+            <div class="form-text text-muted small">Enter your official institutional Student ID issued by AUB.</div>
+        </div>
+
+        @* ── Password Field ───────────────────────────────────────────────── *@
+        <div class="mb-3">
+            <label asp-for="Password" class="form-label text-aub-navy fw-semibold small mb-1.5">
+                Password <span class="text-danger">*</span>
+            </label>
+            <div class="input-group input-group-aub">
+                <span class="input-group-text bg-white border-end-0 text-secondary" aria-hidden="true">
+                    <i class="bi bi-lock"></i>
+                </span>
+                <input asp-for="Password"
+                       type="password"
+                       id="regPasswordInput"
+                       class="form-control border-start-0 border-end-0 ps-0 shadow-none"
+                       placeholder="Enter strong password (min 6 characters)"
+                       autocomplete="new-password"
+                       required />
+                <button type="button"
+                        class="btn btn-outline-secondary border-start-0 bg-white text-secondary"
+                        id="toggleRegPassword"
+                        aria-label="Show password"
+                        tabindex="-1">
+                    <i class="bi bi-eye" id="toggleRegPasswordIcon"></i>
+                </button>
+            </div>
+            <span asp-validation-for="Password" class="text-danger small mt-1 d-block"></span>
+        </div>
+
+        @* ── Confirm Password Field ───────────────────────────────────────── *@
+        <div class="mb-3">
+            <label asp-for="ConfirmPassword" class="form-label text-aub-navy fw-semibold small mb-1.5">
+                Confirm Password <span class="text-danger">*</span>
+            </label>
+            <div class="input-group input-group-aub">
+                <span class="input-group-text bg-white border-end-0 text-secondary" aria-hidden="true">
+                    <i class="bi bi-shield-lock"></i>
+                </span>
+                <input asp-for="ConfirmPassword"
+                       type="password"
+                       id="regConfirmPasswordInput"
+                       class="form-control border-start-0 border-end-0 ps-0 shadow-none"
+                       placeholder="Re-enter your password"
+                       autocomplete="new-password"
+                       required />
+                <button type="button"
+                        class="btn btn-outline-secondary border-start-0 bg-white text-secondary"
+                        id="toggleRegConfirmPassword"
+                        aria-label="Show confirm password"
+                        tabindex="-1">
+                    <i class="bi bi-eye" id="toggleRegConfirmPasswordIcon"></i>
+                </button>
+            </div>
+            <span asp-validation-for="ConfirmPassword" class="text-danger small mt-1 d-block"></span>
+        </div>
+
+        @* ── Telegram Verification Notice ─────────────────────────────────── *@
+        <div class="p-3 mb-4 rounded-3 bg-light border border-light-subtle d-flex gap-2.5 align-items-start">
+            <i class="bi bi-telegram text-primary fs-5 mt-0.5" aria-hidden="true"></i>
+            <div class="small text-secondary lh-sm">
+                <strong class="d-block text-aub-navy mb-0.5">Telegram Verification Required</strong>
+                After registration, a single-use verification code will be dispatched to Telegram to activate your student account.
+            </div>
+        </div>
+
+        @* ── Submit Action Button ─────────────────────────────────────────── *@
+        <button type="submit"
+                id="btnRegister"
+                class="btn btn-primary-aub w-100 py-2.5 py-md-3 mb-3 rounded-3 fw-semibold fs-6 d-flex justify-content-center align-items-center gap-2">
+            <span>Register & Receive Code</span>
+            <i class="bi bi-arrow-right" aria-hidden="true"></i>
+        </button>
+
+        @* ── Navigation Link to Login ─────────────────────────────────────── *@
+        <div class="text-center mt-3 pt-2 border-top">
+            <span class="text-secondary small">Already have an account?</span>
+            <a asp-action="Login" asp-controller="Account" class="text-primary fw-semibold small text-decoration-none ms-1 hover-gold">
+                Sign In to Portal
+            </a>
+        </div>
+    </form>
+</div>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            // Password toggle 1
+            const passInput = document.getElementById('regPasswordInput');
+            const passBtn = document.getElementById('toggleRegPassword');
+            const passIcon = document.getElementById('toggleRegPasswordIcon');
+            if (passBtn && passInput) {
+                passBtn.addEventListener('click', function () {
+                    const isPass = passInput.type === 'password';
+                    passInput.type = isPass ? 'text' : 'password';
+                    passIcon.className = isPass ? 'bi bi-eye-slash' : 'bi bi-eye';
+                });
+            }
+
+            // Password toggle 2
+            const confInput = document.getElementById('regConfirmPasswordInput');
+            const confBtn = document.getElementById('toggleRegConfirmPassword');
+            const confIcon = document.getElementById('toggleRegConfirmPasswordIcon');
+            if (confBtn && confInput) {
+                confBtn.addEventListener('click', function () {
+                    const isPass = confInput.type === 'password';
+                    confInput.type = isPass ? 'text' : 'password';
+                    confIcon.className = isPass ? 'bi bi-eye-slash' : 'bi bi-eye';
+                });
+            }
+        });
+    </script>
+}

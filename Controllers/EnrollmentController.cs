@@ -252,7 +252,7 @@ public class EnrollmentController : Controller
     /// Admin can view any course; Teachers can only view courses they teach.
     /// </summary>
     [HttpGet]
-    [Authorize(Roles = "Admin,Teacher")]
+    [Authorize(Roles = "Admin,Teacher,Assistance")]
     public async Task<IActionResult> CourseStudents(int courseId)
     {
         if (courseId <= 0)
@@ -269,10 +269,14 @@ public class EnrollmentController : Controller
         var currentUserId = _userManager.GetUserId(User);
         var isAdmin = User.IsInRole("Admin");
 
-        // Teacher ownership verification
-        if (!isAdmin && course.TeacherId != currentUserId)
+        // Teacher / Assistance ownership verification (scoped to assigned course)
+        var isAssignedAssistant = await _context.CourseAssistants
+            .AsNoTracking()
+            .AnyAsync(ca => ca.CourseId == courseId && ca.AssistantId == currentUserId);
+
+        if (!isAdmin && course.TeacherId != currentUserId && !isAssignedAssistant)
         {
-            _logger.LogWarning("Teacher '{UserId}' attempted unauthorized access to enrollments for course {CourseId} taught by '{TeacherId}'.",
+            _logger.LogWarning("User '{UserId}' attempted unauthorized access to enrollments for course {CourseId} taught by '{TeacherId}'.",
                 currentUserId, courseId, course.TeacherId);
             return Forbid();
         }
@@ -341,8 +345,23 @@ public class EnrollmentController : Controller
         }
 
         var currentUserId = _userManager.GetUserId(User);
-        var isAdminOrTeacher = User.IsInRole("Admin") || User.IsInRole("Teacher");
+        var isAdmin = User.IsInRole("Admin");
+        var isTeacherOrAssistant = User.IsInRole("Teacher") || User.IsInRole("Assistance");
 
+        if (isTeacherOrAssistant && !isAdmin && !string.IsNullOrWhiteSpace(studentId) && studentId != currentUserId)
+        {
+            var isAssignedAssistant = await _context.CourseAssistants
+                .AsNoTracking()
+                .AnyAsync(ca => ca.CourseId == courseId && ca.AssistantId == currentUserId);
+
+            var course = await _courseService.GetCourseByIdAsync(courseId);
+            if (course == null || (course.TeacherId != currentUserId && !isAssignedAssistant))
+            {
+                return Forbid();
+            }
+        }
+
+        var isAdminOrTeacher = isAdmin || isTeacherOrAssistant;
         var targetStudentId = (isAdminOrTeacher && !string.IsNullOrWhiteSpace(studentId))
             ? studentId
             : currentUserId;

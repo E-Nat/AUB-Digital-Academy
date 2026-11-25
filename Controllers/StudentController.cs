@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using AUBDigitalAcademy.Data;
 using AUBDigitalAcademy.Models;
 using AUBDigitalAcademy.Models.Enums;
@@ -17,6 +18,7 @@ public class StudentController : Controller
     private readonly IEnrollmentService _enrollmentService;
     private readonly ICourseService _courseService;
     private readonly ICurriculumService _curriculumService;
+    private readonly IAssignmentStorageService _assignmentStorageService;
     private readonly UserManager<User> _userManager;
     private readonly ApplicationDbContext _context;
     private readonly ILogger<StudentController> _logger;
@@ -27,7 +29,14 @@ public class StudentController : Controller
         UserManager<User> userManager,
         ApplicationDbContext context,
         ILogger<StudentController> logger)
-        : this(enrollmentService, courseService, new AUBDigitalAcademy.Services.Implementations.CurriculumService(context, new LoggerFactory().CreateLogger<AUBDigitalAcademy.Services.Implementations.CurriculumService>()), userManager, context, logger)
+        : this(
+            enrollmentService,
+            courseService,
+            new AUBDigitalAcademy.Services.Implementations.CurriculumService(context, new LoggerFactory().CreateLogger<AUBDigitalAcademy.Services.Implementations.CurriculumService>()),
+            null!,
+            userManager,
+            context,
+            logger)
     {
     }
 
@@ -38,10 +47,31 @@ public class StudentController : Controller
         UserManager<User> userManager,
         ApplicationDbContext context,
         ILogger<StudentController> logger)
+        : this(
+            enrollmentService,
+            courseService,
+            curriculumService,
+            null!,
+            userManager,
+            context,
+            logger)
+    {
+    }
+
+    [ActivatorUtilitiesConstructor]
+    public StudentController(
+        IEnrollmentService enrollmentService,
+        ICourseService courseService,
+        ICurriculumService curriculumService,
+        IAssignmentStorageService assignmentStorageService,
+        UserManager<User> userManager,
+        ApplicationDbContext context,
+        ILogger<StudentController> logger)
     {
         _enrollmentService = enrollmentService;
         _courseService = courseService;
         _curriculumService = curriculumService;
+        _assignmentStorageService = assignmentStorageService;
         _userManager = userManager;
         _context = context;
         _logger = logger;
@@ -226,6 +256,12 @@ public class StudentController : Controller
             .Include(c => c.Chapters)
                 .ThenInclude(ch => ch.CourseItems)
                     .ThenInclude(ci => ci.Quiz)
+            .Include(c => c.Chapters)
+                .ThenInclude(ch => ch.CourseItems)
+                    .ThenInclude(ci => ci.Assignment)
+            .Include(c => c.Chapters)
+                .ThenInclude(ch => ch.CourseItems)
+                    .ThenInclude(ci => ci.Book)
             .FirstOrDefaultAsync(c => c.Id == id);
 
         if (course == null)
@@ -254,12 +290,20 @@ public class StudentController : Controller
             .GroupBy(qs => qs.QuizId)
             .ToDictionary(g => g.Key, g => new { HasPassed = g.Any(s => s.IsPassed), BestScore = g.Max(s => s.Score) });
 
-        // Find first lesson for "Start Learning"
+        // Query student assignment submissions for this course
+        var assignmentSubmissions = await _context.AssignmentSubmissions
+            .AsNoTracking()
+            .Where(s => s.StudentId == currentUserId && s.Assignment.CourseItem.Chapter.CourseId == id)
+            .ToListAsync();
+        var assignmentCompletedMap = assignmentSubmissions
+            .GroupBy(s => s.AssignmentId)
+            .ToDictionary(g => g.Key, g => g.Any(s => s.Status == SubmissionStatus.Graded || s.Status == SubmissionStatus.Submitted || s.Status == SubmissionStatus.Late));
+
+        // Find first item for "Start Learning"
         var firstLesson = course.Chapters
             .OrderBy(ch => ch.Position)
             .ThenBy(ch => ch.Id)
             .SelectMany(ch => ch.CourseItems
-                .Where(ci => (ci.Type == ItemType.Lesson && ci.Lesson != null) || (ci.Type == ItemType.Quiz && ci.Quiz != null))
                 .OrderBy(ci => ci.Position)
                 .ThenBy(ci => ci.Id))
             .FirstOrDefault();
@@ -273,7 +317,6 @@ public class StudentController : Controller
                 Title = ch.Title,
                 Position = ch.Position,
                 Lessons = ch.CourseItems
-                    .Where(ci => (ci.Type == ItemType.Lesson && ci.Lesson != null) || (ci.Type == ItemType.Quiz && ci.Quiz != null))
                     .OrderBy(ci => ci.Position)
                     .ThenBy(ci => ci.Id)
                     .Select(ci =>
@@ -286,17 +329,25 @@ public class StudentController : Controller
                             bestScore = qStat.BestScore;
                         }
 
+                        bool isCompleted = completedSet.Contains(ci.Id) || isPassed;
+                        if (ci.Type == ItemType.Assignment && ci.Assignment != null && assignmentCompletedMap.TryGetValue(ci.Assignment.Id, out var aComp) && aComp)
+                        {
+                            isCompleted = true;
+                        }
+
                         return new StudentCourseLessonOverviewViewModel
                         {
                             CourseItemId = ci.Id,
                             LessonId = ci.Lesson?.Id ?? 0,
                             QuizId = ci.Quiz?.Id,
+                            AssignmentId = ci.Assignment?.Id,
+                            BookId = ci.Book?.Id,
                             Type = ci.Type,
                             Title = ci.Title,
                             Position = ci.Position,
                             HasVideo = !string.IsNullOrWhiteSpace(ci.Lesson?.VideoUrl),
                             HasContent = !string.IsNullOrWhiteSpace(ci.Lesson?.ContentHtml),
-                            IsCompleted = completedSet.Contains(ci.Id) || isPassed,
+                            IsCompleted = isCompleted,
                             HasPassedQuiz = isPassed,
                             BestQuizScore = bestScore
                         };
@@ -702,5 +753,175 @@ public class StudentController : Controller
         ViewData["ActivePage"] = "Courses";
 
         return View("QuizResult", resultModel);
+    }
+
+    // =========================================================================
+    // PHASE 4 — ASSIGNMENT PLAYER, SUBMISSION & DOWNLOAD
+    // =========================================================================
+
+    [HttpGet]
+    [Route("Student/Course/{courseId:int}/Assignment/{courseItemId:int}")]
+    [Route("Student/Assignment/{courseItemId:int}")]
+    public async Task<IActionResult> Assignment(int? courseId, int courseItemId)
+    {
+        var currentUserId = _userManager.GetUserId(User);
+        if (string.IsNullOrEmpty(currentUserId)) return Challenge();
+
+        if (!courseId.HasValue || courseId.Value <= 0)
+        {
+            var item = await _context.CourseItems
+                .Include(ci => ci.Chapter)
+                .FirstOrDefaultAsync(ci => ci.Id == courseItemId && ci.Type == ItemType.Assignment);
+
+            if (item?.Chapter != null)
+            {
+                courseId = item.Chapter.CourseId;
+            }
+            else
+            {
+                return NotFound("Assignment item not found.");
+            }
+        }
+
+        var model = await _curriculumService.GetStudentAssignmentAsync(courseId.Value, courseItemId, currentUserId);
+        if (model == null)
+        {
+            return NotFound("Assignment not found or you are not enrolled in this course.");
+        }
+
+        ViewData["Title"] = $"{model.Title} - {model.CourseTitle}";
+        ViewData["ActivePage"] = "Courses";
+        return View("Assignment", model);
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    [Route("Student/Course/{courseId:int}/Assignment/{courseItemId:int}/Submit")]
+    [Route("Student/SubmitAssignment")]
+    public async Task<IActionResult> SubmitAssignment(
+        int courseId,
+        int courseItemId,
+        IFormFile? submissionFile,
+        string? externalUrl,
+        string? textResponse)
+    {
+        var currentUserId = _userManager.GetUserId(User);
+        if (string.IsNullOrEmpty(currentUserId)) return Challenge();
+
+        var (result, submission) = await _curriculumService.SubmitAssignmentAsync(
+            courseId,
+            courseItemId,
+            currentUserId,
+            submissionFile,
+            externalUrl,
+            textResponse);
+
+        if (!result.IsSuccess)
+        {
+            TempData["ErrorMessage"] = result.Message ?? "Failed to submit assignment.";
+        }
+        else
+        {
+            TempData["SuccessMessage"] = result.Message ?? "Assignment submitted successfully!";
+        }
+
+        return RedirectToAction(nameof(Assignment), new { courseId, courseItemId });
+    }
+
+    [HttpGet]
+    [Route("Student/Assignment/Download/{submissionId:int}")]
+    public async Task<IActionResult> DownloadMySubmissionFile(int submissionId)
+    {
+        var currentUserId = _userManager.GetUserId(User);
+        if (string.IsNullOrEmpty(currentUserId)) return Challenge();
+
+        var submission = await _context.AssignmentSubmissions
+            .Include(s => s.Assignment)
+                .ThenInclude(a => a.CourseItem)
+                    .ThenInclude(ci => ci.Chapter)
+            .FirstOrDefaultAsync(s => s.Id == submissionId);
+
+        if (submission == null) return NotFound("Submission not found.");
+
+        if (submission.StudentId != currentUserId && !User.IsInRole("Admin"))
+        {
+            return Forbid();
+        }
+
+        if (string.IsNullOrEmpty(submission.FileUrl))
+        {
+            return BadRequest("No file attached to this submission.");
+        }
+
+        if (submission.FileUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+            submission.FileUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            return Redirect(submission.FileUrl);
+        }
+
+        var fileResult = await _assignmentStorageService.GetAssignmentFileAsync(submission.FileUrl, submission.OriginalFileName);
+        if (fileResult == null || fileResult.Value.FileBytes == null)
+        {
+            return NotFound("Stored file not found.");
+        }
+
+        return File(fileResult.Value.FileBytes, fileResult.Value.ContentType, fileResult.Value.DownloadFileName);
+    }
+
+    // =========================================================================
+    // PHASE 4 — BOOK READER
+    // =========================================================================
+
+    [HttpGet]
+    [Route("Student/Course/{courseId:int}/Book/{courseItemId:int}")]
+    [Route("Student/Book/{courseItemId:int}")]
+    public async Task<IActionResult> Book(int? courseId, int courseItemId)
+    {
+        var currentUserId = _userManager.GetUserId(User);
+        if (string.IsNullOrEmpty(currentUserId)) return Challenge();
+
+        if (!courseId.HasValue || courseId.Value <= 0)
+        {
+            var item = await _context.CourseItems
+                .Include(ci => ci.Chapter)
+                .FirstOrDefaultAsync(ci => ci.Id == courseItemId && ci.Type == ItemType.Book);
+
+            if (item?.Chapter != null)
+            {
+                courseId = item.Chapter.CourseId;
+            }
+            else
+            {
+                return NotFound("Book item not found.");
+            }
+        }
+
+        var model = await _curriculumService.GetStudentBookAsync(courseId.Value, courseItemId, currentUserId);
+        if (model == null)
+        {
+            return NotFound("Book not found or you are not enrolled in this course.");
+        }
+
+        ViewData["Title"] = $"{model.Title} - {model.CourseTitle}";
+        ViewData["ActivePage"] = "Courses";
+        return View("Book", model);
+    }
+
+    // =========================================================================
+    // PHASE 4 — STUDENT GRADEBOOK
+    // =========================================================================
+
+    [HttpGet]
+    [Route("Student/Grades")]
+    public async Task<IActionResult> Grades(int? courseId = null)
+    {
+        var currentUserId = _userManager.GetUserId(User);
+        if (string.IsNullOrEmpty(currentUserId)) return Challenge();
+
+        var model = await _curriculumService.GetStudentGradesAsync(currentUserId, courseId);
+
+        ViewData["Title"] = "My Grades & Academic Records";
+        ViewData["ActivePage"] = "Grades";
+        return View("Grades", model);
     }
 }

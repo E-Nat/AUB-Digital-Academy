@@ -1,88 +1,75 @@
 // ============================================
-// AUB Digital Academy - Global JavaScript
+// AUB Digital Academy - Global Presentation JS
 // ============================================
 
 document.addEventListener('DOMContentLoaded', function () {
-    
-    // 1. Sidebar Toggle Logic
-    const sidebarToggle = document.getElementById('sidebarToggle');
-    const sidebar = document.getElementById('sidebar');
-    
-    if (sidebarToggle && sidebar) {
-        // Create overlay element for mobile
-        const overlay = document.createElement('div');
-        overlay.className = 'sidebar-overlay';
-        document.body.appendChild(overlay);
+    'use strict';
 
+    // 1. Sidebar Toggle & Collapse Logic
+    const sidebarToggle = document.getElementById('sidebarToggle');
+    const sidebar = document.getElementById('sidebar') || document.querySelector('.admin-sidebar');
+    const wrapper = document.getElementById('wrapper');
+    const sidebarOverlay = document.getElementById('sidebarOverlay');
+
+    // Restore desktop collapsed preference if saved
+    const isDesktop = window.innerWidth >= 992;
+    try {
+        const savedCollapsed = localStorage.getItem('aub_sidebar_collapsed');
+        if (isDesktop && savedCollapsed === 'true') {
+            sidebar?.classList.add('collapsed');
+            wrapper?.classList.add('sidebar-collapsed');
+        }
+    } catch (e) {}
+
+    if (sidebarToggle && sidebar) {
         sidebarToggle.addEventListener('click', function (e) {
             e.preventDefault();
-            
-            if (window.innerWidth <= 991.98) {
-                // Mobile behavior
+            if (window.innerWidth < 992) {
+                // Mobile offcanvas drawer
                 sidebar.classList.toggle('show');
-                overlay.classList.toggle('show');
+                sidebarOverlay?.classList.toggle('show');
             } else {
-                // Desktop behavior (optional - if you want collapsible desktop sidebar)
-                document.getElementById('wrapper').classList.toggle('toggled');
-            }
-        });
-
-        // Close sidebar when clicking overlay on mobile
-        overlay.addEventListener('click', function () {
-            sidebar.classList.remove('show');
-            this.classList.remove('show');
-        });
-    }
-
-    // 1b. Sidebar Scroll Position Persistence (Predictable, No jumping)
-    const sidebarNav = document.querySelector('.sidebar-nav');
-    if (sidebarNav) {
-        try {
-            const savedScroll = sessionStorage.getItem('aub_backend_sidebar_scroll');
-            if (savedScroll !== null) {
-                const scrollVal = parseInt(savedScroll, 10);
-                if (!isNaN(scrollVal)) sidebarNav.scrollTop = scrollVal;
-            }
-        } catch (e) {}
-
-        sidebarNav.addEventListener('scroll', function () {
-            try {
-                sessionStorage.setItem('aub_backend_sidebar_scroll', String(sidebarNav.scrollTop));
-            } catch (e) {}
-        }, { passive: true });
-
-        sidebarNav.querySelectorAll('.nav-link-item').forEach(link => {
-            link.addEventListener('click', function () {
+                // Desktop icon-collapse toggle
+                sidebar.classList.toggle('collapsed');
+                wrapper?.classList.toggle('sidebar-collapsed');
+                const isNowCollapsed = sidebar.classList.contains('collapsed');
                 try {
-                    sessionStorage.setItem('aub_backend_sidebar_scroll', String(sidebarNav.scrollTop));
+                    localStorage.setItem('aub_sidebar_collapsed', isNowCollapsed ? 'true' : 'false');
                 } catch (e) {}
-            });
-        });
-
-        window.addEventListener('beforeunload', function () {
-            try {
-                sessionStorage.setItem('aub_backend_sidebar_scroll', String(sidebarNav.scrollTop));
-            } catch (e) {}
-        });
-        window.addEventListener('pagehide', function () {
-            try {
-                sessionStorage.setItem('aub_backend_sidebar_scroll', String(sidebarNav.scrollTop));
-            } catch (e) {}
+            }
         });
     }
 
-    // 2. Theme Toggle Logic (Dark / Light Mode)
+    if (sidebarOverlay && sidebar) {
+        sidebarOverlay.addEventListener('click', function () {
+            sidebar.classList.remove('show');
+            sidebarOverlay.classList.remove('show');
+        });
+    }
+
+    // Close mobile sidebar on navigation (supports both admin and default sidebars)
+    document.querySelectorAll('.sidebar-nav .nav-link-item, .admin-sidebar .admin-nav-item').forEach(link => {
+        link.addEventListener('click', function () {
+            if (window.innerWidth < 992 && sidebar) {
+                sidebar.classList.remove('show');
+                sidebarOverlay?.classList.remove('show');
+            }
+        });
+    });
+
+    // 2. Active Sidebar Navigation Handler based on current route
+    initBackendSidebarActiveState();
+
+    // 3. Theme Toggle Logic (Dark / Light Mode)
     const themeToggle = document.getElementById('themeToggle');
     const themeIcon = document.getElementById('themeIcon');
     const htmlElement = document.documentElement;
 
-    // Check for saved theme preference or use system preference
+    // Resolve preference: localStorage > system preference > default light
     const savedTheme = localStorage.getItem('theme');
     const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-    
     let currentTheme = savedTheme || (prefersDark ? 'dark' : 'light');
-    
-    // Apply initial theme
+
     setTheme(currentTheme);
 
     if (themeToggle) {
@@ -92,32 +79,110 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
+    // Listen to system OS theme changes if user has not explicitly set a choice
+    if (window.matchMedia) {
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function (e) {
+            if (!localStorage.getItem('theme')) {
+                setTheme(e.matches ? 'dark' : 'light');
+            }
+        });
+    }
+
     function setTheme(theme) {
         htmlElement.setAttribute('data-bs-theme', theme);
-        localStorage.setItem('theme', theme);
-        
+        try {
+            localStorage.setItem('theme', theme);
+        } catch (e) {}
+
         if (themeIcon) {
             if (theme === 'dark') {
-                themeIcon.classList.replace('bi-moon-fill', 'bi-sun-fill');
+                themeIcon.className = 'bi bi-sun-fill text-warning';
             } else {
-                themeIcon.classList.replace('bi-sun-fill', 'bi-moon-fill');
+                themeIcon.className = 'bi bi-moon-stars-fill text-secondary';
             }
         }
     }
 
-    // 3. Initialize Bootstrap Tooltips & Popovers
-    const tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"]');
-    const tooltipList = [...tooltipTriggerList].map(tooltipTriggerEl => new bootstrap.Tooltip(tooltipTriggerEl));
+    // 4. Global Search Shortcut (Ctrl+K or Cmd+K) & Enter submission
+    const searchInput = document.getElementById('globalSearchInput');
+    if (searchInput) {
+        document.addEventListener('keydown', function (e) {
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+                e.preventDefault();
+                searchInput.focus();
+                searchInput.select();
+            }
+        });
 
-    const popoverTriggerList = document.querySelectorAll('[data-bs-toggle="popover"]');
-    const popoverList = [...popoverTriggerList].map(popoverTriggerEl => new bootstrap.Popover(popoverTriggerEl));
+        searchInput.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape') {
+                searchInput.blur();
+            } else if (e.key === 'Enter') {
+                e.preventDefault();
+                const query = searchInput.value.trim();
+                if (query) {
+                    window.location.href = '/Admin/Users?search=' + encodeURIComponent(query);
+                }
+            }
+        });
+    }
 
-    // 4. Auto-dismiss alerts after 5 seconds
+    // 5. Initialize Bootstrap Tooltips & Popovers
+    if (typeof bootstrap !== 'undefined') {
+        const tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"]');
+        [...tooltipTriggerList].forEach(el => new bootstrap.Tooltip(el));
+
+        const popoverTriggerList = document.querySelectorAll('[data-bs-toggle="popover"]');
+        [...popoverTriggerList].forEach(el => new bootstrap.Popover(el));
+    }
+
+    // 6. Auto-dismiss alerts after 5 seconds
     const alerts = document.querySelectorAll('.alert:not(.alert-permanent)');
     alerts.forEach(function (alert) {
         setTimeout(function () {
-            const bsAlert = new bootstrap.Alert(alert);
-            bsAlert.close();
+            if (typeof bootstrap !== 'undefined' && bootstrap.Alert) {
+                const bsAlert = bootstrap.Alert.getInstance(alert) || new bootstrap.Alert(alert);
+                bsAlert.close();
+            } else {
+                alert.style.display = 'none';
+            }
         }, 5000);
     });
 });
+
+// Active Sidebar Navigation Sync
+function initBackendSidebarActiveState() {
+    // Only apply client-side route match if server-side didn't already select an active item
+    const adminActive = document.querySelector('.admin-sidebar .admin-nav-item.active');
+    if (adminActive) return; // Server-side Razor helper IsActiveRoute already made the accurate match!
+
+    const navLinks = document.querySelectorAll('.sidebar-nav .nav-link-item');
+    if (!navLinks.length) return;
+
+    function syncActiveNav() {
+        const currentPath = window.location.pathname.toLowerCase();
+        let matched = false;
+
+        navLinks.forEach(link => {
+            const href = (link.getAttribute('href') || '').toLowerCase();
+            let isMatch = false;
+
+            if (href === currentPath) {
+                isMatch = true;
+            } else if (href && href !== '/' && !href.endsWith('/dashboard') && currentPath.startsWith(href)) {
+                isMatch = true;
+            } else if ((currentPath === '/' || currentPath.endsWith('/dashboard')) && href.endsWith('/dashboard')) {
+                isMatch = true;
+            }
+
+            if (isMatch && !matched) {
+                link.classList.add('active');
+                matched = true;
+            } else {
+                link.classList.remove('active');
+            }
+        });
+    }
+
+    syncActiveNav();
+}

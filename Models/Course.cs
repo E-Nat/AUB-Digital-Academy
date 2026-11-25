@@ -1,4 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 using AUBDigitalAcademy.Models.Enums;
 
@@ -43,5 +43,6 @@ public class Course
 
     public virtual ICollection<Chapter> Chapters { get; set; } = new List<Chapter>();
     public virtual ICollection<Enrollment> Enrollments { get; set; } = new List<Enrollment>();
+    public virtual ICollection<CourseAssistant> CourseAssistants { get; set; } = new List<CourseAssistant>();
 }
 

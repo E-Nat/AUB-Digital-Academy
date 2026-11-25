@@ -1,0 +1,65 @@
+services:
+  # ========================================================
+  # Microsoft SQL Server 2022 Database Container
+  # ========================================================
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: aub_sqlserver
+    restart: unless-stopped
+    environment:
+      - ACCEPT_EULA=Y
+      - MSSQL_SA_PASSWORD=${MSSQL_SA_PASSWORD:-YourStrongPasswordHere!}
+      - MSSQL_PID=Developer
+    ports:
+      - "1433:1433"
+    volumes:
+      - sqlserver_data:/var/opt/mssql
+    healthcheck:
+      test: [ "CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -C -Q 'SELECT 1' || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - aub_network
+
+  # ========================================================
+  # AUB Digital Academy Web Application (.NET 10.0 MVC)
+  # ========================================================
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: aub_digital_academy
+    restart: unless-stopped
+    ports:
+      - "5236:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:8080
+      - ConnectionStrings__DefaultConnection=Server=sqlserver,1433;Database=AUBDigitalAcademy;User Id=sa;Password=${MSSQL_SA_PASSWORD:-YourStrongPasswordHere!};MultipleActiveResultSets=true;TrustServerCertificate=True
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
+      - TELEGRAM_MESSAGE_THREAD_ID=${TELEGRAM_MESSAGE_THREAD_ID:-}
+      - Telegram__BotToken=${TELEGRAM_BOT_TOKEN:-}
+      - Telegram__ChatId=${TELEGRAM_CHAT_ID:-}
+      - Telegram__MessageThreadId=${TELEGRAM_MESSAGE_THREAD_ID:-}
+      - Telegram__BotUsername=${TELEGRAM_BOT_USERNAME:-AUBLinkBot}
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    volumes:
+      - dataprotection_keys:/app/App_Data
+    networks:
+      - aub_network
+
+volumes:
+  sqlserver_data:
+    name: aub_sqlserver_data
+  dataprotection_keys:
+    name: aub_dataprotection_keys
+
+networks:
+  aub_network:
+    name: aub_network
+    driver: bridge
