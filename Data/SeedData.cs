@@ -1,12 +1,13 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Hosting;
 using AUBDigitalAcademy.Models;
 
 namespace AUBDigitalAcademy.Data;
 
 public static class SeedData
 {
-    public static async Task InitializeAsync(IServiceProvider serviceProvider)
+    public static async Task InitializeAsync(IServiceProvider serviceProvider, bool? allowDevTaGrading = null)
     {
         var roleManager = serviceProvider.GetRequiredService<RoleManager<IdentityRole>>();
         var userManager = serviceProvider.GetRequiredService<UserManager<User>>();
@@ -300,28 +301,36 @@ public static class SeedData
             await context.SaveChangesAsync();
         }
 
-        // 8. Ensure Assistance User is assigned to CS301 with CanGrade = true (Owner Decision 14.2)
-        var cs301Course = await context.Courses.FirstOrDefaultAsync(c => c.Code == "CS301");
-        if (cs301Course != null && assistanceUser != null)
-        {
-            var existingAssignment = await context.CourseAssistants
-                .FirstOrDefaultAsync(ca => ca.CourseId == cs301Course.Id && ca.AssistantId == assistanceUser.Id);
+        // 8. Ensure Assistance User is assigned to CS301 with CanGrade = true ONLY in Development/Test
+        var hostEnv = serviceProvider.GetService<IHostEnvironment>();
+        bool isDevOrTest = allowDevTaGrading
+            ?? (hostEnv?.IsDevelopment() == true ||
+                Environment.GetCommandLineArgs().Any(a => a.StartsWith("--test-", StringComparison.OrdinalIgnoreCase)));
 
-            if (existingAssignment == null)
+        if (isDevOrTest)
+        {
+            var cs301Course = await context.Courses.FirstOrDefaultAsync(c => c.Code == "CS301");
+            if (cs301Course != null && assistanceUser != null)
             {
-                context.CourseAssistants.Add(new CourseAssistant
+                var existingAssignment = await context.CourseAssistants
+                    .FirstOrDefaultAsync(ca => ca.CourseId == cs301Course.Id && ca.AssistantId == assistanceUser.Id);
+
+                if (existingAssignment == null)
                 {
-                    CourseId = cs301Course.Id,
-                    AssistantId = assistanceUser.Id,
-                    CanGrade = true,
-                    AssignedAt = DateTime.UtcNow
-                });
-                await context.SaveChangesAsync();
-            }
-            else if (!existingAssignment.CanGrade)
-            {
-                existingAssignment.CanGrade = true;
-                await context.SaveChangesAsync();
+                    context.CourseAssistants.Add(new CourseAssistant
+                    {
+                        CourseId = cs301Course.Id,
+                        AssistantId = assistanceUser.Id,
+                        CanGrade = true,
+                        AssignedAt = DateTime.UtcNow
+                    });
+                    await context.SaveChangesAsync();
+                }
+                else if (!existingAssignment.CanGrade)
+                {
+                    existingAssignment.CanGrade = true;
+                    await context.SaveChangesAsync();
+                }
             }
         }
     }

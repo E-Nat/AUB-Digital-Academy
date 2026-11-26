@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -34,6 +35,95 @@ public class AcademicController : Controller
         _curriculumService = curriculumService ?? new AUBDigitalAcademy.Services.Implementations.CurriculumService(context, new LoggerFactory().CreateLogger<AUBDigitalAcademy.Services.Implementations.CurriculumService>());
     }
 
+    private string? GetCurrentUserId()
+    {
+        return _userManager?.GetUserId(User)
+               ?? User?.FindFirstValue(ClaimTypes.NameIdentifier);
+    }
+
+    private bool IsAjaxRequest()
+    {
+        return Request != null &&
+               string.Equals(Request.Headers["X-Requested-With"], "XMLHttpRequest", StringComparison.Ordinal);
+    }
+
+    private IActionResult ForbiddenResult(bool forceJson = false)
+    {
+        if (forceJson || IsAjaxRequest())
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new
+            {
+                success = false,
+                message = "You do not have permission to manage this course."
+            });
+        }
+        return Forbid();
+    }
+
+    private async Task<bool> CanManageCourseAsync(int? courseId)
+    {
+        if (User?.IsInRole("Admin") == true)
+        {
+            return true;
+        }
+
+        if (!courseId.HasValue || courseId.Value <= 0)
+        {
+            return false;
+        }
+
+        var currentUserId = GetCurrentUserId();
+        if (string.IsNullOrWhiteSpace(currentUserId))
+        {
+            return false;
+        }
+
+        return await _context.Courses
+            .AsNoTracking()
+            .AnyAsync(c => c.Id == courseId.Value && c.TeacherId == currentUserId);
+    }
+
+    private Task<int?> ResolveCourseIdFromChapterAsync(int chapterId)
+    {
+        return chapterId <= 0
+            ? Task.FromResult<int?>(null)
+            : _context.Chapters.AsNoTracking()
+                .Where(ch => ch.Id == chapterId)
+                .Select(ch => (int?)ch.CourseId)
+                .FirstOrDefaultAsync();
+    }
+
+    private Task<int?> ResolveCourseIdFromCourseItemAsync(int id, ItemType? expectedType = null, bool alsoCheckLessonId = false)
+    {
+        return id <= 0
+            ? Task.FromResult<int?>(null)
+            : _context.CourseItems.AsNoTracking()
+                .Where(ci => (!expectedType.HasValue || ci.Type == expectedType.Value)
+                             && (ci.Id == id || (alsoCheckLessonId && ci.Lesson != null && ci.Lesson.Id == id)))
+                .Select(ci => (int?)ci.Chapter.CourseId)
+                .FirstOrDefaultAsync();
+    }
+
+    private Task<int?> ResolveCourseIdFromQuizAsync(int quizOrItemId, bool allowCourseItemId = false)
+    {
+        return quizOrItemId <= 0
+            ? Task.FromResult<int?>(null)
+            : _context.Quizzes.AsNoTracking()
+                .Where(q => q.Id == quizOrItemId || (allowCourseItemId && q.CourseItemId == quizOrItemId))
+                .Select(q => (int?)q.CourseItem.Chapter.CourseId)
+                .FirstOrDefaultAsync();
+    }
+
+    private Task<int?> ResolveCourseIdFromQuestionAsync(int questionId)
+    {
+        return questionId <= 0
+            ? Task.FromResult<int?>(null)
+            : _context.Questions.AsNoTracking()
+                .Where(q => q.Id == questionId)
+                .Select(q => (int?)q.Quiz.CourseItem.Chapter.CourseId)
+                .FirstOrDefaultAsync();
+    }
+
     [Authorize(Roles = "Admin")]
     [HttpGet]
     public async Task<IActionResult> Course()
@@ -45,6 +135,7 @@ public class AcademicController : Controller
         return View(viewModel);
     }
 
+    [Authorize(Roles = "Admin")]
     [HttpGet]
     public async Task<IActionResult> CreateCourse()
     {
@@ -56,6 +147,7 @@ public class AcademicController : Controller
         return View(model);
     }
 
+    [Authorize(Roles = "Admin")]
     [HttpPost]
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> CreateCourse(CourseCreateViewModel createModel, string? submitAction = null)
@@ -240,6 +332,11 @@ public class AcademicController : Controller
             return NotFound(new { success = false, message = "Course not found." });
         }
 
+        if (!await CanManageCourseAsync(course.Id))
+        {
+            return ForbiddenResult(forceJson: true);
+        }
+
         return Json(new
         {
             success = true,
@@ -279,6 +376,11 @@ public class AcademicController : Controller
             return RedirectToAction(nameof(Course));
         }
 
+        if (!await CanManageCourseAsync(course.Id))
+        {
+            return Forbid();
+        }
+
         var editModel = new CourseEditViewModel
         {
             Id = course.Id,
@@ -307,6 +409,23 @@ public class AcademicController : Controller
         if (editModel.Id <= 0)
         {
             ModelState.AddModelError(string.Empty, "Invalid course ID.");
+        }
+        else
+        {
+            var existingCourse = await _context.Courses.AsNoTracking().FirstOrDefaultAsync(c => c.Id == editModel.Id);
+            if (existingCourse != null)
+            {
+                if (!await CanManageCourseAsync(existingCourse.Id))
+                {
+                    return ForbiddenResult();
+                }
+
+                // Teachers cannot reassign course ownership to another instructor
+                if (!User.IsInRole("Admin"))
+                {
+                    editModel.TeacherId = existingCourse.TeacherId;
+                }
+            }
         }
 
         // Determine status based on button clicked if specified
@@ -478,6 +597,7 @@ public class AcademicController : Controller
         }
     }
 
+    [Authorize(Roles = "Admin")]
     [HttpPost]
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> DeleteCourse(int id)
@@ -601,15 +721,9 @@ public class AcademicController : Controller
             return RedirectToAction(nameof(Course));
         }
 
-        var currentUserId = _userManager.GetUserId(User);
-        bool isAdmin = User.IsInRole("Admin");
-        if (!isAdmin)
+        if (!await CanManageCourseAsync(id))
         {
-            var course = await _context.Courses.AsNoTracking().FirstOrDefaultAsync(c => c.Id == id);
-            if (course == null || (course.TeacherId != currentUserId && !await _context.CourseAssistants.AnyAsync(ca => ca.CourseId == id && ca.AssistantId == currentUserId)))
-            {
-                return Forbid();
-            }
+            return Forbid();
         }
 
         ViewData["Title"] = $"{viewModel.CourseTitle} - Curriculum";
@@ -634,6 +748,11 @@ public class AcademicController : Controller
             return StatusCode(500, new { success = false, message = "Curriculum service is unavailable." });
         }
 
+        if (!await CanManageCourseAsync(courseId))
+        {
+            return ForbiddenResult(forceJson: true);
+        }
+
         var modules = await _curriculumService.GetModulesByCourseIdAsync(courseId);
         return Json(new { success = true, courseId, modules });
     }
@@ -655,6 +774,11 @@ public class AcademicController : Controller
         if (chapter == null)
         {
             return NotFound(new { success = false, message = "Module not found." });
+        }
+
+        if (!await CanManageCourseAsync(chapter.CourseId))
+        {
+            return ForbiddenResult(forceJson: true);
         }
 
         return Json(new
@@ -693,6 +817,11 @@ public class AcademicController : Controller
             if (isAjax) return Json(new { success = false, message = serviceErr });
             TempData["ErrorMessage"] = serviceErr;
             return RedirectToAction(nameof(Curriculum), new { id = model.CourseId });
+        }
+
+        if (model.CourseId > 0 && !await CanManageCourseAsync(model.CourseId))
+        {
+            return ForbiddenResult();
         }
 
         var result = await _curriculumService.CreateChapterAsync(model);
@@ -749,6 +878,12 @@ public class AcademicController : Controller
             return RedirectToAction(nameof(Curriculum), new { id = model.CourseId });
         }
 
+        var resolvedCourseId = await ResolveCourseIdFromChapterAsync(model.Id);
+        if (resolvedCourseId.HasValue && !await CanManageCourseAsync(resolvedCourseId))
+        {
+            return ForbiddenResult();
+        }
+
         var result = await _curriculumService.UpdateChapterAsync(model);
 
         if (result.IsSuccess)
@@ -798,6 +933,12 @@ public class AcademicController : Controller
             if (isAjax) return Json(new { success = false, message = serviceErr });
             TempData["ErrorMessage"] = serviceErr;
             return RedirectToAction(nameof(Curriculum), new { id = courseId });
+        }
+
+        var resolvedCourseId = await ResolveCourseIdFromChapterAsync(id);
+        if (resolvedCourseId.HasValue && !await CanManageCourseAsync(resolvedCourseId))
+        {
+            return ForbiddenResult();
         }
 
         var result = await _curriculumService.DeleteChapterAsync(id, courseId > 0 ? courseId : null);
@@ -862,6 +1003,12 @@ public class AcademicController : Controller
             return StatusCode(500, new { success = false, message = "Curriculum service is unavailable." });
         }
 
+        var resolvedCourseId = await ResolveCourseIdFromChapterAsync(id);
+        if (resolvedCourseId.HasValue && !await CanManageCourseAsync(resolvedCourseId))
+        {
+            return ForbiddenResult(forceJson: true);
+        }
+
         var lessons = await _curriculumService.GetLessonsByChapterIdAsync(id);
         if (lessons == null)
         {
@@ -888,6 +1035,11 @@ public class AcademicController : Controller
         if (lesson == null)
         {
             return NotFound(new { success = false, message = "Lesson not found." });
+        }
+
+        if (!await CanManageCourseAsync(lesson.CourseId))
+        {
+            return ForbiddenResult(forceJson: true);
         }
 
         return Json(new
@@ -930,6 +1082,12 @@ public class AcademicController : Controller
             if (isAjax) return Json(new { success = false, message = serviceErr });
             TempData["ErrorMessage"] = serviceErr;
             return RedirectToAction(nameof(Curriculum), new { id = model.CourseId });
+        }
+
+        var resolvedCourseId = await ResolveCourseIdFromChapterAsync(model.ChapterId) ?? (model.CourseId > 0 ? model.CourseId : null);
+        if (resolvedCourseId.HasValue && !await CanManageCourseAsync(resolvedCourseId))
+        {
+            return ForbiddenResult();
         }
 
         var result = await _curriculumService.CreateLessonAsync(model);
@@ -987,6 +1145,13 @@ public class AcademicController : Controller
             return RedirectToAction(nameof(Curriculum), new { id = model.CourseId });
         }
 
+        int targetLessonId = model.CourseItemId > 0 ? model.CourseItemId : model.LessonId;
+        var resolvedCourseId = await ResolveCourseIdFromCourseItemAsync(targetLessonId, ItemType.Lesson, alsoCheckLessonId: true);
+        if (resolvedCourseId.HasValue && !await CanManageCourseAsync(resolvedCourseId))
+        {
+            return ForbiddenResult();
+        }
+
         var result = await _curriculumService.UpdateLessonAsync(model);
 
         if (result.IsSuccess)
@@ -1041,6 +1206,12 @@ public class AcademicController : Controller
             return courseId > 0
                 ? RedirectToAction(nameof(Curriculum), new { id = courseId })
                 : RedirectToAction(nameof(Course));
+        }
+
+        var resolvedCourseId = await ResolveCourseIdFromCourseItemAsync(id, ItemType.Lesson, alsoCheckLessonId: true);
+        if (resolvedCourseId.HasValue && !await CanManageCourseAsync(resolvedCourseId))
+        {
+            return ForbiddenResult();
         }
 
         var result = await _curriculumService.DeleteLessonAsync(
@@ -1104,6 +1275,7 @@ public class AcademicController : Controller
         if (id <= 0) return BadRequest(new { success = false, message = "Invalid quiz ID." });
         var quiz = await _curriculumService.GetQuizAsync(id, chapterId, courseId);
         if (quiz == null) return NotFound(new { success = false, message = "Quiz not found." });
+        if (!await CanManageCourseAsync(quiz.CourseId)) return ForbiddenResult(forceJson: true);
         return Json(new { success = true, quiz });
     }
 
@@ -1118,6 +1290,12 @@ public class AcademicController : Controller
             if (isAjax) return Json(new { success = false, message = "Please provide valid quiz information.", errors });
             TempData["ErrorMessage"] = errors.FirstOrDefault() ?? "Invalid quiz data.";
             return RedirectToAction(nameof(Curriculum), new { id = model.CourseId });
+        }
+
+        var resolvedCourseId = await ResolveCourseIdFromChapterAsync(model.ChapterId) ?? (model.CourseId > 0 ? model.CourseId : null);
+        if (resolvedCourseId.HasValue && !await CanManageCourseAsync(resolvedCourseId))
+        {
+            return ForbiddenResult();
         }
 
         var result = await _curriculumService.CreateQuizAsync(model);
@@ -1157,6 +1335,12 @@ public class AcademicController : Controller
             return RedirectToAction(nameof(Curriculum), new { id = model.CourseId });
         }
 
+        var resolvedCourseId = await ResolveCourseIdFromCourseItemAsync(model.CourseItemId, ItemType.Quiz);
+        if (resolvedCourseId.HasValue && !await CanManageCourseAsync(resolvedCourseId))
+        {
+            return ForbiddenResult();
+        }
+
         var result = await _curriculumService.UpdateQuizAsync(model);
         if (result.IsSuccess)
         {
@@ -1194,6 +1378,12 @@ public class AcademicController : Controller
             return courseId > 0 ? RedirectToAction(nameof(Curriculum), new { id = courseId }) : RedirectToAction(nameof(Course));
         }
 
+        var resolvedCourseId = await ResolveCourseIdFromCourseItemAsync(id, ItemType.Quiz);
+        if (resolvedCourseId.HasValue && !await CanManageCourseAsync(resolvedCourseId))
+        {
+            return ForbiddenResult();
+        }
+
         var result = await _curriculumService.DeleteQuizAsync(id, chapterId > 0 ? chapterId : null, courseId > 0 ? courseId : null);
         if (result.IsSuccess)
         {
@@ -1227,6 +1417,7 @@ public class AcademicController : Controller
         if (id <= 0) return BadRequest(new { success = false, message = "Invalid resource ID." });
         var book = await _curriculumService.GetBookByIdAsync(id);
         if (book == null) return NotFound(new { success = false, message = "Resource not found." });
+        if (!await CanManageCourseAsync(book.CourseId)) return ForbiddenResult(forceJson: true);
         return Json(new { success = true, book });
     }
 
@@ -1241,6 +1432,12 @@ public class AcademicController : Controller
             if (isAjax) return Json(new { success = false, message = "Please provide valid resource information.", errors });
             TempData["ErrorMessage"] = errors.FirstOrDefault() ?? "Invalid resource data.";
             return RedirectToAction(nameof(Curriculum), new { id = model.CourseId });
+        }
+
+        var resolvedCourseId = await ResolveCourseIdFromChapterAsync(model.ChapterId) ?? (model.CourseId > 0 ? model.CourseId : null);
+        if (resolvedCourseId.HasValue && !await CanManageCourseAsync(resolvedCourseId))
+        {
+            return ForbiddenResult();
         }
 
         var result = await _curriculumService.CreateBookAsync(model);
@@ -1280,6 +1477,12 @@ public class AcademicController : Controller
             return RedirectToAction(nameof(Curriculum), new { id = model.CourseId });
         }
 
+        var resolvedCourseId = await ResolveCourseIdFromCourseItemAsync(model.CourseItemId);
+        if (resolvedCourseId.HasValue && !await CanManageCourseAsync(resolvedCourseId))
+        {
+            return ForbiddenResult();
+        }
+
         var result = await _curriculumService.UpdateBookAsync(model);
         if (result.IsSuccess)
         {
@@ -1317,6 +1520,12 @@ public class AcademicController : Controller
             return courseId > 0 ? RedirectToAction(nameof(Curriculum), new { id = courseId }) : RedirectToAction(nameof(Course));
         }
 
+        var resolvedCourseId = await ResolveCourseIdFromCourseItemAsync(id);
+        if (resolvedCourseId.HasValue && !await CanManageCourseAsync(resolvedCourseId))
+        {
+            return ForbiddenResult();
+        }
+
         var result = await _curriculumService.DeleteBookAsync(id, chapterId > 0 ? chapterId : null, courseId > 0 ? courseId : null);
         if (result.IsSuccess)
         {
@@ -1350,6 +1559,7 @@ public class AcademicController : Controller
         if (id <= 0) return BadRequest(new { success = false, message = "Invalid assignment ID." });
         var assignment = await _curriculumService.GetAssignmentByIdAsync(id);
         if (assignment == null) return NotFound(new { success = false, message = "Assignment not found." });
+        if (!await CanManageCourseAsync(assignment.CourseId)) return ForbiddenResult(forceJson: true);
         return Json(new { success = true, assignment });
     }
 
@@ -1364,6 +1574,12 @@ public class AcademicController : Controller
             if (isAjax) return Json(new { success = false, message = "Please provide valid assignment information.", errors });
             TempData["ErrorMessage"] = errors.FirstOrDefault() ?? "Invalid assignment data.";
             return RedirectToAction(nameof(Curriculum), new { id = model.CourseId });
+        }
+
+        var resolvedCourseId = await ResolveCourseIdFromChapterAsync(model.ChapterId) ?? (model.CourseId > 0 ? model.CourseId : null);
+        if (resolvedCourseId.HasValue && !await CanManageCourseAsync(resolvedCourseId))
+        {
+            return ForbiddenResult();
         }
 
         var result = await _curriculumService.CreateAssignmentAsync(model);
@@ -1403,6 +1619,12 @@ public class AcademicController : Controller
             return RedirectToAction(nameof(Curriculum), new { id = model.CourseId });
         }
 
+        var resolvedCourseId = await ResolveCourseIdFromCourseItemAsync(model.CourseItemId);
+        if (resolvedCourseId.HasValue && !await CanManageCourseAsync(resolvedCourseId))
+        {
+            return ForbiddenResult();
+        }
+
         var result = await _curriculumService.UpdateAssignmentAsync(model);
         if (result.IsSuccess)
         {
@@ -1438,6 +1660,12 @@ public class AcademicController : Controller
             if (isAjax) return BadRequest(new { success = false, message = invalidMsg });
             TempData["ErrorMessage"] = invalidMsg;
             return courseId > 0 ? RedirectToAction(nameof(Curriculum), new { id = courseId }) : RedirectToAction(nameof(Course));
+        }
+
+        var resolvedCourseId = await ResolveCourseIdFromCourseItemAsync(id);
+        if (resolvedCourseId.HasValue && !await CanManageCourseAsync(resolvedCourseId))
+        {
+            return ForbiddenResult();
         }
 
         var result = await _curriculumService.DeleteAssignmentAsync(id, chapterId > 0 ? chapterId : null, courseId > 0 ? courseId : null);
@@ -1489,6 +1717,11 @@ public class AcademicController : Controller
             return RedirectToAction(nameof(Course));
         }
 
+        if (!await CanManageCourseAsync(model.CourseId))
+        {
+            return Forbid();
+        }
+
         ViewData["Title"] = $"Manage Questions: {model.QuizTitle}";
         return View(model);
     }
@@ -1497,6 +1730,12 @@ public class AcademicController : Controller
     public async Task<IActionResult> GetQuestionJson(int id)
     {
         if (id <= 0) return BadRequest(new { success = false, message = "Invalid question ID." });
+        var resolvedCourseId = await ResolveCourseIdFromQuestionAsync(id);
+        if (resolvedCourseId.HasValue && !await CanManageCourseAsync(resolvedCourseId))
+        {
+            return ForbiddenResult(forceJson: true);
+        }
+
         var question = await _curriculumService.GetQuestionByIdAsync(id);
         if (question == null) return NotFound(new { success = false, message = "Question not found." });
         return Json(new { success = true, question });
@@ -1511,6 +1750,12 @@ public class AcademicController : Controller
             var errors = ModelState.Values.SelectMany(v => v.Errors).Select(e => e.ErrorMessage).ToList();
             TempData["ErrorMessage"] = errors.FirstOrDefault() ?? "Invalid question data.";
             return RedirectToAction(nameof(QuizQuestions), new { id = model.QuizId });
+        }
+
+        var resolvedCourseId = await ResolveCourseIdFromQuizAsync(model.QuizId);
+        if (resolvedCourseId.HasValue && !await CanManageCourseAsync(resolvedCourseId))
+        {
+            return Forbid();
         }
 
         var result = await _curriculumService.AddQuestionAsync(model.QuizId, model);
@@ -1536,6 +1781,18 @@ public class AcademicController : Controller
             return RedirectToAction(nameof(QuizQuestions), new { id = model.QuizId });
         }
 
+        var resolvedCourseId = await ResolveCourseIdFromQuestionAsync(model.Id);
+        if (resolvedCourseId.HasValue && !await CanManageCourseAsync(resolvedCourseId))
+        {
+            return Forbid();
+        }
+
+        var quizCourseId = await ResolveCourseIdFromQuizAsync(model.QuizId);
+        if (quizCourseId.HasValue && !await CanManageCourseAsync(quizCourseId))
+        {
+            return Forbid();
+        }
+
         var result = await _curriculumService.UpdateQuestionAsync(model);
         if (result.IsSuccess)
         {
@@ -1556,6 +1813,12 @@ public class AcademicController : Controller
         {
             TempData["ErrorMessage"] = "Invalid Question ID or Quiz ID.";
             return RedirectToAction(nameof(QuizQuestions), new { id = quizId });
+        }
+
+        var resolvedCourseId = await ResolveCourseIdFromQuestionAsync(id);
+        if (resolvedCourseId.HasValue && !await CanManageCourseAsync(resolvedCourseId))
+        {
+            return Forbid();
         }
 
         var result = await _curriculumService.DeleteQuestionAsync(id, quizId);
@@ -1707,6 +1970,7 @@ public class AcademicController : Controller
     // PHASE 4 MODULE F — TEACHING ASSISTANT MANAGEMENT (ADMIN ONLY)
     // =========================================================================
 
+    [Authorize(Roles = "Admin")]
     [HttpGet]
     public async Task<IActionResult> GetCourseAssistantsJson(int id)
     {
@@ -1764,6 +2028,7 @@ public class AcademicController : Controller
         });
     }
 
+    [Authorize(Roles = "Admin")]
     [HttpPost]
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> AssignCourseAssistant(int courseId, string assistantId)
@@ -1814,6 +2079,7 @@ public class AcademicController : Controller
         return Json(new { success = true, message = "Teaching Assistant assigned successfully." });
     }
 
+    [Authorize(Roles = "Admin")]
     [HttpPost]
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> UnassignCourseAssistant(int courseId, string assistantId)
@@ -1839,6 +2105,7 @@ public class AcademicController : Controller
         return Json(new { success = true, message = "Teaching Assistant unassigned successfully." });
     }
 
+    [Authorize(Roles = "Admin")]
     [HttpPost]
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> ToggleAssistantCanGrade(int courseId, string assistantId, bool canGrade)

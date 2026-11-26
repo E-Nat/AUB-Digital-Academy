@@ -1,7 +1,9 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using AUBDigitalAcademy.Data;
 using AUBDigitalAcademy.Models;
 using AUBDigitalAcademy.Models.Enums;
@@ -270,6 +272,14 @@ public static class AssistanceIntegrationTestRunner
         bool duplicateCaught = false;
         try
         {
+            var connectionString = services.GetRequiredService<IConfiguration>().GetConnectionString("DefaultConnection")
+                ?? context.Database.GetConnectionString();
+            var silentOptions = new DbContextOptionsBuilder<ApplicationDbContext>()
+                .UseSqlServer(connectionString)
+                .UseLoggerFactory(NullLoggerFactory.Instance)
+                .Options;
+
+            await using var silentContext = new ApplicationDbContext(silentOptions);
             var duplicateEntry = new CourseAssistant
             {
                 CourseId = cs301.Id,
@@ -277,14 +287,12 @@ public static class AssistanceIntegrationTestRunner
                 CanGrade = true,
                 AssignedAt = DateTime.UtcNow
             };
-            context.CourseAssistants.Add(duplicateEntry);
-            await context.SaveChangesAsync();
+            silentContext.CourseAssistants.Add(duplicateEntry);
+            await silentContext.SaveChangesAsync();
         }
         catch (DbUpdateException)
         {
             duplicateCaught = true;
-            // Detach to keep DbContext clean
-            context.ChangeTracker.Clear();
         }
         if (!duplicateCaught) throw new Exception("Database failed to enforce unique constraint on (CourseId, AssistantId).");
         passed++;

@@ -5,6 +5,9 @@
 *.sln.docstates
 *.suo
 
+App_Data
+App_Data/DataProtection-Keys
+App_Data/Uploads
 # Build results
 [Dd]ebug/
 [Dd]ebugPublic/
@@ -64,3 +67,5 @@ logs/
 .env.local
 .env.*.local
 !.env.example
+.idea
+.idea/

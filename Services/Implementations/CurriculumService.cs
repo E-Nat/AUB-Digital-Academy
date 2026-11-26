@@ -1505,6 +1505,11 @@ public class CurriculumService : ICurriculumService
 
         if (question == null) return CurriculumOperationResult.NotFound("Question not found.");
 
+        if (model.QuizId > 0 && question.QuizId != model.QuizId)
+        {
+            return CurriculumOperationResult.ValidationError("Question does not belong to the specified quiz.");
+        }
+
         var validOptions = (model.Options ?? new List<QuestionOptionViewModel>())
             .Where(o => !string.IsNullOrWhiteSpace(o.Text))
             .ToList();

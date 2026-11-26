@@ -28,9 +28,12 @@ public class TelegramPollingService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var botToken = _configuration["TelegramBot:Token"]
-                       ?? _configuration["Telegram:BotToken"]
-                       ?? Environment.GetEnvironmentVariable("TELEGRAM_BOT_TOKEN");
+        var botToken = new[]
+        {
+            _configuration["TelegramBot:Token"],
+            _configuration["Telegram:BotToken"],
+            Environment.GetEnvironmentVariable("TELEGRAM_BOT_TOKEN")
+        }.FirstOrDefault(v => !string.IsNullOrWhiteSpace(v));
 
         if (string.IsNullOrWhiteSpace(botToken))
         {
