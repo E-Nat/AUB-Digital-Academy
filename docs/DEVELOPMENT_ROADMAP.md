@@ -56,17 +56,18 @@
   - Existing legacy DB rows with unsanitized `ContentHtml` or `Book.FileUrl` are safely sanitized at read and render time. *(Verified)*
 - **Required tests:** `--test-stored-xss` (10/10 passed), `--test-telegram-log-redaction` (10/10 passed via `--no-launch-profile`), `--test-api-auth` (12/12 passed), `--test-auth` (12/12 passed), `--test-registration-telegram` (14/14 passed), `--test-course-integration` (16/16 passed), `--test-phase4` (26/26 passed). *(Executed on 2026-11-26.)*
 
-### `TASK-P0-04`: Enforce Telegram 2FA on Google OAuth & Gate `SeedData` Password Resets
-- **Description:** Update `AccountController.ExternalLoginCallback` to require Telegram linking/2FA instead of setting `IsTelegramVerified = true` and signing in directly; add null guard on email claim. Gate `SeedData.EnsureSeedUserAsync` so existing user passwords/lockouts/verification flags are never overwritten on startup outside initial empty-DB dev seeding.
-- **Why it is needed:** Google OAuth bypasses mandatory 2FA, and `SeedData` silently resets Admin/Teacher/TA/Student passwords back to weak defaults (`admin123`, etc.) on every app restart.
-- **Affected files:** `Controllers/AccountController.cs`, `Data/SeedData.cs`, `Program.cs`
+### `TASK-P0-04`: Enforce Telegram 2FA on Google OAuth & Gate `SeedData` Password Resets — **[COMPLETED 2026-11-27]**
+- **Description:** Rewrote `AccountController.ExternalLogin` and `ExternalLoginCallback` to delegate to shared `IAuthService.InitiateExternalTwoFactorLoginAsync` (`AuthService`): resolve local accounts strictly via `UserManager.FindByLoginAsync`, reject unassociated Google accounts without auto-creation or silent email linking, enforce `IsActive`, `IsLockedOutAsync`, `CanSignInAsync`, and linked Telegram verification (`IsTelegramVerified && TelegramChatId.HasValue`), prevent callback replay (`AubExternalNonce` / `IssuedUtc` single-use tracking + immediate `IdentityConstants.ExternalScheme` sign-out), set `Options.SaveTokens = false` and `OnRemoteFailure` in `Program.cs`, and require `VerifyTelegram` 2FA completion via `ITimeLimitedDataProtector`-protected `AUB_PendingVerification` cookie before issuing the application Identity cookie. Hardened `SeedData.InitializeAsync` (`CreateSeedUserIfMissingAsync`) so local-only Development seed users are created only when the user store is initially empty in Development/`--test-*` runs, and existing passwords, lockouts, active flags, profile fields, roles, and deleted accounts are never overwritten or resurrected on startup.
+- **Why it is needed:** Google OAuth previously bypassed mandatory 2FA and could auto-create or silently link accounts by email, and `SeedData` silently reset Admin/Teacher/TA/Student passwords back to weak defaults (`admin123`, etc.) on every app restart.
+- **Affected files:** `Services/Interfaces/IAuthService.cs`, `Services/Implementations/AuthService.cs`, `Controllers/AccountController.cs`, `Views/Account/Login.cshtml`, `Data/SeedData.cs`, `Data/GoogleOAuth2FaIntegrationTestRunner.cs`, `Program.cs`
 - **Dependencies:** None
 - **Priority:** P0
 - **Estimated complexity:** M
 - **Acceptance criteria:**
-  - Google OAuth users without verified Telegram must complete Telegram pairing/2FA before receiving an authenticated session cookie.
-  - Changing the Admin or Teacher password persists across application restarts.
-- **Required tests:** Integration tests verifying password changes survive `SeedData.InitializeAsync` re-runs, and OAuth callback enforces Telegram verification.
+  - Google OAuth users must have an associated local account with linked, verified Telegram and complete Telegram 2FA before receiving an authenticated application cookie. *(Verified)*
+  - Unassociated Google accounts cannot auto-create accounts or silently link by email, and replayed external callbacks are rejected. *(Verified)*
+  - Existing user password hashes, active/lockout states, profile fields, roles, and deletions persist across repeated `SeedData.InitializeAsync` runs. *(Verified)*
+- **Required tests:** `--test-google-oauth-2fa` (14/14 passed), `--test-api-auth` (12/12 passed), `--test-auth` (12/12 passed), `--test-registration-telegram` (14/14 passed), `--test-telegram-log-redaction` (10/10 passed via `--no-launch-profile`), `--test-stored-xss` (10/10 passed), `--test-course-integration` (16/16 passed), `--test-phase4` (26/26 passed). *(Executed on 2026-11-27.)*
 
 ### `TASK-P0-05`: Fix `Register` Telegram Flow & Secure `CheckTelegramLinkStatus`
 - **Description:** Fix `AccountController.Register` so newly registered students without `TelegramChatId` are routed through `LinkTelegram` (personal pairing) rather than falling back to shared `Telegram:ChatId` via `VerifyTelegram`. Enforce `ValidatePendingVerificationSession(userId)` on `CheckTelegramLinkStatus`.

@@ -23,7 +23,7 @@
         </div>
     </div>
 
-    @* Global Success & Info Alerts *@
+    @* Global Success, Info & Error Alerts *@
     @if (TempData["SuccessMessage"] != null)
     {
         <div class="alert alert-success d-flex align-items-center gap-2 mb-3 py-2.5 px-3 rounded-3" role="alert">
@@ -36,6 +36,13 @@
         <div class="alert alert-info d-flex align-items-center gap-2 mb-3 py-2.5 px-3 rounded-3" role="alert">
             <i class="bi bi-info-circle-fill flex-shrink-0"></i>
             <div class="small">@TempData["InfoMessage"]</div>
+        </div>
+    }
+    @if (TempData["ErrorMessage"] != null)
+    {
+        <div class="alert alert-danger d-flex align-items-center gap-2 mb-3 py-2.5 px-3 rounded-3" role="alert">
+            <i class="bi bi-exclamation-triangle-fill flex-shrink-0"></i>
+            <div class="small">@TempData["ErrorMessage"]</div>
         </div>
     }
 

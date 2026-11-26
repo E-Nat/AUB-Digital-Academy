@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -16,6 +17,8 @@ public class AuthService : IAuthService
     private const int OtpValidityMinutes = 10;
     private const int DefaultJwtExpirationMinutes = 60;
     private const int MinimumJwtSecretBytes = 32;
+    private static readonly TimeSpan ExternalNonceLifetime = TimeSpan.FromMinutes(30);
+    private static readonly ConcurrentDictionary<string, DateTimeOffset> ConsumedExternalNonces = new();
 
     private readonly UserManager<User> _userManager;
     private readonly ApplicationDbContext _context;
@@ -133,6 +136,150 @@ public class AuthService : IAuthService
             targetChatId);
 
         return request;
+    }
+
+    public async Task<WebTwoFactorDispatchResult> DispatchWebTwoFactorChallengeAsync(User user)
+    {
+        if (!user.IsActive || await _userManager.IsLockedOutAsync(user) || !user.IsTelegramVerified || !user.TelegramChatId.HasValue)
+        {
+            return new WebTwoFactorDispatchResult(TwoFactorDispatchStatus.DeliveryFailed);
+        }
+
+        var now = DateTime.UtcNow;
+        var existingActive = await _context.TelegramVerificationRequests
+            .Where(r => r.UserId == user.Id && !r.IsUsed)
+            .ToListAsync();
+
+        foreach (var prior in existingActive)
+        {
+            prior.IsUsed = true;
+            prior.UsedAt = now;
+        }
+
+        var code = GenerateSixDigitCode();
+        var request = new TelegramVerificationRequest
+        {
+            UserId = user.Id,
+            UniversityId = user.UniversityId ?? user.Email ?? user.UserName ?? user.Id,
+            Code = code,
+            CreatedAt = now,
+            ExpiresAt = now.AddMinutes(OtpValidityMinutes),
+            IsUsed = false,
+            AttemptsCount = 0,
+            MaxAttempts = 5
+        };
+
+        _context.TelegramVerificationRequests.Add(request);
+        await _context.SaveChangesAsync();
+
+        var sent = await _telegramService.SendVerificationCodeAsync(
+            request.UniversityId,
+            user.FullName,
+            code,
+            user.TelegramChatId.Value.ToString());
+
+        if (!sent)
+        {
+            request.IsUsed = true;
+            request.UsedAt = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
+            return new WebTwoFactorDispatchResult(TwoFactorDispatchStatus.DeliveryFailed);
+        }
+
+        return new WebTwoFactorDispatchResult(TwoFactorDispatchStatus.Sent, request);
+    }
+
+    public async Task<ExternalLoginCheckResult> InitiateExternalTwoFactorLoginAsync(ExternalLoginInfo? info)
+    {
+        if (info == null ||
+            !string.Equals(info.LoginProvider, "Google", StringComparison.OrdinalIgnoreCase) ||
+            string.IsNullOrWhiteSpace(info.ProviderKey))
+        {
+            return new ExternalLoginCheckResult(ExternalLoginStatus.InvalidExternalLogin);
+        }
+
+        if (!TryConsumeExternalLoginReplayToken(info))
+        {
+            _logger.LogWarning("Rejected replayed external login attempt for provider {LoginProvider}.", info.LoginProvider);
+            return new ExternalLoginCheckResult(ExternalLoginStatus.Replayed);
+        }
+
+        // Resolve local account strictly through trusted Identity external login association (AspNetUserLogins).
+        // Never auto-create users or silently link by unverified email match.
+        var user = await _userManager.FindByLoginAsync(info.LoginProvider, info.ProviderKey);
+        if (user == null)
+        {
+            _logger.LogInformation("External login {LoginProvider} did not match any associated local user.", info.LoginProvider);
+            return new ExternalLoginCheckResult(ExternalLoginStatus.NotAssociated);
+        }
+
+        if (!user.IsActive)
+        {
+            _logger.LogWarning("External login blocked for inactive user {UserId}.", user.Id);
+            return new ExternalLoginCheckResult(ExternalLoginStatus.InactiveAccount, user);
+        }
+
+        if (await _userManager.IsLockedOutAsync(user))
+        {
+            _logger.LogWarning("External login blocked for locked-out user {UserId}.", user.Id);
+            return new ExternalLoginCheckResult(ExternalLoginStatus.LockedOut, user);
+        }
+
+        if (!user.IsTelegramVerified || !user.TelegramChatId.HasValue)
+        {
+            _logger.LogInformation("External login blocked for user {UserId}: Telegram 2FA is not linked.", user.Id);
+            return new ExternalLoginCheckResult(ExternalLoginStatus.TelegramNotLinked, user);
+        }
+
+        var dispatch = await DispatchWebTwoFactorChallengeAsync(user);
+        if (dispatch.Status != TwoFactorDispatchStatus.Sent || dispatch.Request == null)
+        {
+            _logger.LogWarning("External login OTP delivery failed for user {UserId}.", user.Id);
+            return new ExternalLoginCheckResult(ExternalLoginStatus.OtpDeliveryFailed, user);
+        }
+
+        var roles = (await _userManager.GetRolesAsync(user)).ToList();
+        return new ExternalLoginCheckResult(
+            ExternalLoginStatus.TwoFactorPending,
+            user,
+            roles,
+            dispatch.Request);
+    }
+
+    private static bool TryConsumeExternalLoginReplayToken(ExternalLoginInfo info)
+    {
+        var now = DateTimeOffset.UtcNow;
+        foreach (var entry in ConsumedExternalNonces)
+        {
+            if (entry.Value <= now)
+            {
+                ConsumedExternalNonces.TryRemove(entry.Key, out _);
+            }
+        }
+
+        string? replayKey = null;
+        if (info.AuthenticationProperties?.Items.TryGetValue("AubExternalNonce", out var nonce) == true &&
+            !string.IsNullOrWhiteSpace(nonce))
+        {
+            replayKey = $"nonce:{info.LoginProvider}:{nonce}";
+        }
+        else if (info.AuthenticationProperties?.IssuedUtc is { } issuedUtc)
+        {
+            replayKey = $"issued:{info.LoginProvider}:{info.ProviderKey}:{issuedUtc.UtcTicks}";
+        }
+
+        if (replayKey == null)
+        {
+            return true;
+        }
+
+        var expiresAt = info.AuthenticationProperties?.ExpiresUtc ?? now.Add(ExternalNonceLifetime);
+        if (expiresAt <= now)
+        {
+            expiresAt = now.Add(ExternalNonceLifetime);
+        }
+
+        return ConsumedExternalNonces.TryAdd(replayKey, expiresAt);
     }
 
     public async Task<ApiTwoFactorChallengeResult> CreateApiTwoFactorChallengeAsync(User user)
@@ -266,6 +413,11 @@ public class AuthService : IAuthService
         if (user == null || !user.IsActive)
         {
             return new TwoFactorVerifyResult(TwoFactorVerifyStatus.UserUnavailable);
+        }
+
+        if (await _userManager.IsLockedOutAsync(user))
+        {
+            return new TwoFactorVerifyResult(TwoFactorVerifyStatus.LockedOut, user);
         }
 
         var request = await _context.TelegramVerificationRequests

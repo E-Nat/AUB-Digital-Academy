@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -8,18 +9,29 @@ using AUBDigitalAcademy.Models.ViewModels;
 using AUBDigitalAcademy.Services.Interfaces;
 using System.Security.Claims;
 using System.Security.Cryptography;
+using System.Text.Json;
 
 namespace AUBDigitalAcademy.Controllers;
 
 public class AccountController : Controller
 {
+    private const string PendingVerificationCookieName = "AUB_PendingVerification";
+    private static readonly TimeSpan PendingVerificationLifetime = TimeSpan.FromMinutes(15);
+
     private readonly SignInManager<User> _signInManager;
     private readonly UserManager<User> _userManager;
     private readonly ApplicationDbContext _context;
     private readonly ITelegramService _telegramService;
     private readonly IAuthService _authService;
-    private readonly IDataProtector _protector;
+    private readonly ITimeLimitedDataProtector _protector;
     private readonly ILogger<AccountController> _logger;
+
+    private sealed record PendingVerificationPayload(
+        string UserId,
+        bool RememberMe,
+        string? ReturnUrl,
+        string AuthMethod,
+        DateTimeOffset ExpiresAtUtc);
 
     public AccountController(
         SignInManager<User> signInManager,
@@ -35,7 +47,9 @@ public class AccountController : Controller
         _context = context;
         _telegramService = telegramService;
         _authService = authService;
-        _protector = dataProtectionProvider.CreateProtector("AUBDigitalAcademy.TelegramVerification");
+        _protector = dataProtectionProvider
+            .CreateProtector("AUBDigitalAcademy.TelegramVerification")
+            .ToTimeLimitedDataProtector();
         _logger = logger;
     }
 
@@ -284,6 +298,7 @@ public class AccountController : Controller
         // Prevent cross-account verification access without proof of session ownership
         if (!ValidatePendingVerificationSession(user.Id))
         {
+            ClearPendingVerificationSession();
             TempData["ErrorMessage"] = "For security, please sign in with your credentials to verify your account.";
             return RedirectToAction("Login");
         }
@@ -322,14 +337,37 @@ public class AccountController : Controller
         model.FullName = user.FullName;
 
         // Prevent cross-account verification: verify session token
-        if (!ValidatePendingVerificationSession(user.Id))
+        if (!TryGetPendingVerificationSession(out var pendingSession) ||
+            !string.Equals(pendingSession.UserId, user.Id, StringComparison.Ordinal))
         {
+            ClearPendingVerificationSession();
             TempData["ErrorMessage"] = "Your verification session has expired. Please sign in to verify your account.";
             return RedirectToAction("Login");
         }
 
         // Verify server-side pending verification request via shared auth service
-        var verifyResult = await _authService.VerifyWebTwoFactorAsync(model.UserId, model.Code ?? string.Empty);
+        var verifyResult = await _authService.VerifyWebTwoFactorAsync(user.Id, model.Code ?? string.Empty);
+
+        if (verifyResult.Status == TwoFactorVerifyStatus.LockedOut)
+        {
+            ClearPendingVerificationSession();
+            TempData["ErrorMessage"] = "Your account has been temporarily locked due to multiple failed login attempts. Please try again later.";
+            return RedirectToAction("Login");
+        }
+
+        if (verifyResult.Status == TwoFactorVerifyStatus.UserUnavailable)
+        {
+            ClearPendingVerificationSession();
+            TempData["ErrorMessage"] = "Your account has been deactivated or is unavailable. Please contact the administrator.";
+            return RedirectToAction("Login");
+        }
+
+        if (verifyResult.Status == TwoFactorVerifyStatus.TelegramNotLinked)
+        {
+            ClearPendingVerificationSession();
+            TempData["ErrorMessage"] = "Your Telegram account must be linked and verified before signing in.";
+            return RedirectToAction("Login");
+        }
 
         if (verifyResult.Status == TwoFactorVerifyStatus.AlreadyUsed)
         {
@@ -361,18 +399,19 @@ public class AccountController : Controller
         user.UpdatedAt = DateTime.UtcNow;
         await _userManager.UpdateAsync(user);
 
-        var (rememberMe, returnUrl) = GetPendingVerificationOptions();
         ClearPendingVerificationSession();
+        await SignOutExternalSchemeSafelyAsync();
 
-        // Establish the authenticated identity session!
-        await _signInManager.SignInAsync(user, isPersistent: rememberMe);
+        // Establish the authenticated identity session only after Telegram 2FA succeeds
+        await _signInManager.SignInAsync(user, isPersistent: pendingSession.RememberMe);
 
-        _logger.LogInformation("Telegram 2FA verification completed successfully for user {UniversityId} ({UserId}).", user.UniversityId, user.Id);
+        _logger.LogInformation("Telegram 2FA verification completed successfully for user {UniversityId} ({UserId}) via {AuthMethod}.",
+            user.UniversityId, user.Id, pendingSession.AuthMethod);
 
         var redirectUrl = await GetRoleRedirectUrlAsync(user);
-        if (!string.IsNullOrEmpty(returnUrl) && Url.IsLocalUrl(returnUrl))
+        if (!string.IsNullOrEmpty(pendingSession.ReturnUrl) && Url.IsLocalUrl(pendingSession.ReturnUrl))
         {
-            redirectUrl = returnUrl;
+            redirectUrl = pendingSession.ReturnUrl;
         }
 
         return Redirect(redirectUrl);
@@ -466,6 +505,8 @@ public class AccountController : Controller
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> Logout()
     {
+        ClearPendingVerificationSession();
+        await SignOutExternalSchemeSafelyAsync();
         await _signInManager.SignOutAsync();
         _logger.LogInformation("User logged out.");
         return RedirectToAction("Login");
@@ -549,149 +590,182 @@ public class AccountController : Controller
     // Google OAuth
     [HttpPost]
     [ValidateAntiForgeryToken]
-    public IActionResult ExternalLogin(string provider, string? returnUrl = null)
+    public async Task<IActionResult> ExternalLogin(string provider, string? returnUrl = null)
     {
-        var redirectUrl = Url.Action("ExternalLoginCallback", "Account", new { returnUrl });
-        var properties = _signInManager.ConfigureExternalAuthenticationProperties(provider, redirectUrl);
-        return Challenge(properties, provider);
+        ClearPendingVerificationSession();
+        await SignOutExternalSchemeSafelyAsync();
+
+        if (string.IsNullOrWhiteSpace(provider))
+        {
+            TempData["ErrorMessage"] = "External login provider is required.";
+            return RedirectToAction(nameof(Login));
+        }
+
+        var externalSchemes = await _signInManager.GetExternalAuthenticationSchemesAsync();
+        var matchedScheme = externalSchemes.FirstOrDefault(s =>
+            string.Equals(s.Name, provider.Trim(), StringComparison.OrdinalIgnoreCase));
+
+        if (matchedScheme == null)
+        {
+            TempData["ErrorMessage"] = "The selected external login provider is not configured.";
+            return RedirectToAction(nameof(Login));
+        }
+
+        var safeReturnUrl = !string.IsNullOrEmpty(returnUrl) && Url.IsLocalUrl(returnUrl) ? returnUrl : null;
+        var redirectUrl = Url.Action(nameof(ExternalLoginCallback), "Account", new { returnUrl = safeReturnUrl });
+        var properties = _signInManager.ConfigureExternalAuthenticationProperties(matchedScheme.Name, redirectUrl);
+        properties.Items["AubExternalNonce"] = Convert.ToHexString(RandomNumberGenerator.GetBytes(16));
+        return Challenge(properties, matchedScheme.Name);
     }
 
     [HttpGet]
     public async Task<IActionResult> ExternalLoginCallback(string? returnUrl = null, string? remoteError = null)
     {
-        if (remoteError != null)
+        try
         {
-            ModelState.AddModelError(string.Empty, $"Error from external provider: {remoteError}");
-            return View("Login");
-        }
-
-        var info = await _signInManager.GetExternalLoginInfoAsync();
-        if (info == null)
-        {
-            return RedirectToAction("Login");
-        }
-
-        var result = await _signInManager.ExternalLoginSignInAsync(
-            info.LoginProvider, info.ProviderKey, isPersistent: false);
-
-        if (result.Succeeded)
-        {
-            var ssoUser = await _userManager.FindByEmailAsync(info.Principal.FindFirst(ClaimTypes.Email)!.Value);
-            if (ssoUser != null && !ssoUser.IsActive)
+            if (!string.IsNullOrEmpty(remoteError))
             {
-                await _signInManager.SignOutAsync();
-                ModelState.AddModelError(string.Empty, "Your account has been deactivated. Please contact the administrator.");
-                return View("Login");
-            }
-            return Redirect(await GetRoleRedirectUrlAsync(ssoUser!));
-        }
-
-        var email = info.Principal.FindFirst(ClaimTypes.Email)?.Value;
-        var name = info.Principal.FindFirst(ClaimTypes.Name)?.Value;
-
-        if (email != null)
-        {
-            var user = await _userManager.FindByEmailAsync(email);
-            if (user == null)
-            {
-                user = new User
-                {
-                    UserName = email,
-                    Email = email,
-                    FullName = name ?? email,
-                    EmailConfirmed = true,
-                    IsActive = true,
-                    IsTelegramVerified = true
-                };
-
-                var createResult = await _userManager.CreateAsync(user);
-                if (createResult.Succeeded)
-                {
-                    await _userManager.AddToRoleAsync(user, "Student");
-                }
-            }
-            else if (!user.IsActive)
-            {
-                ModelState.AddModelError(string.Empty, "Your account has been deactivated. Please contact the administrator.");
+                ClearPendingVerificationSession();
+                await SignOutExternalSchemeSafelyAsync();
+                _logger.LogWarning("External authentication returned an error/cancellation response.");
+                ModelState.AddModelError(string.Empty, "External authentication was cancelled or failed. Please try again.");
                 return View("Login");
             }
 
-            await _userManager.AddLoginAsync(user, info);
-            await _signInManager.SignInAsync(user, isPersistent: false);
-            return Redirect(await GetRoleRedirectUrlAsync(user));
-        }
+            var info = await _signInManager.GetExternalLoginInfoAsync();
+            // Always clear the temporary external authentication cookie immediately after reading it
+            await SignOutExternalSchemeSafelyAsync();
 
-        ModelState.AddModelError(string.Empty, "Error loading external login information.");
-        return View("Login");
+            if (info == null)
+            {
+                ClearPendingVerificationSession();
+                ModelState.AddModelError(string.Empty, "External login session expired or could not be verified. Please try again.");
+                return View("Login");
+            }
+
+            var externalResult = await _authService.InitiateExternalTwoFactorLoginAsync(info);
+            if (externalResult.Status != ExternalLoginStatus.TwoFactorPending || externalResult.User == null)
+            {
+                ClearPendingVerificationSession();
+                ModelState.AddModelError(string.Empty, GetExternalLoginErrorMessage(externalResult.Status));
+                return View("Login");
+            }
+
+            var user = externalResult.User;
+            if (!await _signInManager.CanSignInAsync(user))
+            {
+                ClearPendingVerificationSession();
+                ModelState.AddModelError(string.Empty, "Your account is not eligible for external sign-in. Please contact the administrator.");
+                return View("Login");
+            }
+
+            var safeReturnUrl = !string.IsNullOrEmpty(returnUrl) && Url.IsLocalUrl(returnUrl) ? returnUrl : null;
+            SetPendingVerificationSession(user.Id, rememberMe: false, returnUrl: safeReturnUrl, authMethod: info.LoginProvider);
+            TempData["InfoMessage"] = "A single-use verification code has been dispatched to Telegram.";
+
+            return RedirectToAction(nameof(VerifyTelegram), new { userId = user.Id });
+        }
+        finally
+        {
+            await SignOutExternalSchemeSafelyAsync();
+        }
+    }
+
+    private static string GetExternalLoginErrorMessage(ExternalLoginStatus status) => status switch
+    {
+        ExternalLoginStatus.Replayed => "This external login response has already been used or expired. Please sign in again.",
+        ExternalLoginStatus.NotAssociated => "This Google account is not associated with an existing AUB Digital Academy account. Please sign in with your Student ID/Email and password, or contact IT Support.",
+        ExternalLoginStatus.InactiveAccount => "Your account has been deactivated. Please contact the administrator.",
+        ExternalLoginStatus.LockedOut => "Your account has been temporarily locked due to multiple failed login attempts. Please try again later.",
+        ExternalLoginStatus.TelegramNotLinked => "Your Telegram account must be linked and verified before signing in with Google. Please sign in with your Student ID/Email and password to link Telegram first.",
+        ExternalLoginStatus.OtpDeliveryFailed => "Unable to deliver the Telegram verification code. Please try again later.",
+        _ => "Error loading external login information."
+    };
+
+    private async Task SignOutExternalSchemeSafelyAsync()
+    {
+        if (HttpContext?.RequestServices?.GetService(typeof(IAuthenticationService)) != null)
+        {
+            await HttpContext.SignOutAsync(IdentityConstants.ExternalScheme);
+        }
     }
 
     // Helper methods
-    private void SetPendingVerificationSession(string userId, bool rememberMe = false, string? returnUrl = null)
+    private void SetPendingVerificationSession(
+        string userId,
+        bool rememberMe = false,
+        string? returnUrl = null,
+        string authMethod = "Password")
     {
-        var safeReturnUrl = returnUrl ?? string.Empty;
-        var token = _protector.Protect($"{userId}:{rememberMe}:{safeReturnUrl}:{DateTime.UtcNow.Ticks}");
-        Response.Cookies.Append("AUB_PendingVerification", token, new CookieOptions
+        var safeReturnUrl = !string.IsNullOrEmpty(returnUrl) && Url.IsLocalUrl(returnUrl) ? returnUrl : null;
+        var expiresAt = DateTimeOffset.UtcNow.Add(PendingVerificationLifetime);
+        var payload = new PendingVerificationPayload(userId, rememberMe, safeReturnUrl, authMethod, expiresAt);
+        var json = JsonSerializer.Serialize(payload);
+        var token = _protector.Protect(json, PendingVerificationLifetime);
+
+        Response.Cookies.Append(PendingVerificationCookieName, token, new CookieOptions
         {
             HttpOnly = true,
             SameSite = SameSiteMode.Lax,
-            Expires = DateTimeOffset.UtcNow.AddMinutes(15),
+            Expires = expiresAt,
             Secure = Request?.IsHttps ?? false
         });
     }
 
-    private bool ValidatePendingVerificationSession(string userId)
+    private bool TryGetPendingVerificationSession(out PendingVerificationPayload payload)
     {
-        if (Request == null || !Request.Cookies.TryGetValue("AUB_PendingVerification", out var token) || string.IsNullOrEmpty(token))
+        payload = default!;
+        if (Request == null ||
+            !Request.Cookies.TryGetValue(PendingVerificationCookieName, out var token) ||
+            string.IsNullOrWhiteSpace(token))
         {
             return false;
         }
 
         try
         {
-            var unprotected = _protector.Unprotect(token);
-            var parts = unprotected.Split(':');
-            if (parts.Length >= 2 && parts[0] == userId)
+            var json = _protector.Unprotect(token, out var protectorExpiration);
+            if (protectorExpiration <= DateTimeOffset.UtcNow)
             {
-                var ticksIndex = parts.Length - 1;
-                var createdTicks = long.Parse(parts[ticksIndex]);
-                var created = new DateTime(createdTicks, DateTimeKind.Utc);
-                return (DateTime.UtcNow - created).TotalMinutes <= 15;
+                return false;
             }
+
+            var parsed = JsonSerializer.Deserialize<PendingVerificationPayload>(json);
+            if (parsed == null ||
+                string.IsNullOrWhiteSpace(parsed.UserId) ||
+                parsed.ExpiresAtUtc <= DateTimeOffset.UtcNow)
+            {
+                return false;
+            }
+
+            payload = parsed;
+            return true;
         }
         catch
         {
             return false;
         }
+    }
 
-        return false;
+    private bool ValidatePendingVerificationSession(string userId)
+    {
+        return TryGetPendingVerificationSession(out var payload) &&
+               string.Equals(payload.UserId, userId, StringComparison.Ordinal);
     }
 
     private (bool RememberMe, string? ReturnUrl) GetPendingVerificationOptions()
     {
-        if (Request == null || !Request.Cookies.TryGetValue("AUB_PendingVerification", out var token) || string.IsNullOrEmpty(token))
+        if (TryGetPendingVerificationSession(out var payload))
         {
-            return (false, null);
+            return (payload.RememberMe, payload.ReturnUrl);
         }
-
-        try
-        {
-            var unprotected = _protector.Unprotect(token);
-            var parts = unprotected.Split(':');
-            if (parts.Length >= 4)
-            {
-                bool.TryParse(parts[1], out var rememberMe);
-                var returnUrl = string.IsNullOrWhiteSpace(parts[2]) ? null : parts[2];
-                return (rememberMe, returnUrl);
-            }
-        }
-        catch { }
 
         return (false, null);
     }
 
     private void ClearPendingVerificationSession()
     {
-        Response.Cookies.Delete("AUB_PendingVerification");
+        Response?.Cookies.Delete(PendingVerificationCookieName);
     }
 
     private async Task<User?> FindByUniversityIdAsync(string universityId)

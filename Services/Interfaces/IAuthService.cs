@@ -1,4 +1,5 @@
 using AUBDigitalAcademy.Models;
+using Microsoft.AspNetCore.Identity;
 
 namespace AUBDigitalAcademy.Services.Interfaces;
 
@@ -29,6 +30,28 @@ public sealed record ApiTwoFactorChallengeResult(
     DateTime? ExpiresAt = null,
     int ExpiresInSeconds = 0);
 
+public sealed record WebTwoFactorDispatchResult(
+    TwoFactorDispatchStatus Status,
+    TelegramVerificationRequest? Request = null);
+
+public enum ExternalLoginStatus
+{
+    TwoFactorPending,
+    InvalidExternalLogin,
+    Replayed,
+    NotAssociated,
+    InactiveAccount,
+    LockedOut,
+    TelegramNotLinked,
+    OtpDeliveryFailed
+}
+
+public sealed record ExternalLoginCheckResult(
+    ExternalLoginStatus Status,
+    User? User = null,
+    IReadOnlyList<string>? Roles = null,
+    TelegramVerificationRequest? VerificationRequest = null);
+
 public enum TwoFactorVerifyStatus
 {
     Verified,
@@ -57,6 +80,8 @@ public interface IAuthService
     Task<User?> FindByLoginIdAsync(string loginId);
     Task<CredentialCheckResult> AuthenticateCredentialsAsync(string loginId, string password);
     Task<TelegramVerificationRequest> EnsureWebVerificationCodeDispatchedAsync(User user);
+    Task<WebTwoFactorDispatchResult> DispatchWebTwoFactorChallengeAsync(User user);
+    Task<ExternalLoginCheckResult> InitiateExternalTwoFactorLoginAsync(ExternalLoginInfo? info);
     Task<ApiTwoFactorChallengeResult> CreateApiTwoFactorChallengeAsync(User user);
     Task<TwoFactorVerifyResult> VerifyApiTwoFactorAsync(string verificationId, string code);
     Task<TwoFactorVerifyResult> VerifyWebTwoFactorAsync(string userId, string code);

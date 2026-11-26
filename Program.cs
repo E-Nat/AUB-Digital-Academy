@@ -76,6 +76,13 @@ if (!string.IsNullOrEmpty(googleClientId) && !string.IsNullOrEmpty(googleClientS
         {
             options.ClientId = googleClientId;
             options.ClientSecret = googleClientSecret;
+            options.SaveTokens = false;
+            options.Events.OnRemoteFailure = context =>
+            {
+                context.Response.Redirect("/Account/ExternalLoginCallback?remoteError=external_auth_failed");
+                context.HandleResponse();
+                return Task.CompletedTask;
+            };
         });
 }
 
@@ -206,6 +213,12 @@ if (args.Contains("--test-telegram-log-redaction"))
 if (args.Contains("--test-stored-xss"))
 {
     await StoredXssIntegrationTestRunner.RunTestsAsync(app.Services);
+    return;
+}
+
+if (args.Contains("--test-google-oauth-2fa"))
+{
+    await GoogleOAuth2FaIntegrationTestRunner.RunTestsAsync(app.Services);
     return;
 }
 

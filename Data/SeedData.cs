@@ -37,7 +37,13 @@ public static class SeedData
             logger.LogWarning(ex, "Database connectivity or migration check encountered an issue during seed. Will attempt continuing.");
         }
 
-        // 1. Create all 4 required roles
+        // Determine whether this startup runs in local Development / integration test mode.
+        var hostEnv = serviceProvider.GetService<IHostEnvironment>();
+        bool isDevOrTest = allowDevTaGrading
+            ?? (hostEnv?.IsDevelopment() == true ||
+                Environment.GetCommandLineArgs().Any(a => a.StartsWith("--test-", StringComparison.OrdinalIgnoreCase)));
+
+        // 1. Create all 4 required roles (idempotent; never modifies existing roles)
         string[] roles = { "Admin", "Teacher", "Assistance", "Student" };
         foreach (var role in roles)
         {
@@ -47,63 +53,62 @@ public static class SeedData
             }
         }
 
-        // Detect whether legacy @aub.edu.kh seed accounts exist so we only clean up legacy/extra users during migration
-        string[] legacyNormalizedEmails =
+        // 2. Seed initial local-only Development accounts ONLY when the user store is initially empty
+        //    and ONLY in Development / --test-* runs. Existing users, passwords, lockouts, active flags,
+        //    profile fields, and roles are NEVER overwritten or reset on startup, and deleted users are
+        //    never recreated once the database has been initialized.
+        hasUsers = await context.Users.AnyAsync();
+        User? teacherUser = null;
+        User? assistanceUser = null;
+
+        if (!hasUsers)
         {
-            "ADMIN@AUB.EDU.KH",
-            "TEACHER@AUB.EDU.KH",
-            "ALANTURING@AUB.EDU.KH",
-            "STUDENT@AUB.EDU.KH"
-        };
-        bool hasLegacySeedUsers = await context.Users
-            .AnyAsync(u => u.NormalizedEmail != null && legacyNormalizedEmails.Contains(u.NormalizedEmail));
+            if (isDevOrTest)
+            {
+                // LOCAL DEVELOPMENT / TEST ONLY credentials — never seeded in Staging/Production
+                // and never used to reset existing accounts.
+                await CreateSeedUserIfMissingAsync(
+                    userManager, context,
+                    email: "admin@aub.com",
+                    fullName: "System Administrator",
+                    universityId: "ADMIN001",
+                    localDevPassword: "admin123",
+                    role: "Admin");
 
-        // 2. Ensure only the 3 baseline accounts (Admin, Teacher, Student)
-        var adminUser = await EnsureSeedUserAsync(
-            userManager, context,
-            email: "admin@aub.com",
-            legacyEmail: "admin@aub.edu.kh",
-            fullName: "System Administrator",
-            universityId: "ADMIN001",
-            password: "admin123",
-            role: "Admin");
+                teacherUser = await CreateSeedUserIfMissingAsync(
+                    userManager, context,
+                    email: "teacher@aub.com",
+                    fullName: "John Smith",
+                    universityId: "TCH001",
+                    localDevPassword: "teacher123",
+                    role: "Teacher");
 
-        var teacherUser = await EnsureSeedUserAsync(
-            userManager, context,
-            email: "teacher@aub.com",
-            legacyEmail: "teacher@aub.edu.kh",
-            fullName: "John Smith",
-            universityId: "TCH001",
-            password: "teacher123",
-            role: "Teacher");
+                assistanceUser = await CreateSeedUserIfMissingAsync(
+                    userManager, context,
+                    email: "ta@aub.com",
+                    fullName: "Teaching Assistant",
+                    universityId: "TA001",
+                    localDevPassword: "assistance123",
+                    role: "Assistance");
 
-        var assistanceUser = await EnsureSeedUserAsync(
-            userManager, context,
-            email: "ta@aub.com",
-            legacyEmail: "ta@aub.edu.kh",
-            fullName: "Teaching Assistant",
-            universityId: "TA001",
-            password: "assistance123",
-            role: "Assistance");
-
-        var studentUser = await EnsureSeedUserAsync(
-            userManager, context,
-            email: "student@aub.com",
-            legacyEmail: "student@aub.edu.kh",
-            fullName: "Jane Doe",
-            universityId: "STU001",
-            password: "student123",
-            role: "Student");
-
-        // Remove legacy extra users (e.g. alanturing@aub.edu.kh and prior extra accounts) on migration
-        if (hasLegacySeedUsers)
+                await CreateSeedUserIfMissingAsync(
+                    userManager, context,
+                    email: "student@aub.com",
+                    fullName: "Jane Doe",
+                    universityId: "STU001",
+                    localDevPassword: "student123",
+                    role: "Student");
+            }
+            else
+            {
+                logger.LogWarning(
+                    "Database contains no users in a non-Development environment. Skipping local development seed user creation; provision administrative accounts explicitly.");
+            }
+        }
+        else
         {
-            var keptIds = new[] { adminUser.Id, teacherUser.Id, assistanceUser.Id, studentUser.Id };
-            var usersToRemove = await context.Users
-                .Where(u => !keptIds.Contains(u.Id))
-                .ToListAsync();
-
-            await RemoveUsersSafelyAsync(context, userManager, usersToRemove, teacherUser.Id);
+            teacherUser = await userManager.FindByEmailAsync("teacher@aub.com");
+            assistanceUser = await userManager.FindByEmailAsync("ta@aub.com");
         }
 
         // 5. Seed Category & Majors if empty
@@ -301,16 +306,11 @@ public static class SeedData
             await context.SaveChangesAsync();
         }
 
-        // 8. Ensure Assistance User is assigned to CS301 with CanGrade = true ONLY in Development/Test
-        var hostEnv = serviceProvider.GetService<IHostEnvironment>();
-        bool isDevOrTest = allowDevTaGrading
-            ?? (hostEnv?.IsDevelopment() == true ||
-                Environment.GetCommandLineArgs().Any(a => a.StartsWith("--test-", StringComparison.OrdinalIgnoreCase)));
-
+        // 8. Ensure Assistance User is assigned to CS301 with CanGrade = true ONLY on initial Development/Test setup
         if (isDevOrTest)
         {
             var cs301Course = await context.Courses.FirstOrDefaultAsync(c => c.Code == "CS301");
-            if (cs301Course != null && assistanceUser != null)
+            if (cs301Course != null && assistanceUser != null && assistanceUser.IsActive)
             {
                 var existingAssignment = await context.CourseAssistants
                     .FirstOrDefaultAsync(ca => ca.CourseId == cs301Course.Id && ca.AssistantId == assistanceUser.Id);
@@ -326,176 +326,57 @@ public static class SeedData
                     });
                     await context.SaveChangesAsync();
                 }
-                else if (!existingAssignment.CanGrade)
-                {
-                    existingAssignment.CanGrade = true;
-                    await context.SaveChangesAsync();
-                }
             }
         }
     }
 
     /// <summary>
-    /// Creates or migrates a baseline user account so its email, credentials, and role match configuration.
+    /// Creates a local-only Development seed user strictly when no matching user already exists.
+    /// Never overwrites passwords, lockouts, active flags, profile data, or roles on existing accounts.
     /// </summary>
-    private static async Task<User> EnsureSeedUserAsync(
+    private static async Task<User> CreateSeedUserIfMissingAsync(
         UserManager<User> userManager,
         ApplicationDbContext context,
         string email,
-        string legacyEmail,
         string fullName,
         string universityId,
-        string password,
+        string localDevPassword,
         string role)
     {
-        var user = await userManager.FindByEmailAsync(email)
-                   ?? await userManager.FindByEmailAsync(legacyEmail)
-                   ?? await context.Users.FirstOrDefaultAsync(u => u.UniversityId == universityId);
+        var existingUser = await userManager.FindByEmailAsync(email)
+                           ?? await context.Users.FirstOrDefaultAsync(u => u.UniversityId == universityId);
 
-        if (user == null)
+        if (existingUser != null)
         {
-            user = new User
-            {
-                UserName = email,
-                Email = email,
-                FullName = fullName,
-                UniversityId = universityId,
-                EmailConfirmed = true,
-                IsActive = true,
-                IsTelegramVerified = true
-            };
-
-            var createResult = await userManager.CreateAsync(user, password);
-            if (!createResult.Succeeded)
-            {
-                throw new InvalidOperationException(
-                    $"Failed to create seeded user '{email}': {string.Join("; ", createResult.Errors.Select(e => e.Description))}");
-            }
-        }
-        else
-        {
-            var uidConflict = await context.Users
-                .FirstOrDefaultAsync(u => u.UniversityId == universityId && u.Id != user.Id);
-            if (uidConflict != null)
-            {
-                uidConflict.UniversityId = null;
-                await userManager.UpdateAsync(uidConflict);
-            }
-
-            user.UserName = email;
-            user.Email = email;
-            user.FullName = fullName;
-            user.UniversityId = universityId;
-            user.EmailConfirmed = true;
-            user.IsActive = true;
-            user.IsTelegramVerified = true;
-            user.LockoutEnd = null;
-            user.AccessFailedCount = 0;
-            user.UpdatedAt = DateTime.UtcNow;
-
-            var updateResult = await userManager.UpdateAsync(user);
-            if (!updateResult.Succeeded)
-            {
-                throw new InvalidOperationException(
-                    $"Failed to update seeded user '{email}': {string.Join("; ", updateResult.Errors.Select(e => e.Description))}");
-            }
-
-            if (!await userManager.CheckPasswordAsync(user, password))
-            {
-                var resetToken = await userManager.GeneratePasswordResetTokenAsync(user);
-                var resetResult = await userManager.ResetPasswordAsync(user, resetToken, password);
-                if (!resetResult.Succeeded)
-                {
-                    throw new InvalidOperationException(
-                        $"Failed to reset password for seeded user '{email}': {string.Join("; ", resetResult.Errors.Select(e => e.Description))}");
-                }
-            }
+            return existingUser;
         }
 
-        var currentRoles = await userManager.GetRolesAsync(user);
-        var extraRoles = currentRoles.Where(r => r != role).ToArray();
-        if (extraRoles.Length > 0)
+        var user = new User
         {
-            await userManager.RemoveFromRolesAsync(user, extraRoles);
+            UserName = email,
+            Email = email,
+            FullName = fullName,
+            UniversityId = universityId,
+            EmailConfirmed = true,
+            IsActive = true,
+            IsTelegramVerified = true
+        };
+
+        var createResult = await userManager.CreateAsync(user, localDevPassword);
+        if (!createResult.Succeeded)
+        {
+            throw new InvalidOperationException(
+                $"Failed to create local development seed user '{email}': {string.Join("; ", createResult.Errors.Select(e => e.Description))}");
         }
-        if (!currentRoles.Contains(role))
+
+        var roleResult = await userManager.AddToRoleAsync(user, role);
+        if (!roleResult.Succeeded)
         {
-            await userManager.AddToRoleAsync(user, role);
+            throw new InvalidOperationException(
+                $"Failed to assign role '{role}' to local development seed user '{email}': {string.Join("; ", roleResult.Errors.Select(e => e.Description))}");
         }
 
         return user;
-    }
-
-    /// <summary>
-    /// Removes users after reassigning or clearing restricted foreign-key references.
-    /// </summary>
-    private static async Task RemoveUsersSafelyAsync(
-        ApplicationDbContext context,
-        UserManager<User> userManager,
-        List<User> usersToRemove,
-        string fallbackTeacherId)
-    {
-        if (usersToRemove.Count == 0)
-        {
-            return;
-        }
-
-        var removeIds = usersToRemove.Select(u => u.Id).ToList();
-
-        var coursesToReassign = await context.Courses
-            .Where(c => removeIds.Contains(c.TeacherId))
-            .ToListAsync();
-        foreach (var course in coursesToReassign)
-        {
-            course.TeacherId = fallbackTeacherId;
-        }
-
-        var quizSubs = await context.QuizSubmissions
-            .Where(qs => removeIds.Contains(qs.StudentId))
-            .ToListAsync();
-        if (quizSubs.Count > 0)
-        {
-            context.QuizSubmissions.RemoveRange(quizSubs);
-        }
-
-        var assignmentSubs = await context.AssignmentSubmissions
-            .Where(a => removeIds.Contains(a.StudentId))
-            .ToListAsync();
-        if (assignmentSubs.Count > 0)
-        {
-            context.AssignmentSubmissions.RemoveRange(assignmentSubs);
-        }
-
-        var gradedSubs = await context.AssignmentSubmissions
-            .Where(a => a.GradedById != null && removeIds.Contains(a.GradedById))
-            .ToListAsync();
-        foreach (var sub in gradedSubs)
-        {
-            sub.GradedById = null;
-        }
-
-        var progresses = await context.CourseProgresses
-            .Where(cp => removeIds.Contains(cp.StudentId))
-            .ToListAsync();
-        if (progresses.Count > 0)
-        {
-            context.CourseProgresses.RemoveRange(progresses);
-        }
-
-        var enrollments = await context.Enrollments
-            .Where(e => removeIds.Contains(e.StudentId))
-            .ToListAsync();
-        if (enrollments.Count > 0)
-        {
-            context.Enrollments.RemoveRange(enrollments);
-        }
-
-        await context.SaveChangesAsync();
-
-        foreach (var user in usersToRemove)
-        {
-            await userManager.DeleteAsync(user);
-        }
     }
 
     private static async Task EnsureBaselineSchemaAsync(ApplicationDbContext context)
