@@ -12,9 +12,13 @@ namespace AUBDigitalAcademy.Services.Implementations;
 
 public class TelegramPollingService : BackgroundService
 {
+    private const int MaxTrackedUpdateIds = 2048;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IConfiguration _configuration;
     private readonly ILogger<TelegramPollingService> _logger;
+    private readonly object _dedupeLock = new();
+    private readonly HashSet<long> _processedUpdateIds = new();
+    private readonly Queue<long> _processedUpdateOrder = new();
 
     public TelegramPollingService(
         IServiceScopeFactory scopeFactory,
@@ -103,10 +107,16 @@ public class TelegramPollingService : BackgroundService
         _logger.LogInformation("TelegramPollingService: Telegram Bot long polling background service stopped.");
     }
 
-    private async Task HandleUpdateAsync(ITelegramService telegramService, TelegramUpdate update, CancellationToken stoppingToken)
+    internal async Task HandleUpdateAsync(ITelegramService telegramService, TelegramUpdate update, CancellationToken stoppingToken = default)
     {
         if (update.Message == null || update.Message.Chat == null)
         {
+            return;
+        }
+
+        if (update.UpdateId > 0 && !TryMarkUpdateProcessed(update.UpdateId))
+        {
+            _logger.LogDebug("TelegramPollingService: Ignoring duplicate UpdateId {UpdateId}.", update.UpdateId);
             return;
         }
 
@@ -117,9 +127,8 @@ public class TelegramPollingService : BackgroundService
         var senderName = fromUser?.FirstName ?? "Student";
 
         _logger.LogInformation(
-            "TelegramPollingService: Received message from ChatId {ChatId} (@{Username}): {CommandSummary}",
-            chatId,
-            fromUser?.Username ?? "none",
+            "TelegramPollingService: Received message from ChatId {MaskedChatId}: {CommandSummary}",
+            TelegramLogSanitizer.MaskChatId(chatId),
             TelegramLogSanitizer.SanitizeTelegramCommandForLog(text));
 
         if (string.IsNullOrWhiteSpace(text))
@@ -147,6 +156,14 @@ public class TelegramPollingService : BackgroundService
                 // Check if this is a deep link: /start link_<token>
                 if (parts.Length > 1 && parts[1].StartsWith("link_", StringComparison.OrdinalIgnoreCase))
                 {
+                    if (!IsTrustedPrivateHumanLinkRequest(message, out var validationError))
+                    {
+                        await telegramService.SendMessageAsync(chatId,
+                            $"❌ <b>Account Linking Rejected:</b>\n\n{WebUtility.HtmlEncode(validationError)}",
+                            cancellationToken: stoppingToken);
+                        break;
+                    }
+
                     var token = parts[1].Substring(5).Trim();
                     var (linkSuccess, linkMsg, linkedUser) = await telegramService.ProcessLinkTokenAsync(token, chatId, fromUser?.Username);
                     if (linkSuccess)
@@ -154,16 +171,15 @@ public class TelegramPollingService : BackgroundService
                         var successReply =
                             $"✅ <b>Account Linked Successfully!</b>\n\n" +
                             $"👤 Name: <b>{WebUtility.HtmlEncode(linkedUser?.FullName ?? "")}</b>\n" +
-                            $"🆔 ID: <code>{WebUtility.HtmlEncode(linkedUser?.UniversityId ?? linkedUser?.UserName ?? "")}</code>\n" +
-                            $"📱 Telegram Chat ID: <code>{chatId}</code>\n\n" +
-                            $"Your Telegram profile is now securely paired with your AUB Digital Academy account. Single-use login verification codes will be delivered here.";
+                            $"🆔 ID: <code>{WebUtility.HtmlEncode(linkedUser?.UniversityId ?? linkedUser?.UserName ?? "")}</code>\n\n" +
+                            $"Return to the AUB Portal and enter the 6-digit verification code that will be sent here to complete verification.";
                         await telegramService.SendMessageAsync(chatId, successReply, cancellationToken: stoppingToken);
                     }
                     else
                     {
                         var failReply =
                             $"❌ <b>Account Linking Failed:</b>\n\n{WebUtility.HtmlEncode(linkMsg)}\n\n" +
-                            $"Please log in to the AUB Portal to generate a fresh linking link.";
+                            $"Please return to the AUB Portal to generate a fresh linking link.";
                         await telegramService.SendMessageAsync(chatId, failReply, cancellationToken: stoppingToken);
                     }
                     break;
@@ -229,6 +245,14 @@ public class TelegramPollingService : BackgroundService
                     break;
                 }
 
+                if (!IsTrustedPrivateHumanLinkRequest(message, out var linkValidationError))
+                {
+                    await telegramService.SendMessageAsync(chatId,
+                        $"❌ <b>Account Linking Rejected:</b>\n\n{WebUtility.HtmlEncode(linkValidationError)}",
+                        cancellationToken: stoppingToken);
+                    break;
+                }
+
                 var rawToken = parts[1].Trim();
                 if (rawToken.StartsWith("link_", StringComparison.OrdinalIgnoreCase))
                 {
@@ -241,16 +265,15 @@ public class TelegramPollingService : BackgroundService
                     var successReply =
                         $"✅ <b>Account Linked Successfully!</b>\n\n" +
                         $"👤 Name: <b>{WebUtility.HtmlEncode(userObj?.FullName ?? "")}</b>\n" +
-                        $"🆔 ID: <code>{WebUtility.HtmlEncode(userObj?.UniversityId ?? userObj?.UserName ?? "")}</code>\n" +
-                        $"📱 Telegram Chat ID: <code>{chatId}</code>\n\n" +
-                        $"Your Telegram profile is now securely paired with your AUB Digital Academy account. Single-use login verification codes will be delivered here.";
+                        $"🆔 ID: <code>{WebUtility.HtmlEncode(userObj?.UniversityId ?? userObj?.UserName ?? "")}</code>\n\n" +
+                        $"Return to the AUB Portal and enter the 6-digit verification code that will be sent here to complete verification.";
                     await telegramService.SendMessageAsync(chatId, successReply, cancellationToken: stoppingToken);
                 }
                 else
                 {
                     var failReply =
                         $"❌ <b>Account Linking Failed:</b>\n\n{WebUtility.HtmlEncode(tokenMsg)}\n\n" +
-                        $"Please log in to the AUB Portal to generate a fresh linking link.";
+                        $"Please return to the AUB Portal to generate a fresh linking link.";
                     await telegramService.SendMessageAsync(chatId, failReply, cancellationToken: stoppingToken);
                 }
                 break;
@@ -275,5 +298,56 @@ public class TelegramPollingService : BackgroundService
                 await telegramService.SendMessageAsync(chatId, fallbackReply, cancellationToken: stoppingToken);
                 break;
         }
+    }
+
+    private bool TryMarkUpdateProcessed(long updateId)
+    {
+        lock (_dedupeLock)
+        {
+            if (!_processedUpdateIds.Add(updateId))
+            {
+                return false;
+            }
+
+            _processedUpdateOrder.Enqueue(updateId);
+            while (_processedUpdateOrder.Count > MaxTrackedUpdateIds)
+            {
+                var oldest = _processedUpdateOrder.Dequeue();
+                _processedUpdateIds.Remove(oldest);
+            }
+
+            return true;
+        }
+    }
+
+    private static bool IsTrustedPrivateHumanLinkRequest(TelegramMessage message, out string error)
+    {
+        if (message.Chat == null || message.Chat.Id <= 0)
+        {
+            error = "Account linking must be initiated in a private chat with the bot.";
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(message.Chat.Type) &&
+            !string.Equals(message.Chat.Type, "private", StringComparison.OrdinalIgnoreCase))
+        {
+            error = "Account linking is only permitted in private chats, not in groups or channels.";
+            return false;
+        }
+
+        if (message.From == null || message.From.IsBot)
+        {
+            error = "Only a real Telegram user account can link to an AUB Digital Academy account.";
+            return false;
+        }
+
+        if (message.From.Id > 0 && message.From.Id != message.Chat.Id)
+        {
+            error = "Telegram sender identity does not match the private chat.";
+            return false;
+        }
+
+        error = string.Empty;
+        return true;
     }
 }

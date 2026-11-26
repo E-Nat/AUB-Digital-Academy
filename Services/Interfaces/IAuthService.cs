@@ -21,7 +21,8 @@ public enum TwoFactorDispatchStatus
 {
     Sent,
     InvalidConfiguration,
-    DeliveryFailed
+    DeliveryFailed,
+    RateLimited
 }
 
 public sealed record ApiTwoFactorChallengeResult(
@@ -32,7 +33,8 @@ public sealed record ApiTwoFactorChallengeResult(
 
 public sealed record WebTwoFactorDispatchResult(
     TwoFactorDispatchStatus Status,
-    TelegramVerificationRequest? Request = null);
+    TelegramVerificationRequest? Request = null,
+    int? RetryAfterSeconds = null);
 
 public enum ExternalLoginStatus
 {
@@ -79,8 +81,10 @@ public interface IAuthService
 {
     Task<User?> FindByLoginIdAsync(string loginId);
     Task<CredentialCheckResult> AuthenticateCredentialsAsync(string loginId, string password);
-    Task<TelegramVerificationRequest> EnsureWebVerificationCodeDispatchedAsync(User user);
+    Task<WebTwoFactorDispatchResult> EnsureWebVerificationCodeDispatchedAsync(User user);
+    Task<WebTwoFactorDispatchResult> ResendWebVerificationCodeAsync(User user, int cooldownSeconds = 60);
     Task<WebTwoFactorDispatchResult> DispatchWebTwoFactorChallengeAsync(User user);
+    Task InvalidatePendingChallengesAsync(string userId);
     Task<ExternalLoginCheckResult> InitiateExternalTwoFactorLoginAsync(ExternalLoginInfo? info);
     Task<ApiTwoFactorChallengeResult> CreateApiTwoFactorChallengeAsync(User user);
     Task<TwoFactorVerifyResult> VerifyApiTwoFactorAsync(string verificationId, string code);

@@ -204,6 +204,12 @@ if (args.Contains("--test-registration-telegram"))
     return;
 }
 
+if (args.Contains("--test-registration-telegram-security"))
+{
+    await RegistrationTelegramSecurityTestRunner.RunTestsAsync(app.Services);
+    return;
+}
+
 if (args.Contains("--test-telegram-log-redaction"))
 {
     await TelegramLogRedactionTestRunner.RunTestsAsync(app.Services);

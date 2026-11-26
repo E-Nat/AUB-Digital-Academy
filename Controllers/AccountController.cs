@@ -7,6 +7,7 @@ using AUBDigitalAcademy.Data;
 using AUBDigitalAcademy.Models;
 using AUBDigitalAcademy.Models.ViewModels;
 using AUBDigitalAcademy.Services.Interfaces;
+using System.Collections.Concurrent;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -17,6 +18,7 @@ public class AccountController : Controller
 {
     private const string PendingVerificationCookieName = "AUB_PendingVerification";
     private static readonly TimeSpan PendingVerificationLifetime = TimeSpan.FromMinutes(15);
+    private static readonly ConcurrentDictionary<string, DateTimeOffset> RevokedPendingSessionNonces = new();
 
     private readonly SignInManager<User> _signInManager;
     private readonly UserManager<User> _userManager;
@@ -31,7 +33,8 @@ public class AccountController : Controller
         bool RememberMe,
         string? ReturnUrl,
         string AuthMethod,
-        DateTimeOffset ExpiresAtUtc);
+        DateTimeOffset ExpiresAtUtc,
+        string SessionNonce);
 
     public AccountController(
         SignInManager<User> signInManager,
@@ -108,10 +111,35 @@ public class AccountController : Controller
 
         var user = authResult.User!;
 
-        // Password is valid. Check if Telegram account is linked
+        // Password is valid. Check if Telegram account is linked and verified
         if (authResult.Status == CredentialCheckStatus.TelegramNotLinked)
         {
             SetPendingVerificationSession(user.Id, model.RememberMe, returnUrl);
+            if (user.TelegramChatId.HasValue && user.TelegramChatId.Value > 0)
+            {
+                if (!await EnsureVerificationCodeDispatchedAsync(user))
+                {
+                    ClearPendingVerificationSession();
+                    const string failMsg = "Unable to deliver the Telegram verification code. Please try again later.";
+                    ModelState.AddModelError(string.Empty, failMsg);
+                    if (isAjax) return Json(new { success = false, message = failMsg });
+                    return View(model);
+                }
+
+                const string pendingVerifyMsg = "A single-use verification code has been dispatched to Telegram.";
+                if (isAjax)
+                {
+                    return Json(new
+                    {
+                        success = false,
+                        requiresVerification = true,
+                        redirectUrl = Url.Action("VerifyTelegram", "Account", new { userId = user.Id }),
+                        message = pendingVerifyMsg
+                    });
+                }
+                return RedirectToAction("VerifyTelegram", new { userId = user.Id });
+            }
+
             const string linkMsg = "Please pair your Telegram account to enable required Two-Factor Authentication.";
             if (isAjax)
             {
@@ -128,7 +156,14 @@ public class AccountController : Controller
 
         // Enforce mandatory Telegram 2FA on EVERY login for all roles
         SetPendingVerificationSession(user.Id, model.RememberMe, returnUrl);
-        await EnsureVerificationCodeDispatchedAsync(user);
+        if (!await EnsureVerificationCodeDispatchedAsync(user))
+        {
+            ClearPendingVerificationSession();
+            const string failMsg = "Unable to deliver the Telegram verification code. Please try again later.";
+            ModelState.AddModelError(string.Empty, failMsg);
+            if (isAjax) return Json(new { success = false, message = failMsg });
+            return View(model);
+        }
 
         const string verifyMsg = "A single-use verification code has been dispatched to Telegram.";
         ModelState.AddModelError(string.Empty, verifyMsg);
@@ -172,10 +207,14 @@ public class AccountController : Controller
 
         var trimmedUid = model.UniversityId.Trim();
         var trimmedName = model.FullName.Trim();
+        var normalizedUid = _userManager.NormalizeName(trimmedUid);
 
         // Check if Student ID / UniversityId is already in use
         var existingUser = await _userManager.Users
-            .FirstOrDefaultAsync(u => u.UniversityId == trimmedUid || u.UserName == trimmedUid);
+            .FirstOrDefaultAsync(u =>
+                u.UniversityId == trimmedUid ||
+                u.UserName == trimmedUid ||
+                (normalizedUid != null && u.NormalizedUserName == normalizedUid));
 
         if (existingUser != null)
         {
@@ -193,6 +232,7 @@ public class AccountController : Controller
             EmailConfirmed = false,
             IsActive = true,
             IsTelegramVerified = false,
+            TelegramChatId = null,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
@@ -208,54 +248,43 @@ public class AccountController : Controller
         }
 
         // Securely assign the Student role only
-        await _userManager.AddToRoleAsync(user, "Student");
-
-        // Generate short-lived, single-use, 6-digit verification code
-        var verificationCode = RandomNumberGenerator.GetInt32(100000, 1000000).ToString();
-
-        var request = new TelegramVerificationRequest
+        var roleResult = await _userManager.AddToRoleAsync(user, "Student");
+        if (!roleResult.Succeeded)
         {
-            UserId = user.Id,
-            UniversityId = user.UniversityId,
-            Code = verificationCode,
-            CreatedAt = DateTime.UtcNow,
-            ExpiresAt = DateTime.UtcNow.AddMinutes(10),
-            IsUsed = false,
-            AttemptsCount = 0,
-            MaxAttempts = 5
-        };
+            await _userManager.DeleteAsync(user);
+            ModelState.AddModelError(string.Empty, "Unable to complete registration role assignment. Please try again.");
+            return View(model);
+        }
 
-        _context.TelegramVerificationRequests.Add(request);
-        await _context.SaveChangesAsync();
+        // Bind pending verification session to this client; never issue auth cookie or dispatch OTP before Telegram linking
+        SetPendingVerificationSession(user.Id, rememberMe: false, returnUrl: null, authMethod: "Registration");
 
-        // Deliver code via Telegram without logging code or credentials
-        await _telegramService.SendVerificationCodeAsync(user.UniversityId, user.FullName, verificationCode, user.TelegramChatId?.ToString());
-
-        // Bind pending verification session to this client
-        SetPendingVerificationSession(user.Id);
-
-        TempData["InfoMessage"] = "Registration successful! A single-use verification code has been dispatched to Telegram. Please enter your code to activate your account.";
-        return RedirectToAction("VerifyTelegram", new { userId = user.Id });
+        TempData["InfoMessage"] = "Account created! Please link your personal Telegram account to receive your verification code.";
+        return RedirectToAction(nameof(LinkTelegram), new { userId = user.Id });
     }
 
     [HttpGet]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
     public async Task<IActionResult> LinkTelegram(string? userId)
     {
         if (string.IsNullOrWhiteSpace(userId))
         {
-            return RedirectToAction("Login");
+            ClearPendingVerificationSession();
+            return RedirectToAction(nameof(Login));
         }
 
-        var user = await _userManager.FindByIdAsync(userId);
-        if (user == null)
+        var (ok, user, _, _) = await ResolveEligiblePendingUserAsync(userId, requireUnverifiedRegistration: true);
+        if (!ok || user == null)
         {
-            return RedirectToAction("Login");
+            ClearPendingVerificationSession();
+            TempData["ErrorMessage"] = "Session expired or invalid. Please sign in to link your Telegram account.";
+            return RedirectToAction(nameof(Login));
         }
 
-        if (!ValidatePendingVerificationSession(user.Id))
+        // Never overwrite an existing TelegramChatId association; proceed directly to OTP verification
+        if (user.TelegramChatId.HasValue && user.TelegramChatId.Value > 0)
         {
-            TempData["ErrorMessage"] = "Session expired. Please sign in to link your Telegram account.";
-            return RedirectToAction("Login");
+            return RedirectToAction(nameof(VerifyTelegram), new { userId = user.Id });
         }
 
         var (linkUrl, plainToken, expiresAt) = await _telegramService.GenerateLinkTokenAsync(user.Id, HttpContext.Connection.RemoteIpAddress?.ToString());
@@ -271,40 +300,62 @@ public class AccountController : Controller
     }
 
     [HttpGet]
-    public async Task<IActionResult> CheckTelegramLinkStatus(string userId)
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
+    public async Task<IActionResult> CheckTelegramLinkStatus(string? userId = null)
     {
         if (string.IsNullOrWhiteSpace(userId))
         {
-            return Json(new { linked = false });
+            ClearPendingVerificationSession();
+            return Unauthorized(new { linked = false });
         }
-        var isLinked = await _telegramService.IsAccountLinkedAsync(userId);
+
+        var (ok, user, _, failureReason) = await ResolveEligiblePendingUserAsync(userId, requireUnverifiedRegistration: true);
+        if (!ok || user == null)
+        {
+            if (!string.Equals(failureReason, "user_mismatch", StringComparison.Ordinal))
+            {
+                ClearPendingVerificationSession();
+            }
+            return Unauthorized(new { linked = false });
+        }
+
+        var isLinked = user.TelegramChatId.HasValue &&
+                       user.TelegramChatId.Value > 0 &&
+                       await _telegramService.IsAccountLinkedAsync(user.Id);
+
         return Json(new { linked = isLinked });
     }
 
     [HttpGet]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
     public async Task<IActionResult> VerifyTelegram(string? userId)
     {
         if (string.IsNullOrWhiteSpace(userId))
         {
-            return RedirectToAction("Login");
+            ClearPendingVerificationSession();
+            return RedirectToAction(nameof(Login));
         }
 
-        var user = await _userManager.FindByIdAsync(userId);
-        if (user == null)
-        {
-            return RedirectToAction("Login");
-        }
-
-        // Prevent cross-account verification access without proof of session ownership
-        if (!ValidatePendingVerificationSession(user.Id))
+        var (ok, user, _, _) = await ResolveEligiblePendingUserAsync(userId, requireUnverifiedRegistration: true);
+        if (!ok || user == null)
         {
             ClearPendingVerificationSession();
             TempData["ErrorMessage"] = "For security, please sign in with your credentials to verify your account.";
-            return RedirectToAction("Login");
+            return RedirectToAction(nameof(Login));
         }
 
-        // Ensure active code exists upon arriving at page
-        await EnsureVerificationCodeDispatchedAsync(user);
+        // Require Telegram linking before dispatching or verifying OTP
+        if (!user.TelegramChatId.HasValue || user.TelegramChatId.Value <= 0)
+        {
+            TempData["InfoMessage"] = "Please link your personal Telegram account before verifying.";
+            return RedirectToAction(nameof(LinkTelegram), new { userId = user.Id });
+        }
+
+        // Ensure active code exists upon arriving at page (only for linked TelegramChatId)
+        if (!await EnsureVerificationCodeDispatchedAsync(user))
+        {
+            TempData["ErrorMessage"] = "Unable to deliver the Telegram verification code. Please try again later.";
+        }
 
         var model = new VerifyTelegramViewModel
         {
@@ -318,31 +369,39 @@ public class AccountController : Controller
 
     [HttpPost]
     [ValidateAntiForgeryToken]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
     public async Task<IActionResult> VerifyTelegram(VerifyTelegramViewModel model)
     {
-        if (!ModelState.IsValid)
-        {
-            return View(model);
-        }
-
-        // Resolve pending account directly from database without trusting client user metadata
-        var user = await _userManager.FindByIdAsync(model.UserId);
-        if (user == null)
-        {
-            ModelState.AddModelError(string.Empty, "Invalid verification session.");
-            return View(model);
-        }
-
-        model.UniversityId = user.UniversityId ?? string.Empty;
-        model.FullName = user.FullName;
-
-        // Prevent cross-account verification: verify session token
-        if (!TryGetPendingVerificationSession(out var pendingSession) ||
-            !string.Equals(pendingSession.UserId, user.Id, StringComparison.Ordinal))
+        if (model == null || string.IsNullOrWhiteSpace(model.UserId))
         {
             ClearPendingVerificationSession();
             TempData["ErrorMessage"] = "Your verification session has expired. Please sign in to verify your account.";
-            return RedirectToAction("Login");
+            return RedirectToAction(nameof(Login));
+        }
+
+        // Prevent cross-account verification and reject missing, expired, tampered, replayed, or ineligible sessions
+        var (ok, user, pendingSession, _) = await ResolveEligiblePendingUserAsync(model.UserId, requireUnverifiedRegistration: true);
+        if (!ok || user == null || pendingSession == null)
+        {
+            ClearPendingVerificationSession();
+            TempData["ErrorMessage"] = "Your verification session has expired. Please sign in to verify your account.";
+            return RedirectToAction(nameof(Login));
+        }
+
+        // Never trust client-supplied user metadata
+        model.UserId = user.Id;
+        model.UniversityId = user.UniversityId ?? string.Empty;
+        model.FullName = user.FullName;
+
+        if (!user.TelegramChatId.HasValue || user.TelegramChatId.Value <= 0)
+        {
+            TempData["ErrorMessage"] = "Please link your personal Telegram account before completing verification.";
+            return RedirectToAction(nameof(LinkTelegram), new { userId = user.Id });
+        }
+
+        if (!ModelState.IsValid)
+        {
+            return View(model);
         }
 
         // Verify server-side pending verification request via shared auth service
@@ -352,21 +411,21 @@ public class AccountController : Controller
         {
             ClearPendingVerificationSession();
             TempData["ErrorMessage"] = "Your account has been temporarily locked due to multiple failed login attempts. Please try again later.";
-            return RedirectToAction("Login");
+            return RedirectToAction(nameof(Login));
         }
 
         if (verifyResult.Status == TwoFactorVerifyStatus.UserUnavailable)
         {
             ClearPendingVerificationSession();
             TempData["ErrorMessage"] = "Your account has been deactivated or is unavailable. Please contact the administrator.";
-            return RedirectToAction("Login");
+            return RedirectToAction(nameof(Login));
         }
 
         if (verifyResult.Status == TwoFactorVerifyStatus.TelegramNotLinked)
         {
             ClearPendingVerificationSession();
             TempData["ErrorMessage"] = "Your Telegram account must be linked and verified before signing in.";
-            return RedirectToAction("Login");
+            return RedirectToAction(nameof(Login));
         }
 
         if (verifyResult.Status == TwoFactorVerifyStatus.AlreadyUsed)
@@ -394,10 +453,22 @@ public class AccountController : Controller
             return View(model);
         }
 
-        // Verification successful: mark user verified
+        if (!await _signInManager.CanSignInAsync(user))
+        {
+            ClearPendingVerificationSession();
+            TempData["ErrorMessage"] = "Your account is not eligible to sign in. Please contact the administrator.";
+            return RedirectToAction(nameof(Login));
+        }
+
+        // Verification successful: transition user to verified state only after OTP check passes
         user.IsTelegramVerified = true;
         user.UpdatedAt = DateTime.UtcNow;
-        await _userManager.UpdateAsync(user);
+        var updateResult = await _userManager.UpdateAsync(user);
+        if (!updateResult.Succeeded)
+        {
+            ModelState.AddModelError(string.Empty, "Unable to finalize account verification. Please try again.");
+            return View(model);
+        }
 
         ClearPendingVerificationSession();
         await SignOutExternalSchemeSafelyAsync();
@@ -419,80 +490,77 @@ public class AccountController : Controller
 
     [HttpPost]
     [ValidateAntiForgeryToken]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
     public async Task<IActionResult> ResendTelegramCode(string userId)
     {
         if (string.IsNullOrWhiteSpace(userId))
         {
-            return RedirectToAction("Login");
+            ClearPendingVerificationSession();
+            return RedirectToAction(nameof(Login));
         }
 
-        var user = await _userManager.FindByIdAsync(userId);
-        if (user == null)
+        // Verify session authorization and eligibility before resending
+        var (ok, user, _, _) = await ResolveEligiblePendingUserAsync(userId, requireUnverifiedRegistration: true);
+        if (!ok || user == null)
         {
-            return RedirectToAction("Login");
-        }
-
-        // Verify session authorization before resending
-        if (!ValidatePendingVerificationSession(user.Id))
-        {
+            ClearPendingVerificationSession();
             TempData["ErrorMessage"] = "Session expired. Please sign in to request a new code.";
-            return RedirectToAction("Login");
+            return RedirectToAction(nameof(Login));
         }
 
-        // Rate limiting cooldown: 60 seconds between resend requests
-        var latestRequest = await _context.TelegramVerificationRequests
-            .Where(r => r.UserId == userId)
-            .OrderByDescending(r => r.CreatedAt)
-            .FirstOrDefaultAsync();
-
-        if (latestRequest != null && (DateTime.UtcNow - latestRequest.CreatedAt).TotalSeconds < 60)
+        if (!user.TelegramChatId.HasValue || user.TelegramChatId.Value <= 0)
         {
-            int waitSeconds = 60 - (int)(DateTime.UtcNow - latestRequest.CreatedAt).TotalSeconds;
+            TempData["InfoMessage"] = "Please link your personal Telegram account first.";
+            return RedirectToAction(nameof(LinkTelegram), new { userId = user.Id });
+        }
+
+        var dispatch = await _authService.ResendWebVerificationCodeAsync(user);
+        if (dispatch.Status == TwoFactorDispatchStatus.RateLimited)
+        {
+            int waitSeconds = dispatch.RetryAfterSeconds ?? 60;
             TempData["ErrorMessage"] = $"Please wait {waitSeconds} seconds before requesting a new code.";
-            return RedirectToAction("VerifyTelegram", new { userId });
+            return RedirectToAction(nameof(VerifyTelegram), new { userId = user.Id });
         }
 
-        // Mark previous pending requests as used/invalidated
-        var pendingRequests = await _context.TelegramVerificationRequests
-            .Where(r => r.UserId == userId && !r.IsUsed)
-            .ToListAsync();
-
-        foreach (var req in pendingRequests)
+        if (dispatch.Status != TwoFactorDispatchStatus.Sent)
         {
-            req.IsUsed = true;
-            req.UsedAt = DateTime.UtcNow;
+            TempData["ErrorMessage"] = "Unable to deliver the Telegram verification code. Please try again later.";
+            return RedirectToAction(nameof(VerifyTelegram), new { userId = user.Id });
         }
-
-        // Generate fresh code
-        var verificationCode = RandomNumberGenerator.GetInt32(100000, 1000000).ToString();
-        var newRequest = new TelegramVerificationRequest
-        {
-            UserId = user.Id,
-            UniversityId = user.UniversityId ?? string.Empty,
-            Code = verificationCode,
-            CreatedAt = DateTime.UtcNow,
-            ExpiresAt = DateTime.UtcNow.AddMinutes(10),
-            IsUsed = false,
-            AttemptsCount = 0,
-            MaxAttempts = 5
-        };
-
-        _context.TelegramVerificationRequests.Add(newRequest);
-        await _context.SaveChangesAsync();
-
-        await _telegramService.SendVerificationCodeAsync(user.UniversityId ?? string.Empty, user.FullName, verificationCode, user.TelegramChatId?.ToString());
 
         TempData["InfoMessage"] = "A new verification code has been dispatched to Telegram.";
-        return RedirectToAction("VerifyTelegram", new { userId });
+        return RedirectToAction(nameof(VerifyTelegram), new { userId = user.Id });
     }
 
-    private async Task EnsureVerificationCodeDispatchedAsync(User user)
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> CancelVerification()
     {
-        var req = await _authService.EnsureWebVerificationCodeDispatchedAsync(user);
-        if (req.CreatedAt >= DateTime.UtcNow.AddSeconds(-5))
+        if (TryGetPendingVerificationSession(out var session))
+        {
+            await _authService.InvalidatePendingChallengesAsync(session.UserId);
+        }
+
+        ClearPendingVerificationSession();
+        await SignOutExternalSchemeSafelyAsync();
+        TempData["InfoMessage"] = "Verification was cancelled.";
+        return RedirectToAction(nameof(Login));
+    }
+
+    private async Task<bool> EnsureVerificationCodeDispatchedAsync(User user)
+    {
+        var result = await _authService.EnsureWebVerificationCodeDispatchedAsync(user);
+        if (result.Status != TwoFactorDispatchStatus.Sent || result.Request == null)
+        {
+            return false;
+        }
+
+        if (result.Request.CreatedAt >= DateTime.UtcNow.AddSeconds(-5))
         {
             TempData["InfoMessage"] = "A single-use verification code has been dispatched to Telegram.";
         }
+
+        return true;
     }
 
     [HttpGet]
@@ -505,6 +573,11 @@ public class AccountController : Controller
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> Logout()
     {
+        if (TryGetPendingVerificationSession(out var session))
+        {
+            await _authService.InvalidatePendingChallengesAsync(session.UserId);
+        }
+
         ClearPendingVerificationSession();
         await SignOutExternalSchemeSafelyAsync();
         await _signInManager.SignOutAsync();
@@ -691,15 +764,58 @@ public class AccountController : Controller
     }
 
     // Helper methods
+    private async Task<(bool Ok, User? User, PendingVerificationPayload? Session, string FailureReason)> ResolveEligiblePendingUserAsync(
+        string? expectedUserId = null,
+        bool requireUnverifiedRegistration = false)
+    {
+        if (!TryGetPendingVerificationSession(out var session))
+        {
+            return (false, null, null, "missing_or_invalid_session");
+        }
+
+        if (!string.IsNullOrWhiteSpace(expectedUserId) &&
+            !string.Equals(session.UserId, expectedUserId, StringComparison.Ordinal))
+        {
+            return (false, null, null, "user_mismatch");
+        }
+
+        var user = await _userManager.FindByIdAsync(session.UserId);
+        if (user == null || !user.IsActive)
+        {
+            return (false, null, null, "user_unavailable");
+        }
+
+        if (await _userManager.IsLockedOutAsync(user))
+        {
+            return (false, null, null, "locked_out");
+        }
+
+        if (requireUnverifiedRegistration &&
+            string.Equals(session.AuthMethod, "Registration", StringComparison.Ordinal) &&
+            user.IsTelegramVerified)
+        {
+            return (false, null, null, "already_verified");
+        }
+
+        return (true, user, session, string.Empty);
+    }
+
     private void SetPendingVerificationSession(
         string userId,
         bool rememberMe = false,
         string? returnUrl = null,
         string authMethod = "Password")
     {
+        // Revoke any prior pending session cookie before issuing a fresh one
+        if (TryGetPendingVerificationSessionPayloadUnsafe(out var priorPayload))
+        {
+            RevokePendingSessionNonce(priorPayload.SessionNonce, priorPayload.ExpiresAtUtc);
+        }
+
         var safeReturnUrl = !string.IsNullOrEmpty(returnUrl) && Url.IsLocalUrl(returnUrl) ? returnUrl : null;
         var expiresAt = DateTimeOffset.UtcNow.Add(PendingVerificationLifetime);
-        var payload = new PendingVerificationPayload(userId, rememberMe, safeReturnUrl, authMethod, expiresAt);
+        var sessionNonce = Convert.ToHexString(RandomNumberGenerator.GetBytes(16));
+        var payload = new PendingVerificationPayload(userId, rememberMe, safeReturnUrl, authMethod, expiresAt, sessionNonce);
         var json = JsonSerializer.Serialize(payload);
         var token = _protector.Protect(json, PendingVerificationLifetime);
 
@@ -708,11 +824,12 @@ public class AccountController : Controller
             HttpOnly = true,
             SameSite = SameSiteMode.Lax,
             Expires = expiresAt,
-            Secure = Request?.IsHttps ?? false
+            Secure = Request?.IsHttps ?? false,
+            IsEssential = true
         });
     }
 
-    private bool TryGetPendingVerificationSession(out PendingVerificationPayload payload)
+    private bool TryGetPendingVerificationSessionPayloadUnsafe(out PendingVerificationPayload payload)
     {
         payload = default!;
         if (Request == null ||
@@ -733,6 +850,7 @@ public class AccountController : Controller
             var parsed = JsonSerializer.Deserialize<PendingVerificationPayload>(json);
             if (parsed == null ||
                 string.IsNullOrWhiteSpace(parsed.UserId) ||
+                string.IsNullOrWhiteSpace(parsed.SessionNonce) ||
                 parsed.ExpiresAtUtc <= DateTimeOffset.UtcNow)
             {
                 return false;
@@ -747,25 +865,63 @@ public class AccountController : Controller
         }
     }
 
-    private bool ValidatePendingVerificationSession(string userId)
+    private bool TryGetPendingVerificationSession(out PendingVerificationPayload payload)
     {
-        return TryGetPendingVerificationSession(out var payload) &&
-               string.Equals(payload.UserId, userId, StringComparison.Ordinal);
-    }
-
-    private (bool RememberMe, string? ReturnUrl) GetPendingVerificationOptions()
-    {
-        if (TryGetPendingVerificationSession(out var payload))
+        if (!TryGetPendingVerificationSessionPayloadUnsafe(out payload))
         {
-            return (payload.RememberMe, payload.ReturnUrl);
+            return false;
         }
 
-        return (false, null);
+        if (IsPendingSessionNonceRevoked(payload.SessionNonce))
+        {
+            payload = default!;
+            return false;
+        }
+
+        return true;
     }
 
     private void ClearPendingVerificationSession()
     {
+        if (TryGetPendingVerificationSessionPayloadUnsafe(out var existing))
+        {
+            RevokePendingSessionNonce(existing.SessionNonce, existing.ExpiresAtUtc);
+        }
+
         Response?.Cookies.Delete(PendingVerificationCookieName);
+    }
+
+    private static void RevokePendingSessionNonce(string nonce, DateTimeOffset expiresAtUtc)
+    {
+        if (string.IsNullOrWhiteSpace(nonce))
+        {
+            return;
+        }
+
+        PruneExpiredRevokedNonces();
+        var expiry = expiresAtUtc > DateTimeOffset.UtcNow
+            ? expiresAtUtc
+            : DateTimeOffset.UtcNow.Add(PendingVerificationLifetime);
+        RevokedPendingSessionNonces[nonce] = expiry;
+    }
+
+    private static bool IsPendingSessionNonceRevoked(string nonce)
+    {
+        PruneExpiredRevokedNonces();
+        return RevokedPendingSessionNonces.TryGetValue(nonce, out var expiresAt) &&
+               expiresAt > DateTimeOffset.UtcNow;
+    }
+
+    private static void PruneExpiredRevokedNonces()
+    {
+        var now = DateTimeOffset.UtcNow;
+        foreach (var kvp in RevokedPendingSessionNonces)
+        {
+            if (kvp.Value <= now)
+            {
+                RevokedPendingSessionNonces.TryRemove(kvp.Key, out _);
+            }
+        }
     }
 
     private async Task<User?> FindByUniversityIdAsync(string universityId)

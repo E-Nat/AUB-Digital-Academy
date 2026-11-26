@@ -79,9 +79,12 @@
             <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
             <span>Listening for connection...</span>
         </div>
-        <a asp-controller="Account" asp-action="Login" class="text-decoration-none text-muted small">
-            Cancel
-        </a>
+        <form asp-controller="Account" asp-action="CancelVerification" method="post" class="d-inline">
+            @Html.AntiForgeryToken()
+            <button type="submit" class="btn btn-link text-decoration-none text-muted small p-0">
+                Cancel
+            </button>
+        </form>
     </div>
 </div>
 
@@ -103,8 +106,21 @@
             if (!userId) return;
 
             var checkInterval = setInterval(function() {
-                fetch('/Account/CheckTelegramLinkStatus?userId=' + encodeURIComponent(userId))
-                    .then(function(res) { return res.json(); })
+                fetch('/Account/CheckTelegramLinkStatus?userId=' + encodeURIComponent(userId), {
+                    credentials: 'same-origin',
+                    cache: 'no-store'
+                })
+                    .then(function(res) {
+                        if (res.status === 401 || res.status === 403) {
+                            clearInterval(checkInterval);
+                            window.location.href = '/Account/Login';
+                            return null;
+                        }
+                        if (!res.ok) {
+                            return null;
+                        }
+                        return res.json();
+                    })
                     .then(function(data) {
                         if (data && data.linked) {
                             clearInterval(checkInterval);

@@ -81,6 +81,24 @@ public static partial class TelegramLogSanitizer
         return result;
     }
 
+    public static string MaskChatId(long chatId) => MaskChatId(chatId.ToString());
+
+    public static string MaskChatId(string? chatId)
+    {
+        if (string.IsNullOrWhiteSpace(chatId))
+        {
+            return "[none]";
+        }
+
+        var trimmed = chatId.Trim();
+        if (trimmed.Length <= 4)
+        {
+            return "****";
+        }
+
+        return string.Concat(new string('*', trimmed.Length - 4), trimmed[^4..]);
+    }
+
     public static string SanitizeMessage(string? message, string? knownBotToken = null, int maxLength = DefaultMaxMessageLength)
     {
         var sanitized = Sanitize(message, knownBotToken);

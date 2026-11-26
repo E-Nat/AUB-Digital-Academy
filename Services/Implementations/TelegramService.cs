@@ -161,7 +161,7 @@ public class TelegramService : ITelegramService
 
             if (response.IsSuccessStatusCode)
             {
-                _logger.LogInformation("Telegram verification code delivered successfully for Student ID {UniversityId} to ChatId {ChatId}.", universityId, chatId);
+                _logger.LogInformation("Telegram verification code delivered successfully for Student ID {UniversityId} to ChatId {MaskedChatId}.", universityId, TelegramLogSanitizer.MaskChatId(chatId));
                 return true;
             }
 
@@ -191,9 +191,10 @@ public class TelegramService : ITelegramService
     public async Task<bool> SendMessageAsync(long chatId, string text, string parseMode = "HTML", CancellationToken cancellationToken = default)
     {
         var botToken = GetBotToken();
+        var maskedChatId = TelegramLogSanitizer.MaskChatId(chatId);
         if (string.IsNullOrWhiteSpace(botToken))
         {
-            _logger.LogWarning("Telegram Bot token is not configured. Cannot send message to chat {ChatId}.", chatId);
+            _logger.LogWarning("Telegram Bot token is not configured. Cannot send message to chat {MaskedChatId}.", maskedChatId);
             return false;
         }
 
@@ -212,17 +213,17 @@ public class TelegramService : ITelegramService
 
             if (response.IsSuccessStatusCode)
             {
-                _logger.LogInformation("Telegram message sent successfully to chat {ChatId}.", chatId);
+                _logger.LogInformation("Telegram message sent successfully to chat {MaskedChatId}.", maskedChatId);
                 return true;
             }
 
             var errBody = await response.Content.ReadAsStringAsync(cancellationToken);
             var safeErrBody = TelegramLogSanitizer.SanitizeMessage(errBody, botToken);
             _logger.LogWarning(
-                "Telegram {Operation} returned HTTP {StatusCode} for chat {ChatId}: {ErrorBody}",
+                "Telegram {Operation} returned HTTP {StatusCode} for chat {MaskedChatId}: {ErrorBody}",
                 "sendMessage",
                 (int)response.StatusCode,
-                chatId,
+                maskedChatId,
                 safeErrBody);
             return false;
         }
@@ -235,8 +236,8 @@ public class TelegramService : ITelegramService
             var safeEx = TelegramLogSanitizer.SanitizeException(ex, botToken);
             _logger.LogError(
                 safeEx,
-                "Exception while sending Telegram message to chat {ChatId} (Operation={Operation}, StatusCode={StatusCode}).",
-                chatId,
+                "Exception while sending Telegram message to chat {MaskedChatId} (Operation={Operation}, StatusCode={StatusCode}).",
+                maskedChatId,
                 "sendMessage",
                 (ex as HttpRequestException)?.StatusCode is { } sc ? (int?)sc : null);
             return false;
@@ -306,18 +307,30 @@ public class TelegramService : ITelegramService
 
     public async Task<(string LinkUrl, string PlainToken, DateTime ExpiresAt)> GenerateLinkTokenAsync(string userId, string? clientIp = null)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(userId);
+
         using var scope = _scopeFactory.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
 
-        // Invalidate prior unused tokens for this user
-        var existingTokens = await context.TelegramLinkTokens
-            .Where(t => t.UserId == userId && !t.IsUsed && t.ExpiresAt > DateTime.UtcNow)
-            .ToListAsync();
-        foreach (var t in existingTokens)
+        var user = await context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId);
+        if (user == null || !user.IsActive || (user.LockoutEnabled && user.LockoutEnd.HasValue && user.LockoutEnd.Value > DateTimeOffset.UtcNow))
         {
-            t.IsUsed = true;
-            t.UsedAt = DateTime.UtcNow;
+            throw new InvalidOperationException("User account is not eligible for Telegram linking.");
         }
+
+        if (user.TelegramChatId.HasValue)
+        {
+            throw new InvalidOperationException("User account already has a linked Telegram association.");
+        }
+
+        var now = DateTime.UtcNow;
+
+        // Invalidate prior unused tokens for this user
+        await context.TelegramLinkTokens
+            .Where(t => t.UserId == userId && !t.IsUsed)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(t => t.IsUsed, true)
+                .SetProperty(t => t.UsedAt, now));
 
         // Generate 32-byte cryptographic random token
         var tokenBytes = RandomNumberGenerator.GetBytes(32);
@@ -325,15 +338,21 @@ public class TelegramService : ITelegramService
         var hashBytes = SHA256.HashData(Encoding.UTF8.GetBytes(plainToken));
         var tokenHash = Convert.ToHexString(hashBytes).ToLowerInvariant();
 
-        var expiresAt = DateTime.UtcNow.AddMinutes(15);
+        var expiresAt = now.AddMinutes(15);
+        var safeIp = string.IsNullOrWhiteSpace(clientIp) ? null : clientIp.Trim();
+        if (safeIp != null && safeIp.Length > 50)
+        {
+            safeIp = safeIp[..50];
+        }
+
         var linkToken = new TelegramLinkToken
         {
             UserId = userId,
             TokenHash = tokenHash,
-            CreatedAt = DateTime.UtcNow,
+            CreatedAt = now,
             ExpiresAt = expiresAt,
             IsUsed = false,
-            CreatedByIp = clientIp
+            CreatedByIp = safeIp
         };
 
         context.TelegramLinkTokens.Add(linkToken);
@@ -351,58 +370,134 @@ public class TelegramService : ITelegramService
             return (false, "Missing or invalid token.", null);
         }
 
+        if (chatId <= 0)
+        {
+            return (false, "Telegram linking is only permitted from a private Telegram chat.", null);
+        }
+
         using var scope = _scopeFactory.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
 
         var hashBytes = SHA256.HashData(Encoding.UTF8.GetBytes(plainToken.Trim()));
         var tokenHash = Convert.ToHexString(hashBytes).ToLowerInvariant();
 
-        var linkToken = await context.TelegramLinkTokens
-            .Include(t => t.User)
-            .FirstOrDefaultAsync(t => t.TokenHash == tokenHash);
-
-        if (linkToken == null || linkToken.IsUsed || DateTime.UtcNow > linkToken.ExpiresAt)
+        try
         {
-            return (false, "This link token is invalid, expired, or has already been used. Please generate a fresh link in the AUB Portal.", null);
+            await using var tx = await context.Database.BeginTransactionAsync();
+
+            var now = DateTime.UtcNow;
+
+            // Atomically claim the single-use token first; SQL Server X-lock serializes concurrent claimers
+            var claimedRows = await context.TelegramLinkTokens
+                .Where(t => t.TokenHash == tokenHash && !t.IsUsed && t.ExpiresAt > now)
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(t => t.IsUsed, true)
+                    .SetProperty(t => t.UsedAt, now));
+
+            if (claimedRows != 1)
+            {
+                await tx.RollbackAsync();
+                return (false, "This link token is invalid, expired, or has already been used. Please generate a fresh link in the AUB Portal.", null);
+            }
+
+            var linkToken = await context.TelegramLinkTokens
+                .AsNoTracking()
+                .FirstOrDefaultAsync(t => t.TokenHash == tokenHash);
+
+            if (linkToken == null)
+            {
+                await tx.RollbackAsync();
+                return (false, "This link token is invalid, expired, or has already been used. Please generate a fresh link in the AUB Portal.", null);
+            }
+
+            var user = await context.Users
+                .AsNoTracking()
+                .FirstOrDefaultAsync(u => u.Id == linkToken.UserId);
+
+            if (user == null || !user.IsActive || (user.LockoutEnabled && user.LockoutEnd.HasValue && user.LockoutEnd.Value > DateTimeOffset.UtcNow))
+            {
+                await tx.RollbackAsync();
+                return (false, "Associated university user account was not found or is unavailable.", null);
+            }
+
+            // Never silently overwrite an existing TelegramChatId association
+            if (user.TelegramChatId.HasValue)
+            {
+                await tx.RollbackAsync();
+                return (false, "This university account already has a linked Telegram account. Contact IT Support if you need to change it.", null);
+            }
+
+            // Enforce uniqueness: Check if this Telegram Chat ID is already bound to another user
+            var isChatTakenByOther = await context.Users
+                .AnyAsync(u => u.TelegramChatId == chatId && u.Id != user.Id);
+
+            if (isChatTakenByOther)
+            {
+                await tx.RollbackAsync();
+                return (false, "This Telegram account is already linked to another university account. Contact IT Support if you believe this is an error.", null);
+            }
+
+            var safeUsername = string.IsNullOrWhiteSpace(telegramUsername)
+                ? null
+                : telegramUsername.Trim().TrimStart('@');
+            if (safeUsername != null && safeUsername.Length > 100)
+            {
+                safeUsername = safeUsername[..100];
+            }
+
+            // Atomically bind TelegramChatId ONLY when still null; never mark IsTelegramVerified = true before OTP verification
+            var userUpdatedRows = await context.Users
+                .Where(u => u.Id == user.Id && u.IsActive && u.TelegramChatId == null)
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(u => u.TelegramChatId, chatId)
+                    .SetProperty(u => u.TelegramUsername, safeUsername)
+                    .SetProperty(u => u.UpdatedAt, now));
+
+            if (userUpdatedRows != 1)
+            {
+                await tx.RollbackAsync();
+                return (false, "This university account already has a linked Telegram account or is unavailable.", null);
+            }
+
+            // Invalidate any other unused tokens for this user
+            await context.TelegramLinkTokens
+                .Where(t => t.UserId == user.Id && !t.IsUsed)
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(t => t.IsUsed, true)
+                    .SetProperty(t => t.UsedAt, now));
+
+            await tx.CommitAsync();
+
+            var updatedUser = await context.Users
+                .AsNoTracking()
+                .FirstOrDefaultAsync(u => u.Id == user.Id);
+
+            _logger.LogInformation("Telegram chat linked for user {UserId} (ChatId {MaskedChatId}); awaiting OTP verification.",
+                user.Id, TelegramLogSanitizer.MaskChatId(chatId));
+
+            return (true, $"Account successfully linked to {user.FullName} ({user.UniversityId ?? user.UserName}). Please return to the AUB Portal to enter your verification code.", updatedUser);
         }
-
-        var user = linkToken.User;
-        if (user == null)
-        {
-            return (false, "Associated university user account was not found.", null);
-        }
-
-        // Enforce uniqueness: Check if this Telegram Chat ID is already bound to another active user
-        var isChatTakenByOther = await context.Users
-            .AnyAsync(u => u.TelegramChatId == chatId && u.Id != user.Id);
-
-        if (isChatTakenByOther)
+        catch (DbUpdateException)
         {
             return (false, "This Telegram account is already linked to another university account. Contact IT Support if you believe this is an error.", null);
         }
-
-        // Mark token used
-        linkToken.IsUsed = true;
-        linkToken.UsedAt = DateTime.UtcNow;
-
-        // Update user profile
-        user.TelegramChatId = chatId;
-        user.TelegramUsername = telegramUsername;
-        user.IsTelegramVerified = true;
-        user.UpdatedAt = DateTime.UtcNow;
-
-        await context.SaveChangesAsync();
-
-        _logger.LogInformation("Telegram account linked successfully: Student {UniversityId} ({UserId}) bound to ChatId {ChatId} (@{TelegramUsername}).",
-            user.UniversityId, user.Id, chatId, telegramUsername ?? "none");
-
-        return (true, $"Account successfully linked to {user.FullName} ({user.UniversityId ?? user.UserName}).", user);
     }
 
     public async Task<bool> IsAccountLinkedAsync(string userId)
     {
+        if (string.IsNullOrWhiteSpace(userId))
+        {
+            return false;
+        }
+
         using var scope = _scopeFactory.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-        return await context.Users.AnyAsync(u => u.Id == userId && u.TelegramChatId.HasValue && u.IsTelegramVerified);
+        var now = DateTimeOffset.UtcNow;
+        return await context.Users.AnyAsync(u =>
+            u.Id == userId &&
+            u.IsActive &&
+            (!u.LockoutEnabled || !u.LockoutEnd.HasValue || u.LockoutEnd.Value <= now) &&
+            u.TelegramChatId.HasValue &&
+            u.TelegramChatId.Value > 0);
     }
 }

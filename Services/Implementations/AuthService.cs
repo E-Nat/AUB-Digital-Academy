@@ -102,49 +102,82 @@ public class AuthService : IAuthService
         return new CredentialCheckResult(CredentialCheckStatus.Success, user, roles);
     }
 
-    public async Task<TelegramVerificationRequest> EnsureWebVerificationCodeDispatchedAsync(User user)
+    public async Task<WebTwoFactorDispatchResult> EnsureWebVerificationCodeDispatchedAsync(User user)
     {
+        if (!user.IsActive || await _userManager.IsLockedOutAsync(user) || !user.TelegramChatId.HasValue || user.TelegramChatId.Value <= 0)
+        {
+            return new WebTwoFactorDispatchResult(TwoFactorDispatchStatus.DeliveryFailed);
+        }
+
         var now = DateTime.UtcNow;
         var activeRequest = await _context.TelegramVerificationRequests
-            .Where(r => r.UserId == user.Id && !r.IsUsed && r.ExpiresAt > now)
+            .Where(r => r.UserId == user.Id && !r.IsUsed && r.ExpiresAt > now && r.AttemptsCount < r.MaxAttempts)
             .OrderByDescending(r => r.CreatedAt)
             .FirstOrDefaultAsync();
 
         if (activeRequest != null)
         {
-            return activeRequest;
+            return new WebTwoFactorDispatchResult(TwoFactorDispatchStatus.Sent, activeRequest);
         }
 
-        var code = GenerateSixDigitCode();
-        var request = new TelegramVerificationRequest
-        {
-            UserId = user.Id,
-            UniversityId = user.UniversityId ?? user.Email ?? user.UserName ?? user.Id,
-            Code = code,
-            CreatedAt = now,
-            ExpiresAt = now.AddMinutes(OtpValidityMinutes)
-        };
-
-        _context.TelegramVerificationRequests.Add(request);
-        await _context.SaveChangesAsync();
-
-        var targetChatId = user.TelegramChatId?.ToString();
-        await _telegramService.SendVerificationCodeAsync(
-            request.UniversityId,
-            user.FullName,
-            code,
-            targetChatId);
-
-        return request;
+        return await CreateAndSendWebOtpAsync(user);
     }
 
-    public async Task<WebTwoFactorDispatchResult> DispatchWebTwoFactorChallengeAsync(User user)
+    public async Task<WebTwoFactorDispatchResult> ResendWebVerificationCodeAsync(User user, int cooldownSeconds = 60)
     {
-        if (!user.IsActive || await _userManager.IsLockedOutAsync(user) || !user.IsTelegramVerified || !user.TelegramChatId.HasValue)
+        if (!user.IsActive || await _userManager.IsLockedOutAsync(user) || !user.TelegramChatId.HasValue || user.TelegramChatId.Value <= 0)
         {
             return new WebTwoFactorDispatchResult(TwoFactorDispatchStatus.DeliveryFailed);
         }
 
+        var now = DateTime.UtcNow;
+        var latestRequest = await _context.TelegramVerificationRequests
+            .Where(r => r.UserId == user.Id)
+            .OrderByDescending(r => r.CreatedAt)
+            .FirstOrDefaultAsync();
+
+        if (latestRequest != null && (now - latestRequest.CreatedAt).TotalSeconds < cooldownSeconds)
+        {
+            int waitSeconds = Math.Max(1, cooldownSeconds - (int)(now - latestRequest.CreatedAt).TotalSeconds);
+            return new WebTwoFactorDispatchResult(TwoFactorDispatchStatus.RateLimited, RetryAfterSeconds: waitSeconds);
+        }
+
+        return await CreateAndSendWebOtpAsync(user);
+    }
+
+    public async Task<WebTwoFactorDispatchResult> DispatchWebTwoFactorChallengeAsync(User user)
+    {
+        if (!user.IsActive || await _userManager.IsLockedOutAsync(user) || !user.IsTelegramVerified || !user.TelegramChatId.HasValue || user.TelegramChatId.Value <= 0)
+        {
+            return new WebTwoFactorDispatchResult(TwoFactorDispatchStatus.DeliveryFailed);
+        }
+
+        return await CreateAndSendWebOtpAsync(user);
+    }
+
+    public async Task InvalidatePendingChallengesAsync(string userId)
+    {
+        if (string.IsNullOrWhiteSpace(userId))
+        {
+            return;
+        }
+
+        var now = DateTime.UtcNow;
+        await _context.TelegramVerificationRequests
+            .Where(r => r.UserId == userId && !r.IsUsed)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(r => r.IsUsed, true)
+                .SetProperty(r => r.UsedAt, now));
+
+        await _context.TelegramLinkTokens
+            .Where(t => t.UserId == userId && !t.IsUsed)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(t => t.IsUsed, true)
+                .SetProperty(t => t.UsedAt, now));
+    }
+
+    private async Task<WebTwoFactorDispatchResult> CreateAndSendWebOtpAsync(User user)
+    {
         var now = DateTime.UtcNow;
         var existingActive = await _context.TelegramVerificationRequests
             .Where(r => r.UserId == user.Id && !r.IsUsed)
@@ -176,7 +209,7 @@ public class AuthService : IAuthService
             request.UniversityId,
             user.FullName,
             code,
-            user.TelegramChatId.Value.ToString());
+            user.TelegramChatId!.Value.ToString());
 
         if (!sent)
         {
@@ -420,6 +453,11 @@ public class AuthService : IAuthService
             return new TwoFactorVerifyResult(TwoFactorVerifyStatus.LockedOut, user);
         }
 
+        if (!user.TelegramChatId.HasValue || user.TelegramChatId.Value <= 0)
+        {
+            return new TwoFactorVerifyResult(TwoFactorVerifyStatus.TelegramNotLinked, user);
+        }
+
         var request = await _context.TelegramVerificationRequests
             .Where(r => r.UserId == user.Id && !r.IsUsed)
             .OrderByDescending(r => r.CreatedAt)
@@ -614,20 +652,26 @@ public class AuthService : IAuthService
         }
 
         var now = DateTime.UtcNow;
+        var consumedRows = await _context.TelegramVerificationRequests
+            .Where(r => r.Id == request.Id && !r.IsUsed && r.ExpiresAt > now && r.AttemptsCount < r.MaxAttempts)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(r => r.IsUsed, true)
+                .SetProperty(r => r.UsedAt, now));
+
+        if (consumedRows != 1)
+        {
+            return new TwoFactorVerifyResult(TwoFactorVerifyStatus.AlreadyUsed, user);
+        }
+
         request.IsUsed = true;
         request.UsedAt = now;
 
-        var siblingUnused = await _context.TelegramVerificationRequests
+        await _context.TelegramVerificationRequests
             .Where(r => r.UserId == user.Id && !r.IsUsed && r.Id != request.Id)
-            .ToListAsync();
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(r => r.IsUsed, true)
+                .SetProperty(r => r.UsedAt, now));
 
-        foreach (var sibling in siblingUnused)
-        {
-            sibling.IsUsed = true;
-            sibling.UsedAt = now;
-        }
-
-        await _context.SaveChangesAsync();
         await _userManager.ResetAccessFailedCountAsync(user);
 
         var roles = (await _userManager.GetRolesAsync(user)).ToList();

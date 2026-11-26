@@ -115,9 +115,12 @@
             </button>
         </form>
 
-        <a asp-action="Login" asp-controller="Account" class="text-secondary small text-decoration-none hover-gold">
-            Return to Sign In
-        </a>
+        <form asp-action="CancelVerification" asp-controller="Account" method="post" class="d-inline">
+            @Html.AntiForgeryToken()
+            <button type="submit" class="btn btn-link text-secondary small text-decoration-none p-0 hover-gold">
+                Return to Sign In
+            </button>
+        </form>
     </div>
 </div>
 
