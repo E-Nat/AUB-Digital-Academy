@@ -100,10 +100,13 @@ builder.Services.AddCors(options =>
 });
 
 // Application Services
+builder.Services.AddTransient<AUBDigitalAcademy.Services.Implementations.TelegramHttpClientLogger>();
 builder.Services.AddHttpClient<AUBDigitalAcademy.Services.Interfaces.ITelegramService, AUBDigitalAcademy.Services.Implementations.TelegramService>(client =>
 {
     client.Timeout = TimeSpan.FromSeconds(60);
-});
+})
+.RemoveAllLoggers()
+.AddLogger<AUBDigitalAcademy.Services.Implementations.TelegramHttpClientLogger>(wrapHandlersPipeline: true);
 builder.Services.AddScoped<AUBDigitalAcademy.Services.Interfaces.ICourseService, AUBDigitalAcademy.Services.Implementations.CourseService>();
 builder.Services.AddScoped<AUBDigitalAcademy.Services.Interfaces.ICurriculumService, AUBDigitalAcademy.Services.Implementations.CurriculumService>();
 builder.Services.AddScoped<AUBDigitalAcademy.Services.Interfaces.IEnrollmentService, AUBDigitalAcademy.Services.Implementations.EnrollmentService>();
@@ -193,6 +196,12 @@ if (args.Contains("--test-registration-telegram"))
     return;
 }
 
+if (args.Contains("--test-telegram-log-redaction"))
+{
+    await TelegramLogRedactionTestRunner.RunTestsAsync(app.Services);
+    return;
+}
+
 if (args.Contains("--test-telegram-bot"))
 {
     using var scope = app.Services.CreateScope();
@@ -204,7 +213,8 @@ if (args.Contains("--test-telegram-bot"))
     }
     else
     {
-        Console.WriteLine($"[FAIL] Telegram Bot connection test failed: {error}");
+        var safeError = AUBDigitalAcademy.Services.Implementations.TelegramLogSanitizer.SanitizeMessage(error);
+        Console.WriteLine($"[FAIL] Telegram Bot connection test failed: {safeError}");
     }
     return;
 }

@@ -28,12 +28,7 @@ public class TelegramPollingService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var botToken = new[]
-        {
-            _configuration["TelegramBot:Token"],
-            _configuration["Telegram:BotToken"],
-            Environment.GetEnvironmentVariable("TELEGRAM_BOT_TOKEN")
-        }.FirstOrDefault(v => !string.IsNullOrWhiteSpace(v));
+        var botToken = TelegramLogSanitizer.ResolveBotToken(_configuration);
 
         if (string.IsNullOrWhiteSpace(botToken))
         {
@@ -72,7 +67,12 @@ public class TelegramPollingService : BackgroundService
             }
             catch (HttpRequestException ex)
             {
-                _logger.LogWarning("TelegramPollingService: Network connectivity issue while polling Telegram API: {Message}. Retrying in 5 seconds...", ex.Message);
+                var safeMessage = TelegramLogSanitizer.SanitizeMessage(ex.Message, botToken);
+                _logger.LogWarning(
+                    "TelegramPollingService: Network connectivity issue while polling Telegram API (Operation={Operation}, StatusCode={StatusCode}): {Message}. Retrying in 5 seconds...",
+                    "getUpdates",
+                    ex.StatusCode.HasValue ? (int?)ex.StatusCode.Value : null,
+                    safeMessage);
                 try
                 {
                     await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
@@ -84,7 +84,11 @@ public class TelegramPollingService : BackgroundService
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "TelegramPollingService: Unexpected exception in polling loop. Retrying in 5 seconds...");
+                var safeEx = TelegramLogSanitizer.SanitizeException(ex, botToken);
+                _logger.LogError(
+                    safeEx,
+                    "TelegramPollingService: Unexpected exception in polling loop (Operation={Operation}). Retrying in 5 seconds...",
+                    "getUpdates");
                 try
                 {
                     await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
@@ -112,8 +116,11 @@ public class TelegramPollingService : BackgroundService
         var fromUser = message.From;
         var senderName = fromUser?.FirstName ?? "Student";
 
-        _logger.LogInformation("TelegramPollingService: Received message from ChatId {ChatId} (@{Username}): {Text}",
-            chatId, fromUser?.Username ?? "none", text ?? "[media/non-text]");
+        _logger.LogInformation(
+            "TelegramPollingService: Received message from ChatId {ChatId} (@{Username}): {CommandSummary}",
+            chatId,
+            fromUser?.Username ?? "none",
+            TelegramLogSanitizer.SanitizeTelegramCommandForLog(text));
 
         if (string.IsNullOrWhiteSpace(text))
         {

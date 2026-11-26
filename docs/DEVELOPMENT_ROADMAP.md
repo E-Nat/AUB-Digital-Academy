@@ -31,17 +31,17 @@
   - No hardcoded JWT secret fallback exists in source code; missing `Jwt:Secret` fails safely. *(Verified)*
 - **Required tests:** `--test-api-auth` (12/12 passed), `--test-auth` (12/12 passed), `--test-registration-telegram` (14/14 passed). *(All executed and passed on 2026-11-26; local devs must set `JWT_SECRET` >= 32 chars in `.env` or `dotnet user-secrets` to issue API tokens.)*
 
-### `TASK-P0-02`: Redact Telegram Bot Token from HTTP Client Logs & Harden OTP Logging
-- **Description:** Suppress `System.Net.Http.HttpClient` `Information` request-URI logging (or configure a custom redacting `HttpMessageHandler`/log filter) so the Telegram Bot token is never written to stdout/logs. Restrict `TelegramService.SendVerificationCodeAsync` plaintext OTP simulation logging strictly to `IHostEnvironment.IsDevelopment()`.
-- **Why it is needed:** `AddHttpClient<ITelegramService, TelegramService>()` currently logs the full `https://api.telegram.org/bot<TOKEN>/...` URL every 20 seconds during polling and on every message send.
-- **Affected files:** `Program.cs`, `appsettings.json`, `Services/Implementations/TelegramService.cs`
+### `TASK-P0-02`: Redact Telegram Bot Token from HTTP Client Logs & Harden OTP Logging — **[COMPLETED 2026-11-26]**
+- **Description:** Suppress `System.Net.Http.HttpClient` `Information` request-URI logging and replace the default `HttpClient` logging handlers with a custom redacting `IHttpClientAsyncLogger` (`TelegramHttpClientLogger`) so the Telegram Bot token is never written to stdout/logs or logging scopes while preserving method, operation, status code, and latency diagnostics. Sanitize exceptions (`RedactedTelegramException`), HTTP error bodies, and polling command logs (`/start link_`, `/link`) via `TelegramLogSanitizer`, differentiate simulation logging by `IHostEnvironment.IsDevelopment()`, and keep plaintext OTPs suppressed from logs in all environments.
+- **Why it is needed:** `AddHttpClient<ITelegramService, TelegramService>()` previously logged the full `https://api.telegram.org/bot<TOKEN>/...` URL every 20 seconds during polling and on every message send, and raw exceptions or `/link` messages could expose tokens.
+- **Affected files:** `Program.cs`, `appsettings.json`, `Services/Implementations/TelegramService.cs`, `Services/Implementations/TelegramPollingService.cs`, `Services/Implementations/TelegramLogSanitizer.cs`, `Services/Implementations/TelegramHttpClientLogger.cs`, `Data/TelegramLogRedactionTestRunner.cs`
 - **Dependencies:** None
 - **Priority:** P0
 - **Estimated complexity:** S
 - **Acceptance criteria:**
-  - Startup and polling logs contain zero occurrences of the Telegram Bot token URL segment.
-  - Simulation OTP logging only occurs when `IsDevelopment()` is true.
-- **Required tests:** Log-output verification test asserting `bot` token string never appears in logger output during `GetUpdatesAsync` and `SendVerificationCodeAsync`.
+  - Startup, message send, error/exception, and polling logs contain zero occurrences of the Telegram Bot token URL segment. *(Verified)*
+  - Plaintext OTPs and link secrets are never written to logs in any environment; simulation mode logs `Information` in `Development` and `Warning` in non-Development. *(Verified)*
+- **Required tests:** `--test-telegram-log-redaction` (10/10 passed at `LogLevel.Trace`), `--test-api-auth` (12/12 passed), `--test-auth` (12/12 passed), `--test-registration-telegram` (14/14 passed), `--test-telegram-bot` (passed), `--test-telegram-polling` (passed). *(Executed on 2026-11-26.)*
 
 ### `TASK-P0-03`: Sanitize HTML Lesson Content & Fix Frontend Stored XSS Vectors
 - **Description:** Sanitize `Lesson.ContentHtml` server-side (e.g., using `HtmlSanitizer`) before storing/rendering via `@Html.Raw` in `Views/Student/Lesson.cshtml`. Replace unescaped `innerHTML` concatenation in `Views/Academic/Course.cshtml` (TA modal) with `textContent` / DOM element creation. Validate `http://`/`https://` (or relative `/`) protocols on `Book.FileUrl` and `Course.Thumbnail`.

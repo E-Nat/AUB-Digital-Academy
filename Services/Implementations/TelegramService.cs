@@ -4,6 +4,7 @@ using AUBDigitalAcademy.Services.Interfaces;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using System.Net;
 using System.Security.Cryptography;
@@ -18,17 +19,20 @@ public class TelegramService : ITelegramService
     private readonly IConfiguration _configuration;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<TelegramService> _logger;
+    private readonly IHostEnvironment? _hostEnvironment;
 
     public TelegramService(
         HttpClient httpClient,
         IConfiguration configuration,
         IServiceScopeFactory scopeFactory,
-        ILogger<TelegramService> logger)
+        ILogger<TelegramService> logger,
+        IHostEnvironment? hostEnvironment = null)
     {
         _httpClient = httpClient;
         _configuration = configuration;
         _scopeFactory = scopeFactory;
         _logger = logger;
+        _hostEnvironment = hostEnvironment;
     }
 
     private static string? FirstNonWhiteSpace(params string?[] candidates)
@@ -49,10 +53,7 @@ public class TelegramService : ITelegramService
     /// </summary>
     private string? GetBotToken()
     {
-        return FirstNonWhiteSpace(
-            _configuration["TelegramBot:Token"],
-            _configuration["Telegram:BotToken"],
-            Environment.GetEnvironmentVariable("TELEGRAM_BOT_TOKEN"));
+        return TelegramLogSanitizer.ResolveBotToken(_configuration);
     }
 
     public async Task<(bool Success, string? BotUsername, string? ErrorMessage)> TestBotConnectivityAsync()
@@ -85,13 +86,18 @@ public class TelegramService : ITelegramService
                 }
             }
 
-            _logger.LogWarning("Telegram Bot API returned non-success HTTP status {StatusCode}.", response.StatusCode);
+            _logger.LogWarning("Telegram Bot API {Operation} returned non-success HTTP status {StatusCode}.", "getMe", (int)response.StatusCode);
             return (false, null, $"Telegram API returned HTTP {(int)response.StatusCode} ({response.ReasonPhrase})");
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Exception occurred while testing Telegram Bot API connectivity.");
-            return (false, null, ex.Message);
+            var safeEx = TelegramLogSanitizer.SanitizeException(ex, botToken);
+            _logger.LogError(
+                safeEx,
+                "Exception occurred while testing Telegram Bot API connectivity (Operation={Operation}, StatusCode={StatusCode}).",
+                "getMe",
+                (ex as HttpRequestException)?.StatusCode is { } sc ? (int?)sc : null);
+            return (false, null, safeEx.Message);
         }
     }
 
@@ -122,7 +128,14 @@ public class TelegramService : ITelegramService
         // Dev / Simulation fallback if credentials are not configured in local environment
         if (string.IsNullOrWhiteSpace(botToken) || string.IsNullOrWhiteSpace(chatId))
         {
-            _logger.LogInformation("Telegram service: Simulation mode active for Student ID {UniversityId} ({StudentName}). OTP value suppressed from logs. (Configure 'Telegram:ChatId' or link account via /link in @AUBLinkBot to receive real messages).", universityId, studentName);
+            if (_hostEnvironment == null || _hostEnvironment.IsDevelopment())
+            {
+                _logger.LogInformation("Telegram service: Simulation mode active for Student ID {UniversityId} ({StudentName}). OTP value suppressed from logs. (Configure 'Telegram:ChatId' or link account via /link in @AUBLinkBot to receive real messages).", universityId, studentName);
+            }
+            else
+            {
+                _logger.LogWarning("Telegram service: Credentials or ChatId not configured in {EnvironmentName} environment for Student ID {UniversityId}. Real Telegram delivery skipped; OTP value suppressed from logs.", _hostEnvironment.EnvironmentName, universityId);
+            }
             return true;
         }
 
@@ -153,12 +166,24 @@ public class TelegramService : ITelegramService
             }
 
             var errorDetails = await response.Content.ReadAsStringAsync();
-            _logger.LogWarning("Telegram API returned non-success HTTP status {StatusCode} for Student ID {UniversityId}: {ErrorDetails}", response.StatusCode, universityId, errorDetails);
+            var safeErrorDetails = TelegramLogSanitizer.SanitizeMessage(errorDetails, botToken);
+            _logger.LogWarning(
+                "Telegram API {Operation} returned non-success HTTP status {StatusCode} for Student ID {UniversityId}: {ErrorDetails}",
+                "sendMessage",
+                (int)response.StatusCode,
+                universityId,
+                safeErrorDetails);
             return false;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to deliver Telegram verification code for Student ID {UniversityId}.", universityId);
+            var safeEx = TelegramLogSanitizer.SanitizeException(ex, botToken);
+            _logger.LogError(
+                safeEx,
+                "Failed to deliver Telegram verification code for Student ID {UniversityId} (Operation={Operation}, StatusCode={StatusCode}).",
+                universityId,
+                "sendMessage",
+                (ex as HttpRequestException)?.StatusCode is { } sc ? (int?)sc : null);
             return false;
         }
     }
@@ -192,7 +217,13 @@ public class TelegramService : ITelegramService
             }
 
             var errBody = await response.Content.ReadAsStringAsync(cancellationToken);
-            _logger.LogWarning("Telegram sendMessage returned HTTP {StatusCode}: {ErrorBody}", response.StatusCode, errBody);
+            var safeErrBody = TelegramLogSanitizer.SanitizeMessage(errBody, botToken);
+            _logger.LogWarning(
+                "Telegram {Operation} returned HTTP {StatusCode} for chat {ChatId}: {ErrorBody}",
+                "sendMessage",
+                (int)response.StatusCode,
+                chatId,
+                safeErrBody);
             return false;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -201,7 +232,13 @@ public class TelegramService : ITelegramService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Exception while sending Telegram message to chat {ChatId}.", chatId);
+            var safeEx = TelegramLogSanitizer.SanitizeException(ex, botToken);
+            _logger.LogError(
+                safeEx,
+                "Exception while sending Telegram message to chat {ChatId} (Operation={Operation}, StatusCode={StatusCode}).",
+                chatId,
+                "sendMessage",
+                (ex as HttpRequestException)?.StatusCode is { } sc ? (int?)sc : null);
             return false;
         }
     }
@@ -227,7 +264,12 @@ public class TelegramService : ITelegramService
             if (!response.IsSuccessStatusCode)
             {
                 var errBody = await response.Content.ReadAsStringAsync(cancellationToken);
-                _logger.LogWarning("Telegram getUpdates returned HTTP {StatusCode}: {ErrorBody}", response.StatusCode, errBody);
+                var safeErrBody = TelegramLogSanitizer.SanitizeMessage(errBody, botToken);
+                _logger.LogWarning(
+                    "Telegram {Operation} returned HTTP {StatusCode}: {ErrorBody}",
+                    "getUpdates",
+                    (int)response.StatusCode,
+                    safeErrBody);
                 return Array.Empty<TelegramUpdate>();
             }
 
@@ -252,7 +294,12 @@ public class TelegramService : ITelegramService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Exception while polling Telegram updates.");
+            var safeEx = TelegramLogSanitizer.SanitizeException(ex, botToken);
+            _logger.LogError(
+                safeEx,
+                "Exception while polling Telegram updates (Operation={Operation}, StatusCode={StatusCode}).",
+                "getUpdates",
+                (ex as HttpRequestException)?.StatusCode is { } sc ? (int?)sc : null);
             return Array.Empty<TelegramUpdate>();
         }
     }
