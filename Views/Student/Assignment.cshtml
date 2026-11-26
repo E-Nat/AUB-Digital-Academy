@@ -1,4 +1,5 @@
 @model AUBDigitalAcademy.Models.ViewModels.StudentAssignmentViewModel
+@inject AUBDigitalAcademy.Services.Interfaces.IHtmlSanitizationService HtmlSanitizer
 @{
     ViewData["Title"] = $"{Model.Title} - {Model.CourseTitle}";
     ViewData["ActivePage"] = "Courses";
@@ -148,9 +149,13 @@
                             </div>
                             <div class="col-sm-6 col-md-3">
                                 <label class="text-muted text-xs text-uppercase fw-bold d-block">Submitted File(s) / Link</label>
-                                @if (!string.IsNullOrEmpty(Model.LatestExternalUrl))
+                                @{
+                                    var safeLatestExternalUrl = HtmlSanitizer.SanitizeHttpUrl(Model.LatestExternalUrl);
+                                    var safeLatestFileHttpUrl = HtmlSanitizer.SanitizeHttpUrl(Model.LatestFileUrl);
+                                }
+                                @if (!string.IsNullOrEmpty(safeLatestExternalUrl))
                                 {
-                                    <a href="@Model.LatestExternalUrl" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-info mt-1 me-1">
+                                    <a href="@safeLatestExternalUrl" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-info mt-1 me-1">
                                         <i class="bi bi-box-arrow-up-right me-1"></i>Open External Link
                                     </a>
                                 }
@@ -165,20 +170,20 @@
                                 }
                                 else if (!string.IsNullOrEmpty(Model.LatestFileUrl) && string.IsNullOrEmpty(Model.LatestExternalUrl))
                                 {
-                                    @if (Model.LatestFileUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || Model.LatestFileUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                                    @if (!string.IsNullOrEmpty(safeLatestFileHttpUrl))
                                     {
-                                        <a href="@Model.LatestFileUrl" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-primary mt-1">
+                                        <a href="@safeLatestFileHttpUrl" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-primary mt-1">
                                             <i class="bi bi-box-arrow-up-right me-1"></i>Open External Link
                                         </a>
                                     }
-                                    else
+                                    else if (!Model.LatestFileUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) && !Model.LatestFileUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase) && HtmlSanitizer.IsSafeResourceUrl(Model.LatestFileUrl))
                                     {
                                         <a href="/Student/Assignment/Download/@Model.LatestSubmissionId" class="btn btn-sm btn-outline-primary mt-1">
                                             <i class="bi bi-download me-1"></i>@(Model.LatestOriginalFileName ?? "Download File")
                                         </a>
                                     }
                                 }
-                                else if (string.IsNullOrEmpty(Model.LatestExternalUrl) && (Model.LatestAttachments == null || !Model.LatestAttachments.Any()))
+                                else if (string.IsNullOrEmpty(safeLatestExternalUrl) && (Model.LatestAttachments == null || !Model.LatestAttachments.Any()))
                                 {
                                     <span class="text-muted small">Text response only</span>
                                 }
@@ -315,9 +320,13 @@
                                                 <div class="text-xs text-muted">@attempt.SubmittedAt.ToString("MMM dd, yyyy · HH:mm")</div>
                                             </td>
                                             <td>
-                                                @if (!string.IsNullOrEmpty(attempt.ExternalUrl))
+                                                @{
+                                                    var safeAttemptExternalUrl = HtmlSanitizer.SanitizeHttpUrl(attempt.ExternalUrl);
+                                                    var safeAttemptFileHttpUrl = HtmlSanitizer.SanitizeHttpUrl(attempt.FileUrl);
+                                                }
+                                                @if (!string.IsNullOrEmpty(safeAttemptExternalUrl))
                                                 {
-                                                    <a href="@attempt.ExternalUrl" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-info rounded-pill px-2 py-0 text-xs me-1">Link</a>
+                                                    <a href="@safeAttemptExternalUrl" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-info rounded-pill px-2 py-0 text-xs me-1">Link</a>
                                                 }
                                                 @if (attempt.Attachments != null && attempt.Attachments.Any())
                                                 {
@@ -330,11 +339,11 @@
                                                 }
                                                 else if (!string.IsNullOrEmpty(attempt.FileUrl) && string.IsNullOrEmpty(attempt.ExternalUrl))
                                                 {
-                                                    @if (attempt.FileUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || attempt.FileUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                                                    @if (!string.IsNullOrEmpty(safeAttemptFileHttpUrl))
                                                     {
-                                                        <a href="@attempt.FileUrl" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-info rounded-pill px-2 py-0 text-xs me-1">Link</a>
+                                                        <a href="@safeAttemptFileHttpUrl" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-info rounded-pill px-2 py-0 text-xs me-1">Link</a>
                                                     }
-                                                    else
+                                                    else if (!attempt.FileUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) && !attempt.FileUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase) && HtmlSanitizer.IsSafeResourceUrl(attempt.FileUrl))
                                                     {
                                                         <a href="/Student/Assignment/Download/@attempt.SubmissionId" class="btn btn-sm btn-outline-primary rounded-pill px-2 py-0 text-xs me-1">
                                                             <i class="bi bi-download"></i> File

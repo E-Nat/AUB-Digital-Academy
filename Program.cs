@@ -107,6 +107,7 @@ builder.Services.AddHttpClient<AUBDigitalAcademy.Services.Interfaces.ITelegramSe
 })
 .RemoveAllLoggers()
 .AddLogger<AUBDigitalAcademy.Services.Implementations.TelegramHttpClientLogger>(wrapHandlersPipeline: true);
+builder.Services.AddSingleton<AUBDigitalAcademy.Services.Interfaces.IHtmlSanitizationService, AUBDigitalAcademy.Services.Implementations.HtmlSanitizationService>();
 builder.Services.AddScoped<AUBDigitalAcademy.Services.Interfaces.ICourseService, AUBDigitalAcademy.Services.Implementations.CourseService>();
 builder.Services.AddScoped<AUBDigitalAcademy.Services.Interfaces.ICurriculumService, AUBDigitalAcademy.Services.Implementations.CurriculumService>();
 builder.Services.AddScoped<AUBDigitalAcademy.Services.Interfaces.IEnrollmentService, AUBDigitalAcademy.Services.Implementations.EnrollmentService>();
@@ -199,6 +200,12 @@ if (args.Contains("--test-registration-telegram"))
 if (args.Contains("--test-telegram-log-redaction"))
 {
     await TelegramLogRedactionTestRunner.RunTestsAsync(app.Services);
+    return;
+}
+
+if (args.Contains("--test-stored-xss"))
+{
+    await StoredXssIntegrationTestRunner.RunTestsAsync(app.Services);
     return;
 }
 

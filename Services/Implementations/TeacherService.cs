@@ -11,11 +11,16 @@ public class TeacherService : ITeacherService
 {
     private readonly ApplicationDbContext _context;
     private readonly ILogger<TeacherService> _logger;
+    private readonly IHtmlSanitizationService _htmlSanitizer;
 
-    public TeacherService(ApplicationDbContext context, ILogger<TeacherService> logger)
+    public TeacherService(
+        ApplicationDbContext context,
+        ILogger<TeacherService> logger,
+        IHtmlSanitizationService? htmlSanitizer = null)
     {
         _context = context;
         _logger = logger;
+        _htmlSanitizer = htmlSanitizer ?? new HtmlSanitizationService();
     }
 
     public async Task<List<int>> GetAuthorizedCourseIdsAsync(string userId)
@@ -627,7 +632,7 @@ public class TeacherService : ITeacherService
             CourseId = b.CourseItem.Chapter.CourseId,
             CourseTitle = b.CourseItem.Chapter.Course.Title,
             ItemTitle = b.CourseItem.Title,
-            FileUrl = b.FileUrl,
+            FileUrl = _htmlSanitizer.SanitizeResourceUrl(b.FileUrl) ?? string.Empty,
             FileType = b.FileType,
             FileSize = b.FileSize
         });

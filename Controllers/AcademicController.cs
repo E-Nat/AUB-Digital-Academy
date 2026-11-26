@@ -20,19 +20,22 @@ public class AcademicController : Controller
     private readonly UserManager<User> _userManager;
     private readonly ILogger<AcademicController> _logger;
     private readonly ICurriculumService _curriculumService;
+    private readonly IHtmlSanitizationService _htmlSanitizer;
 
     public AcademicController(
         ICourseService courseService,
         ApplicationDbContext context,
         UserManager<User> userManager,
         ILogger<AcademicController> logger,
-        ICurriculumService? curriculumService = null)
+        ICurriculumService? curriculumService = null,
+        IHtmlSanitizationService? htmlSanitizer = null)
     {
         _courseService = courseService;
         _context = context;
         _userManager = userManager;
         _logger = logger;
-        _curriculumService = curriculumService ?? new AUBDigitalAcademy.Services.Implementations.CurriculumService(context, new LoggerFactory().CreateLogger<AUBDigitalAcademy.Services.Implementations.CurriculumService>());
+        _htmlSanitizer = htmlSanitizer ?? new AUBDigitalAcademy.Services.Implementations.HtmlSanitizationService();
+        _curriculumService = curriculumService ?? new AUBDigitalAcademy.Services.Implementations.CurriculumService(context, new LoggerFactory().CreateLogger<AUBDigitalAcademy.Services.Implementations.CurriculumService>(), null, _htmlSanitizer);
     }
 
     private string? GetCurrentUserId()
@@ -231,6 +234,14 @@ public class AcademicController : Controller
                 ModelState.AddModelError("CreateModel.CategoryId", "The selected category does not exist.");
                 ModelState.AddModelError(nameof(createModel.CategoryId), "The selected category does not exist.");
             }
+        }
+
+        // Validate Thumbnail URL/path if provided
+        if (!string.IsNullOrWhiteSpace(createModel.Thumbnail) && !_htmlSanitizer.IsSafeResourceUrl(createModel.Thumbnail))
+        {
+            const string thumbErr = "Invalid cover image URL or path. Only http://, https://, or safe relative paths are permitted.";
+            ModelState.AddModelError("CreateModel.Thumbnail", thumbErr);
+            ModelState.AddModelError(nameof(createModel.Thumbnail), thumbErr);
         }
 
         if (!ModelState.IsValid)
@@ -505,6 +516,14 @@ public class AcademicController : Controller
                 ModelState.AddModelError("EditModel.CategoryId", "The selected category does not exist.");
                 ModelState.AddModelError(nameof(editModel.CategoryId), "The selected category does not exist.");
             }
+        }
+
+        // Validate Thumbnail URL/path if provided
+        if (!string.IsNullOrWhiteSpace(editModel.Thumbnail) && !_htmlSanitizer.IsSafeResourceUrl(editModel.Thumbnail))
+        {
+            const string thumbErr = "Invalid cover image URL or path. Only http://, https://, or safe relative paths are permitted.";
+            ModelState.AddModelError("EditModel.Thumbnail", thumbErr);
+            ModelState.AddModelError(nameof(editModel.Thumbnail), thumbErr);
         }
 
         if (!ModelState.IsValid)

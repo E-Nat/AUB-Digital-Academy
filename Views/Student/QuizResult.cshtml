@@ -172,22 +172,30 @@
                         @foreach (var opt in q.Options)
                         {
                             string optClass = "option-result-neutral";
-                            string badgeHtml = "";
+                            string? badgeLabel = null;
+                            string? badgeClass = null;
+                            string? badgeIcon = null;
 
                             if (opt.IsSelected && opt.IsCorrect)
                             {
                                 optClass = "option-result-correct";
-                                badgeHtml = "<span class=\"badge bg-success text-white\"><i class=\"bi bi-check-circle-fill me-1\"></i> Your Answer (Correct)</span>";
+                                badgeLabel = "Your Answer (Correct)";
+                                badgeClass = "badge bg-success text-white";
+                                badgeIcon = "bi-check-circle-fill";
                             }
                             else if (opt.IsSelected && !opt.IsCorrect)
                             {
                                 optClass = "option-result-incorrect";
-                                badgeHtml = "<span class=\"badge bg-danger text-white\"><i class=\"bi bi-x-circle-fill me-1\"></i> Your Answer (Incorrect)</span>";
+                                badgeLabel = "Your Answer (Incorrect)";
+                                badgeClass = "badge bg-danger text-white";
+                                badgeIcon = "bi-x-circle-fill";
                             }
                             else if (!opt.IsSelected && opt.IsCorrect && Model.AreAttemptsExhausted)
                             {
                                 optClass = "option-result-correct";
-                                badgeHtml = "<span class=\"badge bg-success text-white\"><i class=\"bi bi-check-circle-fill me-1\"></i> Correct Answer</span>";
+                                badgeLabel = "Correct Answer";
+                                badgeClass = "badge bg-success text-white";
+                                badgeIcon = "bi-check-circle-fill";
                             }
 
                             <div class="option-result-row @optClass">
@@ -195,7 +203,10 @@
                                     <span class="fw-medium">@opt.Text</span>
                                 </div>
                                 <div>
-                                    @Html.Raw(badgeHtml)
+                                    @if (badgeLabel != null)
+                                    {
+                                        <span class="@badgeClass"><i class="bi @badgeIcon me-1"></i> @badgeLabel</span>
+                                    }
                                 </div>
                             </div>
                         }

@@ -17,19 +17,22 @@ public class TeacherController : Controller
     private readonly ApplicationDbContext _context;
     private readonly UserManager<User> _userManager;
     private readonly ILogger<TeacherController> _logger;
+    private readonly IHtmlSanitizationService _htmlSanitizer;
 
     public TeacherController(
         ITeacherService teacherService,
         IAssignmentStorageService assignmentStorageService,
         ApplicationDbContext context,
         UserManager<User> userManager,
-        ILogger<TeacherController> logger)
+        ILogger<TeacherController> logger,
+        IHtmlSanitizationService? htmlSanitizer = null)
     {
         _teacherService = teacherService;
         _assignmentStorageService = assignmentStorageService;
         _context = context;
         _userManager = userManager;
         _logger = logger;
+        _htmlSanitizer = htmlSanitizer ?? new AUBDigitalAcademy.Services.Implementations.HtmlSanitizationService();
     }
 
     private async Task<string> GetCurrentTeacherIdAsync()
@@ -198,7 +201,12 @@ public class TeacherController : Controller
         if (submission.FileUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
             submission.FileUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
         {
-            return Redirect(submission.FileUrl);
+            var safeUrl = _htmlSanitizer.SanitizeHttpUrl(submission.FileUrl);
+            if (safeUrl == null)
+            {
+                return BadRequest("Invalid submission URL.");
+            }
+            return Redirect(safeUrl);
         }
 
         var fileResult = await _assignmentStorageService.GetAssignmentFileAsync(submission.FileUrl, submission.OriginalFileName);

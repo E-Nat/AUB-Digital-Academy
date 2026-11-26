@@ -1,4 +1,5 @@
 @model IEnumerable<AUBDigitalAcademy.Models.ViewModels.TeacherBookItemViewModel>
+@inject AUBDigitalAcademy.Services.Interfaces.IHtmlSanitizationService HtmlSanitizer
 @{
     ViewData["Title"] = "Books & Resources";
     ViewData["ActivePage"] = "Books";
@@ -48,9 +49,19 @@
                                         <span class="text-muted text-xs">@(book.FileSize.HasValue ? $"{Math.Round((double)book.FileSize.Value / 1024 / 1024, 1)} MB" : "N/A")</span>
                                     </td>
                                     <td class="pe-4 text-end">
-                                        <a href="@book.FileUrl" target="_blank" class="btn btn-sm btn-outline-primary rounded-pill px-3 font-semibold">
-                                            <i class="bi bi-download me-1"></i> Access File
-                                        </a>
+                                        @{
+                                            var safeBookUrl = HtmlSanitizer.SanitizeResourceUrl(book.FileUrl);
+                                        }
+                                        @if (!string.IsNullOrEmpty(safeBookUrl))
+                                        {
+                                            <a href="@safeBookUrl" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-primary rounded-pill px-3 font-semibold">
+                                                <i class="bi bi-download me-1"></i> Access File
+                                            </a>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted text-xs fst-italic">Unavailable</span>
+                                        }
                                     </td>
                                 </tr>
                             }

@@ -12,15 +12,18 @@ public class CurriculumService : ICurriculumService
     private readonly ApplicationDbContext _context;
     private readonly ILogger<CurriculumService> _logger;
     private readonly IAssignmentStorageService? _storageService;
+    private readonly IHtmlSanitizationService _htmlSanitizer;
 
     public CurriculumService(
         ApplicationDbContext context,
         ILogger<CurriculumService> logger,
-        IAssignmentStorageService? storageService = null)
+        IAssignmentStorageService? storageService = null,
+        IHtmlSanitizationService? htmlSanitizer = null)
     {
         _context = context;
         _logger = logger;
         _storageService = storageService;
+        _htmlSanitizer = htmlSanitizer ?? new HtmlSanitizationService();
     }
 
     public async Task<CourseCurriculumViewModel?> GetCurriculumAsync(int courseId)
@@ -432,6 +435,18 @@ public class CurriculumService : ICurriculumService
             return CurriculumOperationResult.ValidationError("Parent module does not belong to the specified course.");
         }
 
+        string? sanitizedVideoUrl = null;
+        if (!string.IsNullOrWhiteSpace(videoUrl))
+        {
+            sanitizedVideoUrl = _htmlSanitizer.SanitizeResourceUrl(videoUrl);
+            if (sanitizedVideoUrl == null)
+            {
+                return CurriculumOperationResult.ValidationError("Invalid video URL. Only http://, https://, or safe relative paths are permitted.");
+            }
+        }
+
+        var sanitizedContentHtml = _htmlSanitizer.SanitizeLessonHtml(contentHtml);
+
         int assignedPosition = position.HasValue && position.Value > 0
             ? position.Value
             : await GetNextItemPositionAsync(chapterId);
@@ -454,8 +469,8 @@ public class CurriculumService : ICurriculumService
             var lesson = new Lesson
             {
                 CourseItemId = courseItem.Id,
-                ContentHtml = string.IsNullOrWhiteSpace(contentHtml) ? null : contentHtml.Trim(),
-                VideoUrl = string.IsNullOrWhiteSpace(videoUrl) ? null : videoUrl.Trim()
+                ContentHtml = sanitizedContentHtml,
+                VideoUrl = sanitizedVideoUrl
             };
             _context.Lessons.Add(lesson);
             await _context.SaveChangesAsync();
@@ -534,6 +549,18 @@ public class CurriculumService : ICurriculumService
             return CurriculumOperationResult.ValidationError(msg);
         }
 
+        string? sanitizedVideoUrl = null;
+        if (!string.IsNullOrWhiteSpace(videoUrl))
+        {
+            sanitizedVideoUrl = _htmlSanitizer.SanitizeResourceUrl(videoUrl);
+            if (sanitizedVideoUrl == null)
+            {
+                return CurriculumOperationResult.ValidationError("Invalid video URL. Only http://, https://, or safe relative paths are permitted.");
+            }
+        }
+
+        var sanitizedContentHtml = _htmlSanitizer.SanitizeLessonHtml(contentHtml);
+
         courseItem.Title = title.Trim();
         if (position > 0)
         {
@@ -546,15 +573,15 @@ public class CurriculumService : ICurriculumService
             courseItem.Lesson = new Lesson
             {
                 CourseItemId = courseItem.Id,
-                ContentHtml = string.IsNullOrWhiteSpace(contentHtml) ? null : contentHtml.Trim(),
-                VideoUrl = string.IsNullOrWhiteSpace(videoUrl) ? null : videoUrl.Trim()
+                ContentHtml = sanitizedContentHtml,
+                VideoUrl = sanitizedVideoUrl
             };
             _context.Lessons.Add(courseItem.Lesson);
         }
         else
         {
-            courseItem.Lesson.ContentHtml = string.IsNullOrWhiteSpace(contentHtml) ? null : contentHtml.Trim();
-            courseItem.Lesson.VideoUrl = string.IsNullOrWhiteSpace(videoUrl) ? null : videoUrl.Trim();
+            courseItem.Lesson.ContentHtml = sanitizedContentHtml;
+            courseItem.Lesson.VideoUrl = sanitizedVideoUrl;
         }
 
         try
@@ -773,8 +800,8 @@ public class CurriculumService : ICurriculumService
             LessonId = current.Lesson.Id,
             LessonTitle = current.CourseItem.Title,
             LessonPosition = current.CourseItem.Position,
-            ContentHtml = current.Lesson.ContentHtml,
-            VideoUrl = current.Lesson.VideoUrl,
+            ContentHtml = _htmlSanitizer.SanitizeLessonHtml(current.Lesson.ContentHtml),
+            VideoUrl = _htmlSanitizer.SanitizeResourceUrl(current.Lesson.VideoUrl),
             IsCompleted = completedItemIds.Contains(current.CourseItem.Id),
             CurrentLessonIndex = currentIndex + 1,
             TotalLessonsCount = orderedLessons.Count,
@@ -1116,6 +1143,12 @@ public class CurriculumService : ICurriculumService
         if (string.IsNullOrWhiteSpace(model.FileUrl)) return CurriculumOperationResult.ValidationError("Document file URL or path is required.");
         if (model.ChapterId <= 0) return CurriculumOperationResult.ValidationError("Valid Module ID is required.");
 
+        var safeFileUrl = _htmlSanitizer.SanitizeResourceUrl(model.FileUrl);
+        if (safeFileUrl == null)
+        {
+            return CurriculumOperationResult.ValidationError("Invalid document URL or path. Only http://, https://, or safe relative paths are permitted.");
+        }
+
         var chapter = await _context.Chapters.Include(ch => ch.Course).FirstOrDefaultAsync(ch => ch.Id == model.ChapterId);
         if (chapter == null) return CurriculumOperationResult.NotFound("Module not found.");
         if (model.CourseId > 0 && chapter.CourseId != model.CourseId)
@@ -1138,7 +1171,7 @@ public class CurriculumService : ICurriculumService
         var book = new Book
         {
             CourseItemId = courseItem.Id,
-            FileUrl = model.FileUrl.Trim(),
+            FileUrl = safeFileUrl,
             FileType = !string.IsNullOrWhiteSpace(model.FileType) ? model.FileType.Trim() : "PDF",
             FileSize = model.FileSize
         };
@@ -1158,6 +1191,12 @@ public class CurriculumService : ICurriculumService
         if (string.IsNullOrWhiteSpace(model.FileUrl)) return CurriculumOperationResult.ValidationError("Document file URL or path is required.");
         if (model.CourseItemId <= 0) return CurriculumOperationResult.ValidationError("Valid CourseItem ID is required.");
 
+        var safeFileUrl = _htmlSanitizer.SanitizeResourceUrl(model.FileUrl);
+        if (safeFileUrl == null)
+        {
+            return CurriculumOperationResult.ValidationError("Invalid document URL or path. Only http://, https://, or safe relative paths are permitted.");
+        }
+
         var courseItem = await _context.CourseItems
             .Include(ci => ci.Book)
             .Include(ci => ci.Chapter)
@@ -1176,7 +1215,7 @@ public class CurriculumService : ICurriculumService
 
         courseItem.Title = model.Title.Trim();
         courseItem.Position = model.Position;
-        courseItem.Book.FileUrl = model.FileUrl.Trim();
+        courseItem.Book.FileUrl = safeFileUrl;
         courseItem.Book.FileType = !string.IsNullOrWhiteSpace(model.FileType) ? model.FileType.Trim() : "PDF";
         courseItem.Book.FileSize = model.FileSize;
 
@@ -2334,17 +2373,11 @@ public class CurriculumService : ICurriculumService
         string? validExternalUrl = null;
         if (!string.IsNullOrWhiteSpace(externalUrl))
         {
-            var trimmedUrl = externalUrl.Trim();
-            var lower = trimmedUrl.ToLowerInvariant();
-            if (lower.StartsWith("javascript:") || lower.StartsWith("data:") || lower.StartsWith("file:") || lower.StartsWith("vbscript:"))
+            validExternalUrl = _htmlSanitizer.SanitizeHttpUrl(externalUrl);
+            if (validExternalUrl == null)
             {
                 return (CurriculumOperationResult.ValidationError("Invalid URL protocol. Only HTTP and HTTPS URLs are permitted."), null);
             }
-            if (!trimmedUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) && !trimmedUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
-            {
-                return (CurriculumOperationResult.ValidationError("URL must begin with http:// or https://."), null);
-            }
-            validExternalUrl = trimmedUrl;
         }
 
         bool hasFiles = uploadFiles.Any();
@@ -2488,10 +2521,12 @@ public class CurriculumService : ICurriculumService
 
         var nav = await BuildStudentCurriculumNavigationAsync(courseId, studentId, courseItemId, courseItem.ChapterId);
 
+        var safeFileUrl = _htmlSanitizer.SanitizeResourceUrl(book.FileUrl) ?? string.Empty;
+
         string fileType = "PDF";
-        if (!string.IsNullOrEmpty(book.FileUrl))
+        if (!string.IsNullOrEmpty(safeFileUrl))
         {
-            var ext = Path.GetExtension(book.FileUrl).TrimStart('.').ToUpperInvariant();
+            var ext = Path.GetExtension(safeFileUrl).TrimStart('.').ToUpperInvariant();
             if (!string.IsNullOrEmpty(ext)) fileType = ext;
         }
 
@@ -2508,7 +2543,7 @@ public class CurriculumService : ICurriculumService
             BookId = book.Id,
             Title = courseItem.Title,
             Position = courseItem.Position,
-            FileUrl = book.FileUrl ?? "",
+            FileUrl = safeFileUrl,
             FileType = fileType,
             FileSize = book.FileSize,
             IsCompleted = true,

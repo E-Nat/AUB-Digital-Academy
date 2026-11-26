@@ -1,4 +1,5 @@
 @model AUBDigitalAcademy.Models.ViewModels.CourseManagementViewModel
+@inject AUBDigitalAcademy.Services.Interfaces.IHtmlSanitizationService HtmlSanitizer
 @{
     ViewData["Title"] = "Course Management";
     ViewData["ActivePage"] = "Courses";
@@ -126,9 +127,12 @@
                             <tr class="course-row" data-status="@statusClass" data-title="@(course.Title ?? "").ToLowerInvariant()" data-code="@(course.Code ?? "").ToLowerInvariant()" data-major="@(course.Major?.Name?.ToLowerInvariant() ?? "")" data-category="@(course.Major?.Category?.Name?.ToLowerInvariant() ?? "")">
                                 <td class="ps-3">
                                     <div class="d-flex align-items-center gap-3">
-                                        @if (!string.IsNullOrEmpty(course.Thumbnail))
+                                        @{
+                                            var safeThumbnail = HtmlSanitizer.SanitizeResourceUrl(course.Thumbnail);
+                                        }
+                                        @if (!string.IsNullOrEmpty(safeThumbnail))
                                         {
-                                            <img src="@course.Thumbnail" alt="@course.Title" class="course-thumb-preview" onerror="this.style.display='none';if(this.nextElementSibling)this.nextElementSibling.style.display='flex';" />
+                                            <img src="@safeThumbnail" alt="@course.Title" class="course-thumb-preview" onerror="this.style.display='none';if(this.nextElementSibling)this.nextElementSibling.style.display='flex';" />
                                             <div class="course-thumb-placeholder" style="display:none;">
                                                 <i class="bi bi-book-half"></i>
                                             </div>
@@ -942,17 +946,96 @@
                 if (alertBox) alertBox.classList.add('d-none');
             }
 
+            function renderTaStatusRow(tableBody, text, showSpinner) {
+                if (!tableBody) return;
+                var tr = document.createElement('tr');
+                var td = document.createElement('td');
+                td.colSpan = 4;
+                td.className = 'text-center text-muted py-3' + (showSpinner ? '' : ' fst-italic');
+                if (showSpinner) {
+                    var spinner = document.createElement('span');
+                    spinner.className = 'spinner-border spinner-border-sm me-1';
+                    td.appendChild(spinner);
+                }
+                td.appendChild(document.createTextNode(text));
+                tr.appendChild(td);
+                tableBody.replaceChildren(tr);
+            }
+
+            function createAssistantRow(courseId, asst) {
+                var tr = document.createElement('tr');
+
+                // Column 1: Assistant Name + Email (strictly textContent, never innerHTML)
+                var tdInfo = document.createElement('td');
+                tdInfo.className = 'ps-3';
+                var nameDiv = document.createElement('div');
+                nameDiv.className = 'fw-bold text-dark';
+                nameDiv.textContent = asst.name || '';
+                var emailDiv = document.createElement('div');
+                emailDiv.className = 'text-muted text-xs';
+                emailDiv.textContent = asst.email || '';
+                tdInfo.appendChild(nameDiv);
+                tdInfo.appendChild(emailDiv);
+                tr.appendChild(tdInfo);
+
+                // Column 2: University ID
+                var tdUni = document.createElement('td');
+                var uniBadge = document.createElement('span');
+                uniBadge.className = 'badge bg-light text-dark border font-monospace';
+                uniBadge.textContent = asst.universityId || 'N/A';
+                tdUni.appendChild(uniBadge);
+                tr.appendChild(tdUni);
+
+                // Column 3: CanGrade switch
+                var tdSwitch = document.createElement('td');
+                var switchWrap = document.createElement('div');
+                switchWrap.className = 'form-check form-switch m-0';
+
+                var swInput = document.createElement('input');
+                swInput.className = 'form-check-input toggle-can-grade-switch';
+                swInput.type = 'checkbox';
+                swInput.checked = Boolean(asst.canGrade);
+                swInput.style.cursor = 'pointer';
+                swInput.setAttribute('data-course-id', String(courseId));
+                swInput.setAttribute('data-assistant-id', String(asst.assistantId || ''));
+
+                var swLabel = document.createElement('label');
+                swLabel.className = 'form-check-label text-xs ' + (asst.canGrade ? 'text-success fw-bold' : 'text-muted');
+                swLabel.textContent = asst.canGrade ? 'Authorized' : 'Disabled';
+
+                switchWrap.appendChild(swInput);
+                switchWrap.appendChild(swLabel);
+                tdSwitch.appendChild(switchWrap);
+                tr.appendChild(tdSwitch);
+
+                // Column 4: Unassign action
+                var tdAction = document.createElement('td');
+                tdAction.className = 'pe-3 text-end';
+                var unassignBtn = document.createElement('button');
+                unassignBtn.type = 'button';
+                unassignBtn.className = 'btn btn-sm btn-outline-danger p-1 unassign-ta-btn';
+                unassignBtn.title = 'Unassign Assistant';
+                unassignBtn.setAttribute('aria-label', 'Unassign Assistant');
+                unassignBtn.setAttribute('data-course-id', String(courseId));
+                unassignBtn.setAttribute('data-assistant-id', String(asst.assistantId || ''));
+                var icon = document.createElement('i');
+                icon.className = 'bi bi-person-x';
+                unassignBtn.appendChild(icon);
+                tdAction.appendChild(unassignBtn);
+                tr.appendChild(tdAction);
+
+                return tr;
+            }
+
             function loadCourseAssistants(courseId) {
                 hideTaAlert();
                 var tableBody = document.getElementById('assignedAssistantsTableBody');
                 var selectEl = document.getElementById('newAssistantSelect');
                 var countBadge = document.getElementById('taCountBadge');
 
-                if (tableBody) {
-                    tableBody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3"><span class="spinner-border spinner-border-sm me-1"></span>Loading assistants...</td></tr>';
-                }
+                renderTaStatusRow(tableBody, 'Loading assistants...', true);
 
-                fetch('/Academic/GetCourseAssistantsJson?id=' + courseId, {
+                fetch('/Academic/GetCourseAssistantsJson?id=' + encodeURIComponent(courseId), {
                     headers: { 'X-Requested-With': 'XMLHttpRequest' }
                 })
                 .then(function (res) { return res.json(); })
@@ -964,33 +1047,16 @@
 
                     if (countBadge) countBadge.textContent = data.assistants ? data.assistants.length : 0;
 
-                    // Populate table
+                    // Populate table using safe DOM element APIs (no HTML concatenation)
                     if (tableBody) {
                         if (!data.assistants || data.assistants.length === 0) {
-                            tableBody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-3 fst-italic">No Teaching Assistants currently assigned to this course.</td></tr>';
+                            renderTaStatusRow(tableBody, 'No Teaching Assistants currently assigned to this course.', false);
                         } else {
-                            var html = '';
+                            var fragment = document.createDocumentFragment();
                             data.assistants.forEach(function (asst) {
-                                html += '<tr>' +
-                                    '<td class="ps-3">' +
-                                        '<div class="fw-bold text-dark">' + asst.name + '</div>' +
-                                        '<div class="text-muted text-xs">' + asst.email + '</div>' +
-                                    '</td>' +
-                                    '<td><span class="badge bg-light text-dark border font-monospace">' + asst.universityId + '</span></td>' +
-                                    '<td>' +
-                                        '<div class="form-check form-switch m-0">' +
-                                            '<input class="form-check-input toggle-can-grade-switch" type="checkbox" data-course-id="' + courseId + '" data-assistant-id="' + asst.assistantId + '" ' + (asst.canGrade ? 'checked' : '') + ' style="cursor:pointer;" />' +
-                                            '<label class="form-check-label text-xs ' + (asst.canGrade ? 'text-success fw-bold' : 'text-muted') + '">' + (asst.canGrade ? 'Authorized' : 'Disabled') + '</label>' +
-                                        '</div>' +
-                                    '</td>' +
-                                    '<td class="pe-3 text-end">' +
-                                        '<button type="button" class="btn btn-sm btn-outline-danger p-1 unassign-ta-btn" data-course-id="' + courseId + '" data-assistant-id="' + asst.assistantId + '" title="Unassign Assistant">' +
-                                            '<i class="bi bi-person-x"></i>' +
-                                        '</button>' +
-                                    '</td>' +
-                                '</tr>';
+                                fragment.appendChild(createAssistantRow(courseId, asst));
                             });
-                            tableBody.innerHTML = html;
+                            tableBody.replaceChildren(fragment);
 
                             // Wire switches
                             tableBody.querySelectorAll('.toggle-can-grade-switch').forEach(function (sw) {

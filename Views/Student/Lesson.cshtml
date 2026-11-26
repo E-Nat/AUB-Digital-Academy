@@ -1,14 +1,20 @@
 @model AUBDigitalAcademy.Models.ViewModels.StudentLessonPlayerViewModel
+@inject AUBDigitalAcademy.Services.Interfaces.IHtmlSanitizationService HtmlSanitizer
 @{
     ViewData["Title"] = $"{Model.LessonTitle} - {Model.CourseTitle}";
     ViewData["ActivePage"] = "Courses";
 
+    string? safeVideoUrl = HtmlSanitizer.SanitizeResourceUrl(Model.VideoUrl);
+    string? safeContentHtml = HtmlSanitizer.SanitizeLessonHtml(Model.ContentHtml);
+    bool hasSafeVideo = !string.IsNullOrEmpty(safeVideoUrl);
+    bool hasSafeContent = !string.IsNullOrEmpty(safeContentHtml);
+
     // Helper to extract YouTube video embed URL
     string? youtubeEmbedUrl = null;
-    if (!string.IsNullOrWhiteSpace(Model.VideoUrl))
+    if (hasSafeVideo)
     {
         var match = System.Text.RegularExpressions.Regex.Match(
-            Model.VideoUrl,
+            safeVideoUrl!,
             @"(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})",
             System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
@@ -18,10 +24,10 @@
         }
     }
 
-    bool isDirectVideoFile = !string.IsNullOrWhiteSpace(Model.VideoUrl) &&
-        (Model.VideoUrl.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase) ||
-         Model.VideoUrl.EndsWith(".webm", StringComparison.OrdinalIgnoreCase) ||
-         Model.VideoUrl.EndsWith(".ogg", StringComparison.OrdinalIgnoreCase));
+    bool isDirectVideoFile = hasSafeVideo &&
+        (safeVideoUrl!.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase) ||
+         safeVideoUrl.EndsWith(".webm", StringComparison.OrdinalIgnoreCase) ||
+         safeVideoUrl.EndsWith(".ogg", StringComparison.OrdinalIgnoreCase));
 
 }
 
@@ -71,8 +77,8 @@
     <div class="row g-4">
         <!-- Left / Center Column: Video & Lesson Content -->
         <div class="col-lg-8">
-            <!-- Video Player Section (Rendered only when VideoUrl exists) -->
-            @if (Model.HasVideo)
+            <!-- Video Player Section (Rendered only when a safe VideoUrl exists) -->
+            @if (hasSafeVideo)
             {
                 <div class="card border rounded-3 bg-dark text-white shadow-sm mb-4 overflow-hidden">
                     <div class="card-body p-0">
@@ -86,7 +92,7 @@
                         {
                             <div class="p-2 bg-black">
                                 <video controls class="w-100 rounded" style="max-height: 500px;" preload="metadata">
-                                    <source src="@Model.VideoUrl" />
+                                    <source src="@safeVideoUrl" />
                                     Your browser does not support the video tag.
                                 </video>
                             </div>
@@ -97,7 +103,7 @@
                                 <i class="bi bi-camera-reels text-warning fs-1 d-block mb-3"></i>
                                 <h5 class="fw-bold text-white mb-2">Video Lecture Available</h5>
                                 <p class="text-secondary small mb-3">This lesson includes an external streaming video resource.</p>
-                                <a href="@Model.VideoUrl" target="_blank" rel="noopener noreferrer" class="btn btn-primary btn-sm px-4">
+                                <a href="@safeVideoUrl" target="_blank" rel="noopener noreferrer" class="btn btn-primary btn-sm px-4">
                                     <i class="bi bi-box-arrow-up-right me-1"></i> Open Video Resource
                                 </a>
                             </div>
@@ -120,7 +126,7 @@
                                 <i class="bi bi-check-circle-fill text-success me-1"></i> Completed
                             </span>
                         }
-                        @if (Model.HasVideo)
+                        @if (hasSafeVideo)
                         {
                             <span class="badge bg-light text-muted border">
                                 <i class="bi bi-check-circle text-success me-1"></i> Video Attached
@@ -130,9 +136,9 @@
                 </div>
 
                 <div class="lesson-content-body">
-                    @if (Model.HasContent)
+                    @if (hasSafeContent)
                     {
-                        @Html.Raw(Model.ContentHtml)
+                        @Html.Raw(safeContentHtml)
                     }
                     else
                     {

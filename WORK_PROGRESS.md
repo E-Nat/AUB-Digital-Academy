@@ -12,20 +12,21 @@
 - **EF Core Migrations:** All 4 SQL Server migrations (`InitialSqlServerCreate`, `AddCourseAssistantJoinTable`, `Phase4_StudentLearningAssessmentWorkflow`, `Phase4_FinalRelationalAttachmentsAndQuizSecurity`) are applied cleanly against local `aub_sqlserver`.
 - **Test Suites:**
   - `dotnet test`: **0 test projects** (no xUnit/NUnit/MSTest project exists yet).
-  - **Authentication & Telegram Suites Executed After `TASK-P0-02` (2026-11-26): 48/48 PASSED (+ live bot connectivity check):**
-    - `--test-telegram-log-redaction` (new `TelegramLogRedactionTestRunner`): 10/10 passed
+  - **Security, Authentication & Curriculum Suites Executed After `TASK-P0-03` (2026-11-26): 100/100 PASSED:**
+    - `--test-stored-xss` (`StoredXssIntegrationTestRunner`): 10/10 passed
+    - `--test-telegram-log-redaction` (`TelegramLogRedactionTestRunner`, run with `--no-launch-profile`; fails under `ASPNETCORE_ENVIRONMENT=Development` due to pre-existing root-scope `DbContextOptions` resolution): 10/10 passed
     - `--test-api-auth` (`ApiAuth2FaIntegrationTestRunner`): 12/12 passed
     - `--test-auth`: 12/12 passed
     - `--test-registration-telegram`: 14/14 passed
-    - `--test-telegram-bot`: connected to `@AUBLinkBot` with zero token exposure in logs/stdout
-  - **Other Wired CLI Integration Runners (executed during 2026-11-26 baseline audit, unchanged modules): 101/101 PASSED:**
+    - `--test-course-integration`: 16/16 passed
+    - `--test-phase4`: 26/26 passed
+  - **Other Wired CLI Integration Runners (executed during 2026-11-26 baseline audit, unchanged modules): 57/57 PASSED:**
     - `--test-assistance-role`: 14/14 passed
     - `--test-teacher-portal`: 14/14 passed
     - `--test-user-management`: 14/14 passed
-    - `--test-course-integration`: 16/16 passed
     - `--test-enrollment-ui`: 13/13 passed
     - `--test-quiz`: 16/16 passed
-    - `--test-phase4`: 26/26 passed
+    - `--test-telegram-bot`: connected to `@AUBLinkBot` with zero token exposure in logs/stdout (verified under `TASK-P0-02`)
   - **Unwired CLI Runners (10 files in `Data/`):** Not wired into `Program.cs` (`CourseCreationTestRunner`, `CourseDeleteTestRunner`, `CurriculumEndToEndIntegrationTestRunner`, `EnrollmentBackendTestRunner`, `LessonCrudTestRunner`, `ModuleCrudTestRunner`, `ModuleUiIntegrationTestRunner`, `StudentFlowIntegrationTestRunner`, `StudentPlayerIntegrationTestRunner`, `StudentProgressIntegrationTestRunner`).
   - **Coverage Gap:** No automated HTTP/Controller integration tests exist (e.g. testing `[Authorize]` filters or `AcademicController` 403 IDOR rejections).
 
@@ -46,7 +47,7 @@
 ### P0 — Critical Security & Integrity
 1. ~~**API Login (`POST /api/Auth/login`) 2FA Bypass & Hardcoded JWT Secret (`TASK-P0-01`):**~~ **RESOLVED (2026-11-26).** Shared `AuthService` now enforces lockout, active status, linked Telegram verification, OTP dispatch + single-use verification (`POST /api/Auth/verify-2fa`), and configured `Jwt:Secret`/`Jwt:Key`/`JWT_SECRET` (>=32 bytes, fail-closed `500 ConfigurationError` when unconfigured). Set `JWT_SECRET` in local `.env` or `dotnet user-secrets` before using API endpoints.
 2. ~~**Telegram Bot Token & Simulation OTP Logging (`TASK-P0-02`):**~~ **RESOLVED (2026-11-26).** `Program.cs` now removes default `HttpClient` URI loggers (`.RemoveAllLoggers()`) and attaches `TelegramHttpClientLogger` (`IHttpClientAsyncLogger`) to log redacted Telegram endpoints (`bot[REDACTED]/<operation>`), HTTP methods, status codes, and latency without raw tokens or payloads. `TelegramLogSanitizer` + `RedactedTelegramException` sanitize Telegram API URLs, bot tokens, JWTs, sensitive query/key-value secrets, error response bodies, and exception chains across `TelegramService` and `TelegramPollingService` (including redacting `/start link_` and `/link` command arguments); simulation mode differentiates `IHostEnvironment.IsDevelopment()` (`Information` vs `Warning`) and never logs plaintext OTPs in any environment. Verified via `--test-telegram-log-redaction` (10/10 passed at `LogLevel.Trace`).
-3. **Stored XSS Vectors:** `Views/Student/Lesson.cshtml` renders `@Html.Raw(Model.ContentHtml)` unsanitized; `Views/Academic/Course.cshtml` injects TA names/emails via unescaped `innerHTML`.
+3. ~~**Stored XSS Vectors (`TASK-P0-03`):**~~ **RESOLVED (2026-11-26).** Added `Ganss.Xss` (`HtmlSanitizer` `11.0.26`) via `IHtmlSanitizationService` / `HtmlSanitizationService` with an explicit educational HTML tag/attribute/scheme allowlist (`SanitizeLessonHtml`) and strict URL validation (`SanitizeResourceUrl`, `SanitizeHttpUrl`). Lesson HTML and `VideoUrl` are sanitized at write boundaries (`CurriculumService.CreateLessonAsync` / `UpdateLessonAsync`) and re-sanitized on read (`GetStudentLessonPlayerAsync`) and render (`Views/Student/Lesson.cshtml`) to protect legacy DB rows. `Views/Academic/Course.cshtml` TA modal rendering was rewritten to use `document.createElement`, `textContent`, and `replaceChildren` instead of `innerHTML` concatenation. `Book.FileUrl`, `Course.Thumbnail`, `User.Avatar`, and assignment external URLs are validated on write and/or sanitized before rendering across `Student/Book.cshtml`, `Teacher/Books.cshtml`, `Student/Assignment.cshtml`, `Teacher/Submissions.cshtml`, `Home/Index.cshtml`, `Admin/Index.cshtml`, `User/Details.cshtml`, and `User/Index.cshtml`. Verified via `--test-stored-xss` (10/10 passed).
 4. **Google OAuth 2FA Bypass & Unconditional `SeedData` Password Reset:** `AccountController.ExternalLoginCallback` sets `IsTelegramVerified = true` without Telegram 2FA; `SeedData.EnsureSeedUserAsync` resets baseline accounts back to `admin123` / `teacher123` / `assistance123` / `student123` on every startup.
 5. **Registration Flow & Link Status Check:** `AccountController.Register` triggers `SendVerificationCodeAsync` with `null` `TelegramChatId` (falling back to global `Telegram:ChatId`/logs) and redirects to `VerifyTelegram` instead of `LinkTelegram`; `CheckTelegramLinkStatus` lacks pending-session verification.
 6. **NuGet Security Warnings:** `System.Security.Cryptography.Pkcs` 9.0.4 (`NU1902`, `NU1903`).
@@ -79,4 +80,4 @@ Per [`docs/project.md`](./docs/project.md):
 
 ## 5. Next Recommended Action
 
-Continue **Phase 1 (P0)** in [`docs/DEVELOPMENT_ROADMAP.md`](./docs/DEVELOPMENT_ROADMAP.md) with **`TASK-P0-03`** (HTML/XSS sanitization in `Lesson.cshtml` and `Course.cshtml`).
+Continue **Phase 1 (P0)** in [`docs/DEVELOPMENT_ROADMAP.md`](./docs/DEVELOPMENT_ROADMAP.md) with **`TASK-P0-04`** (Enforce Telegram 2FA on Google OAuth & gate `SeedData` password resets).

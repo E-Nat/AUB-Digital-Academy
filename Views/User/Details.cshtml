@@ -1,4 +1,5 @@
 @model AUBDigitalAcademy.Models.ViewModels.UserDetailsViewModel
+@inject AUBDigitalAcademy.Services.Interfaces.IHtmlSanitizationService HtmlSanitizer
 @{
     ViewData["Title"] = $"User Details - {Model.FullName}";
 }
@@ -27,9 +28,12 @@
         <div class="col-12 col-lg-4">
             <div class="card border-0 shadow-sm rounded-3">
                 <div class="card-body p-4 text-center">
-                    @if (!string.IsNullOrEmpty(Model.Avatar))
+                    @{
+                        var safeAvatar = HtmlSanitizer.SanitizeResourceUrl(Model.Avatar);
+                    }
+                    @if (!string.IsNullOrEmpty(safeAvatar))
                     {
-                        <img src="@Model.Avatar" class="rounded-circle mb-3 shadow-sm" width="96" height="96" alt="@Model.FullName" />
+                        <img src="@safeAvatar" class="rounded-circle mb-3 shadow-sm" width="96" height="96" alt="@Model.FullName" />
                     }
                     else
                     {

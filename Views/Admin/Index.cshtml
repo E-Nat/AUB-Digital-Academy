@@ -1,4 +1,5 @@
 @model AUBDigitalAcademy.Models.ViewModels.AdminDashboardViewModel
+@inject AUBDigitalAcademy.Services.Interfaces.IHtmlSanitizationService HtmlSanitizer
 @{
     ViewData["Title"] = "Executive Command Center";
     ViewData["ActivePage"] = "Dashboard";
@@ -359,9 +360,12 @@
                                 <tr>
                                     <td>
                                         <div class="d-flex align-items-center gap-2.5">
-                                            @if (!string.IsNullOrEmpty(item.AvatarUrl))
+                                            @{
+                                                var safeAvatarUrl = HtmlSanitizer.SanitizeResourceUrl(item.AvatarUrl);
+                                            }
+                                            @if (!string.IsNullOrEmpty(safeAvatarUrl))
                                             {
-                                                <img src="@item.AvatarUrl" alt="@item.StudentName" class="dash-avatar" />
+                                                <img src="@safeAvatarUrl" alt="@item.StudentName" class="dash-avatar" />
                                             }
                                             else
                                             {

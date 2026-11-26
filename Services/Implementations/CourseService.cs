@@ -10,11 +10,16 @@ public class CourseService : ICourseService
 {
     private readonly ApplicationDbContext _context;
     private readonly ILogger<CourseService> _logger;
+    private readonly IHtmlSanitizationService _htmlSanitizer;
 
-    public CourseService(ApplicationDbContext context, ILogger<CourseService> logger)
+    public CourseService(
+        ApplicationDbContext context,
+        ILogger<CourseService> logger,
+        IHtmlSanitizationService? htmlSanitizer = null)
     {
         _context = context;
         _logger = logger;
+        _htmlSanitizer = htmlSanitizer ?? new HtmlSanitizationService();
     }
 
     public async Task<IEnumerable<Course>> GetAllCoursesAsync()
@@ -123,6 +128,21 @@ public class CourseService : ICourseService
             throw new InvalidOperationException("The selected semester does not exist.");
         }
 
+        // 5b. Validate Thumbnail URL / Path if provided
+        if (!string.IsNullOrWhiteSpace(course.Thumbnail))
+        {
+            var safeThumbnail = _htmlSanitizer.SanitizeResourceUrl(course.Thumbnail);
+            if (safeThumbnail == null)
+            {
+                throw new ArgumentException("Invalid thumbnail URL or path. Only http://, https://, or safe relative paths are permitted.", nameof(course.Thumbnail));
+            }
+            course.Thumbnail = safeThumbnail;
+        }
+        else
+        {
+            course.Thumbnail = null;
+        }
+
         // 6. Set audit timestamps
         course.CreatedAt = DateTime.UtcNow;
         course.UpdatedAt = DateTime.UtcNow;
@@ -213,6 +233,16 @@ public class CourseService : ICourseService
             throw new InvalidOperationException("The selected semester does not exist.");
         }
 
+        string? sanitizedThumbnail = null;
+        if (!string.IsNullOrWhiteSpace(course.Thumbnail))
+        {
+            sanitizedThumbnail = _htmlSanitizer.SanitizeResourceUrl(course.Thumbnail);
+            if (sanitizedThumbnail == null)
+            {
+                throw new ArgumentException("Invalid thumbnail URL or path. Only http://, https://, or safe relative paths are permitted.", nameof(course.Thumbnail));
+            }
+        }
+
         existingCourse.Code = normalizedCode;
         existingCourse.Title = course.Title.Trim();
         existingCourse.Description = course.Description?.Trim();
@@ -220,7 +250,7 @@ public class CourseService : ICourseService
         existingCourse.MajorId = course.MajorId;
         existingCourse.SemesterId = course.SemesterId;
         existingCourse.TeacherId = course.TeacherId;
-        existingCourse.Thumbnail = string.IsNullOrWhiteSpace(course.Thumbnail) ? null : course.Thumbnail.Trim();
+        existingCourse.Thumbnail = sanitizedThumbnail;
         existingCourse.UpdatedAt = DateTime.UtcNow;
 
         try

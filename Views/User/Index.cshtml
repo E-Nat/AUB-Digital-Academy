@@ -1,4 +1,5 @@
 @model IEnumerable<AUBDigitalAcademy.Models.ViewModels.UserListViewModel>
+@inject AUBDigitalAcademy.Services.Interfaces.IHtmlSanitizationService HtmlSanitizer
 @{
     ViewData["Title"] = "User Management";
     var currentRole = ViewData["CurrentRole"]?.ToString() ?? "All";
@@ -302,9 +303,12 @@
                                 <tr>
                                     <td class="ps-4">
                                         <div class="d-flex align-items-center gap-3">
-                                            @if (!string.IsNullOrEmpty(user.Avatar))
+                                            @{
+                                                var safeAvatar = HtmlSanitizer.SanitizeResourceUrl(user.Avatar);
+                                            }
+                                            @if (!string.IsNullOrEmpty(safeAvatar))
                                             {
-                                                <img src="@user.Avatar" class="rounded-circle border" width="40" height="40" alt="@user.FullName" />
+                                                <img src="@safeAvatar" class="rounded-circle border" width="40" height="40" alt="@user.FullName" />
                                             }
                                             else
                                             {

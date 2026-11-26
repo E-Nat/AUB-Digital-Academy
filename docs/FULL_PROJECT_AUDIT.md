@@ -19,7 +19,7 @@ However, live source inspection uncovered **multiple critical security vulnerabi
    - `POST /api/Auth/login` (`Controllers/Api/AuthController.cs`) **completely bypasses mandatory Telegram 2FA**, account lockout checks, and `IsTelegramVerified`, and uses a **hardcoded fallback HS256 JWT secret** in source code.
    - `System.Net.Http.HttpClient.ITelegramService` logs **full Telegram Bot API request URLs (including the bot token)** at `Information` level in console/stdout logs because `appsettings.json` does not suppress `System.Net.Http.HttpClient`.
    - Google OAuth (`AccountController.ExternalLoginCallback`) bypasses mandatory Telegram 2FA and sets `IsTelegramVerified = true` on new accounts.
-   - Stored XSS vectors exist in `Views/Student/Lesson.cshtml` (`@Html.Raw(Model.ContentHtml)` without server-side sanitization) and `Views/Academic/Course.cshtml` (unescaped `innerHTML` concatenation for TA names/emails).
+   - ~~Stored XSS vectors exist in `Views/Student/Lesson.cshtml` (`@Html.Raw(Model.ContentHtml)` without server-side sanitization) and `Views/Academic/Course.cshtml` (unescaped `innerHTML` concatenation for TA names/emails).~~ *(Resolved 2026-11-26 in `TASK-P0-03`.)*
    - `SeedData.EnsureSeedUserAsync` runs unconditionally on every startup and resets seeded accounts back to weak hardcoded passwords (`admin123`, `teacher123`, `assistance123`, `student123`).
 
 2. **Broken Core Workflows & Logic Bugs (P1):**
@@ -75,10 +75,11 @@ However, live source inspection uncovered **multiple critical security vulnerabi
   - **Blind Lesson Completion:** `StudentController.CompleteLesson` (`L500-563`) accepts POST requests without verifying video watch duration (known Phase 5 gap).
 
 ### 3.3 XSS, CSRF, SQL Injection, and File Upload Security
-- **Stored XSS Risks:**
-  - [`Views/Student/Lesson.cshtml:135`](../Views/Student/Lesson.cshtml#L135): `@Html.Raw(Model.ContentHtml)` renders raw HTML authored in `Academic/Curriculum` with no server-side HTML sanitization.
-  - [`Views/Academic/Course.cshtml:976-977`](../Views/Academic/Course.cshtml#L976-L977): Builds TA table rows via unescaped string concatenation into `innerHTML` (`asst.name`, `asst.email`, `asst.universityId`).
-  - [`Views/Teacher/Books.cshtml:51`](../Views/Teacher/Books.cshtml#L51) and [`Views/Student/Book.cshtml:50,90`](../Views/Student/Book.cshtml#L50): Render `Book.FileUrl` directly in `href`/`src` without validating URL protocol (`javascript:` not blocked on Book creation/edit).
+   - **Stored XSS Vectors (Resolved 2026-11-26 — `TASK-P0-03`):**
+     - [`Views/Student/Lesson.cshtml:135`](../Views/Student/Lesson.cshtml) now renders `@Html.Raw(safeContentHtml)` sanitized through `IHtmlSanitizationService` (`Ganss.Xss.HtmlSanitizer`), while `CurriculumService` also sanitizes `ContentHtml` at write and read boundaries to protect both new and legacy rows.
+     - [`Views/Academic/Course.cshtml`](../Views/Academic/Course.cshtml) TA modal table rows now use safe DOM APIs (`document.createElement`, `textContent`, `replaceChildren`) instead of `innerHTML` concatenation.
+     - `Book.FileUrl`, `Lesson.VideoUrl`, `Course.Thumbnail`, `User.Avatar`, and assignment external URLs are validated on write (`CurriculumService`, `CourseService`, `AcademicController`) and sanitized at render time across `Student/Book.cshtml`, `Teacher/Books.cshtml`, `Student/Assignment.cshtml`, `Teacher/Submissions.cshtml`, `Home/Index.cshtml`, `Admin/Index.cshtml`, `User/Details.cshtml`, and `User/Index.cshtml`.
+     - **Remaining low-risk / out-of-scope note:** Unused legacy prototype scripts under `wwwroot/js/components/` (`course-modal.js`, `teacher-sidebar.js`, etc.) are not referenced by any Razor view and should be removed in `TASK-P4-02`.
 - **CSRF Protection:** Cookie auth uses `SameSite=Lax`, `HttpOnly=true`. All mutating POST forms/endpoints verified use `[ValidateAntiForgeryToken]`. Note: `AddCors("AllowFrontend")` in `Program.cs:85-100` enables `AllowCredentials()` for localhost ports `5500`, `5000`, `5236` (acceptable for local dev; ensure restricted in production).
 - **SQL Injection:** All service queries use parameterized EF Core LINQ. The only `ExecuteSqlRawAsync` call (`SeedData.cs:541`) executes a static constant DDL string with zero user input.
 - **File Upload Security (`AssignmentStorageService.cs`):**
