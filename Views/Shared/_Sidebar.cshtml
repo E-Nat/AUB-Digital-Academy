@@ -1,14 +1,14 @@
 @functions {
-    bool IsActiveRoute(string routePath, string[]? altPaths = null)
+    bool IsRouteActive(string primaryPath, string[]? altPaths = null)
     {
-        var path = Context.Request.Path.Value?.ToLower() ?? "";
-        if (string.IsNullOrEmpty(path) || path == "/" || path == "/admin" || path == "/admin/index")
+        var currentPath = Context.Request.Path.Value?.ToLower().TrimEnd('/') ?? "";
+        if (string.IsNullOrEmpty(currentPath) || currentPath == "/" || currentPath == "/admin" || currentPath == "/admin/index")
         {
-            return routePath.Equals("/admin/dashboard", StringComparison.OrdinalIgnoreCase);
+            return primaryPath.Equals("/admin/dashboard", StringComparison.OrdinalIgnoreCase);
         }
 
-        var r = routePath.ToLower();
-        if (path == r || (r != "/admin/dashboard" && path.StartsWith(r)))
+        var target = primaryPath.ToLower().TrimEnd('/');
+        if (currentPath == target || currentPath.StartsWith(target + "/"))
         {
             return true;
         }
@@ -17,11 +17,31 @@
         {
             foreach (var alt in altPaths)
             {
-                var a = alt.ToLower();
-                if (path == a || path.StartsWith(a))
+                var a = alt.ToLower().TrimEnd('/');
+                if (currentPath == a || currentPath.StartsWith(a + "/"))
                 {
                     return true;
                 }
+            }
+        }
+
+        return false;
+    }
+
+    bool IsGroupExpanded(params string[] routePrefixes)
+    {
+        var currentPath = Context.Request.Path.Value?.ToLower().TrimEnd('/') ?? "";
+        if (string.IsNullOrEmpty(currentPath) || currentPath == "/" || currentPath == "/admin" || currentPath == "/admin/index")
+        {
+            return false;
+        }
+
+        foreach (var prefix in routePrefixes)
+        {
+            var p = prefix.ToLower().TrimEnd('/');
+            if (currentPath == p || currentPath.StartsWith(p + "/"))
+            {
+                return true;
             }
         }
 
@@ -32,12 +52,44 @@
     var userName = User.Identity?.Name ?? "Administrator";
     var userRole = User.IsInRole("Admin") ? "Admin" : User.IsInRole("Teacher") ? "Teacher" : User.IsInRole("Assistance") ? "Assistance" : "Student";
     var userInitial = !string.IsNullOrEmpty(userName) ? userName.Substring(0, 1).ToUpper() : "A";
+
+    // Pre-calculate group active / expanded states
+    var isAcademicGroupActive = IsGroupExpanded(
+        "/academic/category", "/academic/categories",
+        "/academic/major", "/academic/majors",
+        "/academic/semester", "/academic/semesters",
+        "/academic/course", "/academic/createcourse", "/academic/editcourse",
+        "/academic/curriculum", "/academic/chapter"
+    );
+
+    var isContentGroupActive = IsGroupExpanded(
+        "/admin/files", "/admin/downloadattachment",
+        "/academic/books", "/academic/courseitems", "/academic/courseitem"
+    );
+
+    var isAssessmentGroupActive = IsGroupExpanded(
+        "/academic/quizzes", "/academic/quizquestions",
+        "/academic/assignments", "/academic/assignment",
+        "/admin/grading"
+    );
+
+    var isUsersGroupActive = IsGroupExpanded(
+        "/user", "/user/index", "/user/details", "/user/create", "/user/edit",
+        "/enrollment", "/enrollment/index", "/enrollment/coursestudents",
+        "/admin/progress", "/admin/finalgrades"
+    );
+
+    var isSystemGroupActive = IsGroupExpanded(
+        "/admin/loginhistory", "/admin/reports", "/admin/settings"
+    );
+
+    var isDashboardActive = IsRouteActive("/Admin/Dashboard", new[] { "/admin", "/admin/index" });
 }
-<!-- AUB Digital Academy - Administration Portal Sidebar -->
+<!-- AUB Digital Academy - DLMS Administration Portal Sidebar -->
 <aside class="admin-sidebar sidebar" id="sidebar" aria-label="Administration Sidebar Navigation">
     <!-- Branding Header -->
     <div class="admin-sidebar-brand">
-        <a href="/Admin/Dashboard" class="admin-brand-header text-decoration-none">
+        <a href="/Admin/Dashboard" class="admin-brand-header text-decoration-none" title="AUB Digital Academy Administration">
             <img src="~/logos/rel_icon.png" alt="AUB Official Emblem" class="admin-brand-logo-img" asp-append-version="true" />
             <div class="admin-brand-info">
                 <span class="admin-brand-title">AUB Digital Academy</span>
@@ -46,85 +98,180 @@
         </a>
     </div>
 
-    <!-- Navigation Menu (All 13 Existing Items Preserved in Exact Order) -->
+    <!-- Navigation Menu: DLMS Approved 5-Group Structure -->
     <nav class="admin-sidebar-menu" id="adminSidebarNav" aria-label="Administration Portal Navigation">
-        <!-- Group 1: Command Center -->
-        <a href="/Admin/Dashboard" class="admin-nav-item @(IsActiveRoute("/Admin/Dashboard", new[] { "/admin", "/admin/index" }) ? "active" : "")" title="Dashboard" data-bs-toggle="tooltip" data-bs-placement="right">
+        <!-- Dashboard (Independent Top-Level Navigation Item) -->
+        <a href="/Admin/Dashboard" class="admin-nav-item @(isDashboardActive ? "active" : "")" title="Dashboard" data-bs-toggle="tooltip" data-bs-placement="right">
             <div class="admin-nav-icon-tile"><i class="bi bi-grid-fill" aria-hidden="true"></i></div>
             <span class="admin-nav-label">Dashboard</span>
         </a>
 
-        <!-- Thin divider line after Dashboard -->
         <div class="admin-sidebar-divider" aria-hidden="true"></div>
 
-        <!-- Group 2: Academic Management -->
-        <a href="/Admin/Academic" class="admin-nav-item @(IsActiveRoute("/Admin/Academic", new[] { "/academic/curriculum", "/academic/chapter" }) ? "active" : "")" title="Academic Management" data-bs-toggle="tooltip" data-bs-placement="right">
-            <div class="admin-nav-icon-tile"><i class="bi bi-mortarboard-fill" aria-hidden="true"></i></div>
-            <span class="admin-nav-label">Academic Management</span>
-        </a>
-        <a href="/Admin/Courses" class="admin-nav-item @(IsActiveRoute("/Admin/Courses", new[] { "/academic/course", "/academic/createcourse", "/academic/editcourse" }) ? "active" : "")" title="Course Management" data-bs-toggle="tooltip" data-bs-placement="right">
-            <div class="admin-nav-icon-tile"><i class="bi bi-journal-text" aria-hidden="true"></i></div>
-            <span class="admin-nav-label">Course Management</span>
-        </a>
-        <a href="/Admin/Files" class="admin-nav-item @(IsActiveRoute("/Admin/Files") ? "active" : "")" title="File Management" data-bs-toggle="tooltip" data-bs-placement="right">
-            <div class="admin-nav-icon-tile"><i class="bi bi-folder2-open" aria-hidden="true"></i></div>
-            <span class="admin-nav-label">File Management</span>
-        </a>
-        <a href="/Admin/Exams" class="admin-nav-item @(IsActiveRoute("/Admin/Exams") ? "active" : "")" title="Exam & Quiz" data-bs-toggle="tooltip" data-bs-placement="right">
-            <div class="admin-nav-icon-tile"><i class="bi bi-clipboard-check-fill" aria-hidden="true"></i></div>
-            <span class="admin-nav-label">Exam &amp; Quiz</span>
-        </a>
-        <a href="/Admin/Enrollments" class="admin-nav-item @(IsActiveRoute("/Admin/Enrollments", new[] { "/enrollment" }) ? "active" : "")" title="Enrollment" data-bs-toggle="tooltip" data-bs-placement="right">
-            <div class="admin-nav-icon-tile"><i class="bi bi-person-check-fill" aria-hidden="true"></i></div>
-            <span class="admin-nav-label">Enrollment</span>
-        </a>
-        <a href="/Admin/Schedule" class="admin-nav-item @(IsActiveRoute("/Admin/Schedule") ? "active" : "")" title="Schedule" data-bs-toggle="tooltip" data-bs-placement="right">
-            <div class="admin-nav-icon-tile"><i class="bi bi-calendar3" aria-hidden="true"></i></div>
-            <span class="admin-nav-label">Schedule</span>
-        </a>
+        <!-- 1. Academic Structure -->
+        <div class="admin-nav-group @(isAcademicGroupActive ? "group-active" : "")">
+            <button type="button" class="admin-nav-group-toggle @(isAcademicGroupActive ? "" : "collapsed")" data-bs-toggle="collapse" data-bs-target="#navGroupAcademic" aria-expanded="@(isAcademicGroupActive ? "true" : "false")" aria-controls="navGroupAcademic" title="Academic Structure">
+                <div class="admin-nav-icon-tile"><i class="bi bi-mortarboard-fill" aria-hidden="true"></i></div>
+                <span class="admin-nav-label">Academic Structure</span>
+                <i class="bi bi-chevron-down admin-nav-chevron" aria-hidden="true"></i>
+            </button>
+            <div class="collapse @(isAcademicGroupActive ? "show" : "")" id="navGroupAcademic">
+                <div class="admin-nav-sub-list">
+                    <div class="admin-nav-sub-item is-disabled" title="Pending Implementation (Step 3)" data-bs-toggle="tooltip" data-bs-placement="right">
+                        <i class="bi bi-diagram-2 sub-nav-icon" aria-hidden="true"></i>
+                        <span class="admin-nav-sub-label">Categories &amp; Majors</span>
+                        <span class="admin-nav-status-badge">Soon</span>
+                    </div>
+                    <div class="admin-nav-sub-item is-disabled" title="Pending Implementation (Step 3)" data-bs-toggle="tooltip" data-bs-placement="right">
+                        <i class="bi bi-calendar3 sub-nav-icon" aria-hidden="true"></i>
+                        <span class="admin-nav-sub-label">Academic Semesters</span>
+                        <span class="admin-nav-status-badge">Soon</span>
+                    </div>
+                    <a href="/Academic/Course" class="admin-nav-sub-item @(IsRouteActive("/Academic/Course", new[] { "/academic/createcourse", "/academic/editcourse" }) ? "active" : "")" title="Course Management">
+                        <i class="bi bi-journal-text sub-nav-icon" aria-hidden="true"></i>
+                        <span class="admin-nav-sub-label">Course Management</span>
+                    </a>
+                    @{
+                        var isCurriculumActive = IsRouteActive("/Academic/Curriculum", new[] { "/academic/chapter" });
+                    }
+                    @if (isCurriculumActive)
+                    {
+                        <a href="/Academic/Course" class="admin-nav-sub-item active" title="Sections & Chapters (Course Context Active)">
+                            <i class="bi bi-layers-half sub-nav-icon" aria-hidden="true"></i>
+                            <span class="admin-nav-sub-label">Sections &amp; Chapters</span>
+                        </a>
+                    }
+                    else
+                    {
+                        <div class="admin-nav-sub-item is-disabled" title="Managed per course via Course Management (standalone catalog pending)" data-bs-toggle="tooltip" data-bs-placement="right">
+                            <i class="bi bi-layers-half sub-nav-icon" aria-hidden="true"></i>
+                            <span class="admin-nav-sub-label">Sections &amp; Chapters</span>
+                            <span class="admin-nav-status-badge">Course</span>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
 
-        <!-- Thin divider line after Schedule -->
-        <div class="admin-sidebar-divider" aria-hidden="true"></div>
+        <!-- 2. Learning Content -->
+        <div class="admin-nav-group @(isContentGroupActive ? "group-active" : "")">
+            <button type="button" class="admin-nav-group-toggle @(isContentGroupActive ? "" : "collapsed")" data-bs-toggle="collapse" data-bs-target="#navGroupContent" aria-expanded="@(isContentGroupActive ? "true" : "false")" aria-controls="navGroupContent" title="Learning Content">
+                <div class="admin-nav-icon-tile"><i class="bi bi-collection-play-fill" aria-hidden="true"></i></div>
+                <span class="admin-nav-label">Learning Content</span>
+                <i class="bi bi-chevron-down admin-nav-chevron" aria-hidden="true"></i>
+            </button>
+            <div class="collapse @(isContentGroupActive ? "show" : "")" id="navGroupContent">
+                <div class="admin-nav-sub-list">
+                    <a href="/Admin/Files" class="admin-nav-sub-item @(IsRouteActive("/Admin/Files", new[] { "/admin/downloadattachment", "/academic/books" }) ? "active" : "")" title="Books & Contents">
+                        <i class="bi bi-folder2-open sub-nav-icon" aria-hidden="true"></i>
+                        <span class="admin-nav-sub-label">Books &amp; Contents</span>
+                    </a>
+                    <div class="admin-nav-sub-item is-disabled" title="Pending Implementation (Step 3)" data-bs-toggle="tooltip" data-bs-placement="right">
+                        <i class="bi bi-card-list sub-nav-icon" aria-hidden="true"></i>
+                        <span class="admin-nav-sub-label">Course Items</span>
+                        <span class="admin-nav-status-badge">Soon</span>
+                    </div>
+                </div>
+            </div>
+        </div>
 
-        <!-- Group 3: People Management -->
-        <a href="/Admin/Users" class="admin-nav-item @(IsActiveRoute("/Admin/Users", new[] { "/user" }) ? "active" : "")" title="User Management" data-bs-toggle="tooltip" data-bs-placement="right">
-            <div class="admin-nav-icon-tile"><i class="bi bi-people-fill" aria-hidden="true"></i></div>
-            <span class="admin-nav-label">User Management</span>
-        </a>
-        <a href="/Admin/Teachers" class="admin-nav-item @(IsActiveRoute("/Admin/Teachers") ? "active" : "")" title="Teacher Management" data-bs-toggle="tooltip" data-bs-placement="right">
-            <div class="admin-nav-icon-tile"><i class="bi bi-person-badge-fill" aria-hidden="true"></i></div>
-            <span class="admin-nav-label">Teacher Management</span>
-        </a>
+        <!-- 3. Assessment -->
+        <div class="admin-nav-group @(isAssessmentGroupActive ? "group-active" : "")">
+            <button type="button" class="admin-nav-group-toggle @(isAssessmentGroupActive ? "" : "collapsed")" data-bs-toggle="collapse" data-bs-target="#navGroupAssessment" aria-expanded="@(isAssessmentGroupActive ? "true" : "false")" aria-controls="navGroupAssessment" title="Assessment">
+                <div class="admin-nav-icon-tile"><i class="bi bi-clipboard-check-fill" aria-hidden="true"></i></div>
+                <span class="admin-nav-label">Assessment</span>
+                <i class="bi bi-chevron-down admin-nav-chevron" aria-hidden="true"></i>
+            </button>
+            <div class="collapse @(isAssessmentGroupActive ? "show" : "")" id="navGroupAssessment">
+                <div class="admin-nav-sub-list">
+                    @{
+                        var isQuizActive = IsRouteActive("/Academic/QuizQuestions");
+                    }
+                    @if (isQuizActive)
+                    {
+                        <a href="javascript:void(0)" class="admin-nav-sub-item active" title="Quizzes & Questions (Active Quiz Questions)">
+                            <i class="bi bi-patch-question sub-nav-icon" aria-hidden="true"></i>
+                            <span class="admin-nav-sub-label">Quizzes &amp; Questions</span>
+                        </a>
+                    }
+                    else
+                    {
+                        <div class="admin-nav-sub-item is-disabled" title="Questions editor active per-course; master catalog pending (Step 3)" data-bs-toggle="tooltip" data-bs-placement="right">
+                            <i class="bi bi-patch-question sub-nav-icon" aria-hidden="true"></i>
+                            <span class="admin-nav-sub-label">Quizzes &amp; Questions</span>
+                            <span class="admin-nav-status-badge">Soon</span>
+                        </div>
+                    }
+                    <div class="admin-nav-sub-item is-disabled" title="Pending Implementation (Step 3)" data-bs-toggle="tooltip" data-bs-placement="right">
+                        <i class="bi bi-file-earmark-text sub-nav-icon" aria-hidden="true"></i>
+                        <span class="admin-nav-sub-label">Assignments</span>
+                        <span class="admin-nav-status-badge">Soon</span>
+                    </div>
+                    <div class="admin-nav-sub-item is-disabled" title="Pending Implementation (Step 4)" data-bs-toggle="tooltip" data-bs-placement="right">
+                        <i class="bi bi-award sub-nav-icon" aria-hidden="true"></i>
+                        <span class="admin-nav-sub-label">Submissions &amp; Grading</span>
+                        <span class="admin-nav-status-badge">Soon</span>
+                    </div>
+                </div>
+            </div>
+        </div>
 
-        <!-- Thin divider line after Teacher Management -->
-        <div class="admin-sidebar-divider" aria-hidden="true"></div>
+        <!-- 4. Users & Students -->
+        <div class="admin-nav-group @(isUsersGroupActive ? "group-active" : "")">
+            <button type="button" class="admin-nav-group-toggle @(isUsersGroupActive ? "" : "collapsed")" data-bs-toggle="collapse" data-bs-target="#navGroupUsers" aria-expanded="@(isUsersGroupActive ? "true" : "false")" aria-controls="navGroupUsers" title="Users & Students">
+                <div class="admin-nav-icon-tile"><i class="bi bi-people-fill" aria-hidden="true"></i></div>
+                <span class="admin-nav-label">Users &amp; Students</span>
+                <i class="bi bi-chevron-down admin-nav-chevron" aria-hidden="true"></i>
+            </button>
+            <div class="collapse @(isUsersGroupActive ? "show" : "")" id="navGroupUsers">
+                <div class="admin-nav-sub-list">
+                    <a href="/User/Index" class="admin-nav-sub-item @(IsRouteActive("/User/Index", new[] { "/user", "/user/details", "/user/create", "/user/edit", "/admin/users", "/admin/teachers" }) ? "active" : "")" title="Users & Roles">
+                        <i class="bi bi-person-gear sub-nav-icon" aria-hidden="true"></i>
+                        <span class="admin-nav-sub-label">Users &amp; Roles</span>
+                    </a>
+                    <a href="/Enrollment/Index" class="admin-nav-sub-item @(IsRouteActive("/Enrollment/Index", new[] { "/enrollment", "/enrollment/coursestudents", "/admin/enrollments" }) ? "active" : "")" title="Enrollments">
+                        <i class="bi bi-person-check-fill sub-nav-icon" aria-hidden="true"></i>
+                        <span class="admin-nav-sub-label">Enrollments</span>
+                    </a>
+                    <div class="admin-nav-sub-item is-disabled" title="Pending Implementation (Step 4)" data-bs-toggle="tooltip" data-bs-placement="right">
+                        <i class="bi bi-graph-up-arrow sub-nav-icon" aria-hidden="true"></i>
+                        <span class="admin-nav-sub-label">Student Progress</span>
+                        <span class="admin-nav-status-badge">Soon</span>
+                    </div>
+                    <div class="admin-nav-sub-item is-disabled" title="Pending Implementation (Step 4)" data-bs-toggle="tooltip" data-bs-placement="right">
+                        <i class="bi bi-trophy sub-nav-icon" aria-hidden="true"></i>
+                        <span class="admin-nav-sub-label">Final Grades</span>
+                        <span class="admin-nav-status-badge">Soon</span>
+                    </div>
+                </div>
+            </div>
+        </div>
 
-        <!-- Group 4: Financial Ledger -->
-        <a href="/Admin/Payments" class="admin-nav-item @(IsActiveRoute("/Admin/Payments") ? "active" : "")" title="Payments" data-bs-toggle="tooltip" data-bs-placement="right">
-            <div class="admin-nav-icon-tile"><i class="bi bi-credit-card-2-front-fill" aria-hidden="true"></i></div>
-            <span class="admin-nav-label">Payments</span>
-        </a>
-        <a href="/Admin/Invoices" class="admin-nav-item @(IsActiveRoute("/Admin/Invoices") ? "active" : "")" title="Invoices" data-bs-toggle="tooltip" data-bs-placement="right">
-            <div class="admin-nav-icon-tile"><i class="bi bi-receipt-cutoff" aria-hidden="true"></i></div>
-            <span class="admin-nav-label">Invoices</span>
-        </a>
-        <a href="/Admin/Payroll" class="admin-nav-item @(IsActiveRoute("/Admin/Payroll") ? "active" : "")" title="Teacher Payroll" data-bs-toggle="tooltip" data-bs-placement="right">
-            <div class="admin-nav-icon-tile"><i class="bi bi-cash-stack" aria-hidden="true"></i></div>
-            <span class="admin-nav-label">Teacher Payroll</span>
-        </a>
-
-        <!-- Thin divider line after Teacher Payroll -->
-        <div class="admin-sidebar-divider" aria-hidden="true"></div>
-
-        <!-- Group 5: Reports & Settings -->
-        <a href="/Admin/Reports" class="admin-nav-item @(IsActiveRoute("/Admin/Reports") ? "active" : "")" title="Reports & Analytics" data-bs-toggle="tooltip" data-bs-placement="right">
-            <div class="admin-nav-icon-tile"><i class="bi bi-bar-chart-fill" aria-hidden="true"></i></div>
-            <span class="admin-nav-label">Reports &amp; Analytics</span>
-        </a>
-        <a href="/Admin/Settings" class="admin-nav-item @(IsActiveRoute("/Admin/Settings", new[] { "/profile", "/settings" }) ? "active" : "")" title="Settings" data-bs-toggle="tooltip" data-bs-placement="right">
-            <div class="admin-nav-icon-tile"><i class="bi bi-gear-fill" aria-hidden="true"></i></div>
-            <span class="admin-nav-label">Settings</span>
-        </a>
+        <!-- 5. System -->
+        <div class="admin-nav-group @(isSystemGroupActive ? "group-active" : "")">
+            <button type="button" class="admin-nav-group-toggle @(isSystemGroupActive ? "" : "collapsed")" data-bs-toggle="collapse" data-bs-target="#navGroupSystem" aria-expanded="@(isSystemGroupActive ? "true" : "false")" aria-controls="navGroupSystem" title="System">
+                <div class="admin-nav-icon-tile"><i class="bi bi-gear-wide-connected" aria-hidden="true"></i></div>
+                <span class="admin-nav-label">System</span>
+                <i class="bi bi-chevron-down admin-nav-chevron" aria-hidden="true"></i>
+            </button>
+            <div class="collapse @(isSystemGroupActive ? "show" : "")" id="navGroupSystem">
+                <div class="admin-nav-sub-list">
+                    <div class="admin-nav-sub-item is-disabled" title="Pending Implementation (Step 4)" data-bs-toggle="tooltip" data-bs-placement="right">
+                        <i class="bi bi-clock-history sub-nav-icon" aria-hidden="true"></i>
+                        <span class="admin-nav-sub-label">Login History</span>
+                        <span class="admin-nav-status-badge">Soon</span>
+                    </div>
+                    <a href="/Admin/Reports" class="admin-nav-sub-item @(IsRouteActive("/Admin/Reports") ? "active" : "")" title="Reports & Analytics">
+                        <i class="bi bi-bar-chart-fill sub-nav-icon" aria-hidden="true"></i>
+                        <span class="admin-nav-sub-label">Reports &amp; Analytics</span>
+                    </a>
+                    <a href="/Admin/Settings" class="admin-nav-sub-item @(IsRouteActive("/Admin/Settings") ? "active" : "")" title="Settings">
+                        <i class="bi bi-sliders sub-nav-icon" aria-hidden="true"></i>
+                        <span class="admin-nav-sub-label">Settings</span>
+                    </a>
+                </div>
+            </div>
+        </div>
     </nav>
 
     <!-- Bottom User Profile Card & Sign Out Form -->

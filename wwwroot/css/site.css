@@ -1781,6 +1781,150 @@ select.form-select {
     outline-offset: 1px;
 }
 
+/* 6. Expandable DLMS Navigation Groups & Sub-menus */
+.admin-nav-group {
+    margin: 2px 0;
+}
+
+.admin-nav-group-toggle {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    height: 44px;
+    min-height: 44px;
+    max-height: 44px;
+    padding: 0 10px;
+    margin: 1px 0;
+    border-radius: 10px;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: #0F172A;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    text-align: left;
+    transition: background-color 0.15s ease, color 0.15s ease;
+    box-sizing: border-box;
+    white-space: nowrap;
+}
+
+.admin-nav-group-toggle:hover {
+    background-color: #F1F5F9;
+    color: #0F172A;
+}
+
+.admin-nav-group-toggle:hover .admin-nav-icon-tile {
+    background-color: #DBEAFE;
+    color: #2563EB;
+}
+
+.admin-nav-group.group-active > .admin-nav-group-toggle {
+    color: #1D4ED8;
+}
+
+.admin-nav-group.group-active > .admin-nav-group-toggle .admin-nav-icon-tile {
+    background-color: #DBEAFE;
+    color: #1D4ED8;
+}
+
+.admin-nav-chevron {
+    margin-left: auto;
+    font-size: 11px;
+    color: #94A3B8;
+    transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), color 0.15s ease;
+}
+
+.admin-nav-group-toggle:not(.collapsed) .admin-nav-chevron {
+    transform: rotate(180deg);
+    color: #2563EB;
+}
+
+.admin-nav-sub-list {
+    display: flex;
+    flex-direction: column;
+    padding: 4px 0 6px 12px;
+    margin-left: 25px;
+    border-left: 1.5px solid #E2E8F0;
+    gap: 2px;
+}
+
+.admin-nav-sub-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 36px;
+    height: 36px;
+    padding: 0 10px;
+    border-radius: 8px;
+    font-size: 12.5px;
+    font-weight: 500;
+    color: #475569;
+    text-decoration: none;
+    transition: all 0.15s ease;
+    box-sizing: border-box;
+    white-space: nowrap;
+    position: relative;
+}
+
+.admin-nav-sub-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    letter-spacing: -0.01em;
+}
+
+.sub-nav-icon {
+    font-size: 14px;
+    color: #94A3B8;
+    transition: color 0.15s ease;
+    flex-shrink: 0;
+    width: 16px;
+    text-align: center;
+}
+
+.admin-nav-sub-item:hover:not(.active):not(.is-disabled) {
+    background-color: #F8FAFC;
+    color: #0F172A;
+}
+
+.admin-nav-sub-item:hover:not(.active):not(.is-disabled) .sub-nav-icon {
+    color: #2563EB;
+}
+
+.admin-nav-sub-item.active,
+.admin-nav-sub-item.active:hover {
+    background: #EFF6FF !important;
+    color: #1D4ED8 !important;
+    font-weight: 600 !important;
+    box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.2);
+}
+
+.admin-nav-sub-item.active .sub-nav-icon,
+.admin-nav-sub-item.active:hover .sub-nav-icon {
+    color: #2563EB !important;
+}
+
+.admin-nav-sub-item.is-disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    color: #94A3B8;
+    user-select: none;
+}
+
+.admin-nav-status-badge {
+    margin-left: auto;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 1px 6px;
+    border-radius: 8px;
+    background: #F1F5F9;
+    color: #64748B;
+    border: 1px solid #E2E8F0;
+    letter-spacing: 0.02em;
+    flex-shrink: 0;
+}
+
 /* 6. Thin divider lines between groups: after Dashboard, after Schedule, after Teacher Management, after Teacher Payroll */
 .admin-sidebar-divider {
     height: 1px;
@@ -1976,6 +2120,64 @@ select.form-select {
     color: #60A5FA;
 }
 
+[data-bs-theme="dark"] .admin-nav-group-toggle {
+    color: #F1F5F9;
+}
+
+[data-bs-theme="dark"] .admin-nav-group-toggle:hover {
+    background-color: #142442;
+    color: #FFFFFF;
+}
+
+[data-bs-theme="dark"] .admin-nav-group-toggle:hover .admin-nav-icon-tile {
+    background-color: rgba(37, 99, 235, 0.22);
+    color: #60A5FA;
+}
+
+[data-bs-theme="dark"] .admin-nav-group.group-active > .admin-nav-group-toggle {
+    color: #60A5FA;
+}
+
+[data-bs-theme="dark"] .admin-nav-group.group-active > .admin-nav-group-toggle .admin-nav-icon-tile {
+    background-color: rgba(37, 99, 235, 0.25);
+    color: #60A5FA;
+}
+
+[data-bs-theme="dark"] .admin-nav-sub-list {
+    border-left-color: #223052;
+}
+
+[data-bs-theme="dark"] .admin-nav-sub-item {
+    color: #94A3B8;
+}
+
+[data-bs-theme="dark"] .admin-nav-sub-item:hover:not(.active):not(.is-disabled) {
+    background-color: #142442;
+    color: #F1F5F9;
+}
+
+[data-bs-theme="dark"] .admin-nav-sub-item:hover:not(.active):not(.is-disabled) .sub-nav-icon {
+    color: #60A5FA;
+}
+
+[data-bs-theme="dark"] .admin-nav-sub-item.active,
+[data-bs-theme="dark"] .admin-nav-sub-item.active:hover {
+    background: rgba(37, 99, 235, 0.18) !important;
+    color: #60A5FA !important;
+    box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.25);
+}
+
+[data-bs-theme="dark"] .admin-nav-sub-item.active .sub-nav-icon,
+[data-bs-theme="dark"] .admin-nav-sub-item.active:hover .sub-nav-icon {
+    color: #60A5FA !important;
+}
+
+[data-bs-theme="dark"] .admin-nav-status-badge {
+    background: #162340;
+    color: #94A3B8;
+    border-color: #223052;
+}
+
 [data-bs-theme="dark"] .admin-sidebar-divider {
     background-color: #223052;
 }
@@ -2073,11 +2275,17 @@ select.form-select {
 }
 
 .admin-sidebar.collapsed .admin-nav-item,
+.admin-sidebar.collapsed .admin-nav-group-toggle,
 .admin-sidebar.collapsed .admin-logout-btn {
     justify-content: center;
     padding: 0;
     width: 44px;
     margin: 2px auto;
+}
+
+.admin-sidebar.collapsed .admin-nav-chevron,
+.admin-sidebar.collapsed .admin-nav-sub-list {
+    display: none !important;
 }
 
 .admin-sidebar.collapsed .admin-sidebar-user-card {

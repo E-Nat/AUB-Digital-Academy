@@ -48,11 +48,24 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     // Close mobile sidebar on navigation (supports both admin and default sidebars)
-    document.querySelectorAll('.sidebar-nav .nav-link-item, .admin-sidebar .admin-nav-item').forEach(link => {
+    document.querySelectorAll('.sidebar-nav .nav-link-item, .admin-sidebar .admin-nav-item, .admin-sidebar .admin-nav-sub-item:not(.is-disabled)').forEach(link => {
         link.addEventListener('click', function () {
             if (window.innerWidth < 992 && sidebar) {
                 sidebar.classList.remove('show');
                 sidebarOverlay?.classList.remove('show');
+            }
+        });
+    });
+
+    // Expand collapsed desktop sidebar when clicking an accordion group toggle
+    document.querySelectorAll('.admin-nav-group-toggle').forEach(btn => {
+        btn.addEventListener('click', function () {
+            if (window.innerWidth >= 992 && sidebar && sidebar.classList.contains('collapsed')) {
+                sidebar.classList.remove('collapsed');
+                wrapper?.classList.remove('sidebar-collapsed');
+                try {
+                    localStorage.setItem('aub_sidebar_collapsed', 'false');
+                } catch (e) {}
             }
         });
     });
@@ -153,8 +166,8 @@ document.addEventListener('DOMContentLoaded', function () {
 // Active Sidebar Navigation Sync
 function initBackendSidebarActiveState() {
     // Only apply client-side route match if server-side didn't already select an active item
-    const adminActive = document.querySelector('.admin-sidebar .admin-nav-item.active');
-    if (adminActive) return; // Server-side Razor helper IsActiveRoute already made the accurate match!
+    const adminActive = document.querySelector('.admin-sidebar .admin-nav-item.active, .admin-sidebar .admin-nav-sub-item.active');
+    if (adminActive) return; // Server-side Razor helper IsRouteActive already made the accurate match!
 
     const navLinks = document.querySelectorAll('.sidebar-nav .nav-link-item');
     if (!navLinks.length) return;
