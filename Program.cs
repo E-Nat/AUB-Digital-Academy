@@ -4,6 +4,8 @@ using Microsoft.EntityFrameworkCore;
 using AUBDigitalAcademy.Data;
 using AUBDigitalAcademy.Models;
 
+LoadDotEnv();
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Configure Data Protection to persist keys locally
@@ -108,6 +110,7 @@ builder.Services.AddScoped<AUBDigitalAcademy.Services.Interfaces.IEnrollmentServ
 builder.Services.AddScoped<AUBDigitalAcademy.Services.Interfaces.IUserService, AUBDigitalAcademy.Services.Implementations.UserService>();
 builder.Services.AddScoped<AUBDigitalAcademy.Services.Interfaces.ITeacherService, AUBDigitalAcademy.Services.Implementations.TeacherService>();
 builder.Services.AddScoped<AUBDigitalAcademy.Services.Interfaces.IAssignmentStorageService, AUBDigitalAcademy.Services.Implementations.AssignmentStorageService>();
+builder.Services.AddScoped<AUBDigitalAcademy.Services.Interfaces.IAuthService, AUBDigitalAcademy.Services.Implementations.AuthService>();
 builder.Services.AddHostedService<AUBDigitalAcademy.Services.Implementations.TelegramPollingService>();
 
 var app = builder.Build();
@@ -118,7 +121,9 @@ using (var scope = app.Services.CreateScope())
     var services = scope.ServiceProvider;
     try
     {
-        await SeedData.InitializeAsync(services);
+        bool isDevOrTest = app.Environment.IsDevelopment() ||
+                           args.Any(a => a.StartsWith("--test-", StringComparison.OrdinalIgnoreCase));
+        await SeedData.InitializeAsync(services, allowDevTaGrading: isDevOrTest);
     }
     catch (Exception ex)
     {
@@ -161,6 +166,12 @@ if (args.Contains("--test-teacher-portal"))
 if (args.Contains("--test-auth"))
 {
     await AuthIntegrationTestRunner.RunTestsAsync(app.Services);
+    return;
+}
+
+if (args.Contains("--test-api-auth"))
+{
+    await ApiAuth2FaIntegrationTestRunner.RunTestsAsync(app.Services);
     return;
 }
 
@@ -249,3 +260,49 @@ app.MapControllerRoute(
     .WithStaticAssets();
 
 app.Run();
+
+static void LoadDotEnv()
+{
+    var envPath = Path.Combine(Directory.GetCurrentDirectory(), ".env");
+    if (!File.Exists(envPath))
+    {
+        return;
+    }
+
+    foreach (var rawLine in File.ReadAllLines(envPath))
+    {
+        var line = rawLine.Trim();
+        if (string.IsNullOrEmpty(line) || line.StartsWith('#'))
+        {
+            continue;
+        }
+
+        if (line.StartsWith("export ", StringComparison.OrdinalIgnoreCase))
+        {
+            line = line[7..].TrimStart();
+        }
+
+        var separatorIndex = line.IndexOf('=');
+        if (separatorIndex <= 0)
+        {
+            continue;
+        }
+
+        var key = line[..separatorIndex].Trim();
+        var value = line[(separatorIndex + 1)..].Trim();
+
+        // Strip matching surrounding quotes if present
+        if (value.Length >= 2 &&
+            ((value.StartsWith('"') && value.EndsWith('"')) ||
+             (value.StartsWith('\'') && value.EndsWith('\''))))
+        {
+            value = value[1..^1];
+        }
+
+        // Preserve values already provided by Docker or the OS shell
+        if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable(key)))
+        {
+            Environment.SetEnvironmentVariable(key, value);
+        }
+    }
+}

@@ -1,11 +1,8 @@
+using AUBDigitalAcademy.Models;
+using AUBDigitalAcademy.Services.Interfaces;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using AUBDigitalAcademy.Models;
-using System.Security.Claims;
-using System.Security.Cryptography;
-using System.Text;
-using System.Text.Json;
 
 namespace AUBDigitalAcademy.Controllers.Api;
 
@@ -13,6 +10,12 @@ public class ApiLoginRequest
 {
     public string? LoginId { get; set; }
     public string? Password { get; set; }
+}
+
+public class ApiVerify2FaRequest
+{
+    public string? VerificationId { get; set; }
+    public string? Code { get; set; }
 }
 
 public class ApiForgotPasswordRequest
@@ -25,15 +28,18 @@ public class ApiForgotPasswordRequest
 public class AuthController : ControllerBase
 {
     private readonly UserManager<User> _userManager;
+    private readonly IAuthService _authService;
     private readonly IConfiguration _configuration;
     private readonly ILogger<AuthController> _logger;
 
     public AuthController(
         UserManager<User> userManager,
+        IAuthService authService,
         IConfiguration configuration,
         ILogger<AuthController> logger)
     {
         _userManager = userManager;
+        _authService = authService;
         _configuration = configuration;
         _logger = logger;
     }
@@ -43,43 +49,199 @@ public class AuthController : ControllerBase
     {
         if (request == null || string.IsNullOrWhiteSpace(request.LoginId) || string.IsNullOrWhiteSpace(request.Password))
         {
-            return BadRequest(new { success = false, message = "Please provide both Login ID/Email and Password." });
+            return BadRequest(new
+            {
+                success = false,
+                status = "InvalidInput",
+                message = "Please provide both Login ID/Email and Password."
+            });
         }
 
-        var normalizedId = request.LoginId.Trim();
+        var authResult = await _authService.AuthenticateCredentialsAsync(request.LoginId, request.Password);
 
-        var user = await _userManager.FindByEmailAsync(normalizedId)
-                   ?? await _userManager.Users.FirstOrDefaultAsync(u => u.UniversityId == normalizedId || u.UserName == normalizedId);
-
-        if (user == null)
+        switch (authResult.Status)
         {
-            return Unauthorized(new { success = false, message = "Invalid credentials. User not found." });
+            case CredentialCheckStatus.InvalidCredentials:
+                return Unauthorized(new
+                {
+                    success = false,
+                    status = "InvalidCredentials",
+                    message = "Invalid University ID/Email or password."
+                });
+
+            case CredentialCheckStatus.LockedOut:
+                return StatusCode(StatusCodes.Status423Locked, new
+                {
+                    success = false,
+                    status = "AccountLocked",
+                    message = "Your account has been temporarily locked due to multiple failed login attempts. Please try again later."
+                });
+
+            case CredentialCheckStatus.InactiveAccount:
+                return StatusCode(StatusCodes.Status403Forbidden, new
+                {
+                    success = false,
+                    status = "AccountInactive",
+                    message = "Your account has been deactivated. Please contact the administrator."
+                });
+
+            case CredentialCheckStatus.TelegramNotLinked:
+                return StatusCode(StatusCodes.Status403Forbidden, new
+                {
+                    success = false,
+                    status = "TelegramNotLinked",
+                    requiresTelegramLink = true,
+                    message = "Your Telegram account must be linked and verified before signing in via API. Please link your Telegram account using the Web portal first."
+                });
         }
 
-        if (!user.IsActive)
+        var user = authResult.User!;
+        var challenge = await _authService.CreateApiTwoFactorChallengeAsync(user);
+
+        if (challenge.Status == TwoFactorDispatchStatus.InvalidConfiguration)
         {
-            return StatusCode(StatusCodes.Status403Forbidden, new { success = false, message = "Your account is currently inactive. Contact administration." });
+            return StatusCode(StatusCodes.Status500InternalServerError, new
+            {
+                success = false,
+                status = "ConfigurationError",
+                message = "API token signing is not properly configured. Please contact an administrator."
+            });
         }
 
-        var isPasswordValid = await _userManager.CheckPasswordAsync(user, request.Password);
-        if (!isPasswordValid)
+        if (challenge.Status != TwoFactorDispatchStatus.Sent)
         {
-            return Unauthorized(new { success = false, message = "Invalid password. Please try again." });
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new
+            {
+                success = false,
+                status = "OtpDeliveryFailed",
+                message = "Unable to deliver Telegram verification code. Please try again later."
+            });
         }
 
-        var roles = await _userManager.GetRolesAsync(user);
-        var primaryRole = roles.FirstOrDefault() ?? "Student";
-        var roleUpper = primaryRole.ToUpperInvariant();
-
-        var token = GenerateJwtToken(user, roleUpper);
-
-        _logger.LogInformation("API user {UserId} ({Role}) authenticated successfully.", user.Id, roleUpper);
+        _logger.LogInformation("API Telegram 2FA challenge issued for user {UserId}.", user.Id);
 
         return Ok(new
         {
             success = true,
+            status = "TwoFactorPending",
+            requiresTwoFactor = true,
+            verificationId = challenge.VerificationId,
+            expiresAt = challenge.ExpiresAt,
+            expiresInSeconds = challenge.ExpiresInSeconds,
+            message = "A single-use verification code has been sent to your linked Telegram account."
+        });
+    }
+
+    [HttpPost("verify-2fa")]
+    public async Task<IActionResult> Verify2Fa([FromBody] ApiVerify2FaRequest request)
+    {
+        if (request == null || string.IsNullOrWhiteSpace(request.VerificationId) || string.IsNullOrWhiteSpace(request.Code))
+        {
+            return BadRequest(new
+            {
+                success = false,
+                status = "InvalidInput",
+                message = "Please provide both verificationId and verification code."
+            });
+        }
+
+        if (!_authService.HasValidJwtConfiguration())
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new
+            {
+                success = false,
+                status = "ConfigurationError",
+                message = "API token signing is not properly configured. Please contact an administrator."
+            });
+        }
+
+        var verifyResult = await _authService.VerifyApiTwoFactorAsync(request.VerificationId, request.Code);
+
+        switch (verifyResult.Status)
+        {
+            case TwoFactorVerifyStatus.InvalidToken:
+                return Unauthorized(new
+                {
+                    success = false,
+                    status = "InvalidVerification",
+                    message = "Invalid verification session."
+                });
+
+            case TwoFactorVerifyStatus.Expired:
+                return Unauthorized(new
+                {
+                    success = false,
+                    status = "OtpExpired",
+                    message = "Verification code has expired. Please sign in again."
+                });
+
+            case TwoFactorVerifyStatus.AlreadyUsed:
+                return Unauthorized(new
+                {
+                    success = false,
+                    status = "OtpReused",
+                    message = "This verification code has already been used. Please sign in again."
+                });
+
+            case TwoFactorVerifyStatus.TooManyAttempts:
+                return StatusCode(StatusCodes.Status429TooManyRequests, new
+                {
+                    success = false,
+                    status = "TooManyAttempts",
+                    message = "Maximum verification attempts exceeded. Please sign in again."
+                });
+
+            case TwoFactorVerifyStatus.InvalidCode:
+                return Unauthorized(new
+                {
+                    success = false,
+                    status = "InvalidOtp",
+                    remainingAttempts = verifyResult.RemainingAttempts,
+                    message = "Invalid verification code."
+                });
+
+            case TwoFactorVerifyStatus.LockedOut:
+                return StatusCode(StatusCodes.Status423Locked, new
+                {
+                    success = false,
+                    status = "AccountLocked",
+                    message = "Your account has been temporarily locked."
+                });
+
+            case TwoFactorVerifyStatus.UserUnavailable:
+            case TwoFactorVerifyStatus.TelegramNotLinked:
+                return StatusCode(StatusCodes.Status403Forbidden, new
+                {
+                    success = false,
+                    status = "AccessDenied",
+                    message = "Account is unavailable or Telegram is not linked."
+                });
+        }
+
+        var user = verifyResult.User!;
+        var primaryRole = verifyResult.Roles?.FirstOrDefault() ?? "Student";
+        var roleUpper = primaryRole.ToUpperInvariant();
+
+        var tokenResult = _authService.GenerateJwtToken(user, roleUpper);
+        if (tokenResult == null)
+        {
+            return StatusCode(StatusCodes.Status500InternalServerError, new
+            {
+                success = false,
+                status = "ConfigurationError",
+                message = "API token signing is not properly configured. Please contact an administrator."
+            });
+        }
+
+        _logger.LogInformation("API user {UserId} ({Role}) authenticated via Telegram 2FA.", user.Id, roleUpper);
+
+        return Ok(new
+        {
+            success = true,
+            status = "Authenticated",
             message = "Login successful",
-            token = token,
+            token = tokenResult.Token,
+            expiresAt = tokenResult.ExpiresAt,
             user = new
             {
                 id = user.Id,
@@ -117,7 +279,7 @@ public class AuthController : ControllerBase
 
         if (isEmailConfigured && user != null && !string.IsNullOrEmpty(user.Email))
         {
-            var token = await _userManager.GeneratePasswordResetTokenAsync(user);
+            _ = await _userManager.GeneratePasswordResetTokenAsync(user);
             return Ok(new
             {
                 success = true,
@@ -146,16 +308,16 @@ public class AuthController : ControllerBase
         }
 
         var token = authHeader.Substring("Bearer ".Length).Trim();
-        var claims = ValidateJwtToken(token);
-        if (claims == null || !claims.TryGetValue("userId", out var userId))
+        var claims = _authService.ValidateJwtToken(token);
+        if (claims == null || !claims.TryGetValue("sub", out var userId))
         {
             return Unauthorized(new { success = false, message = "Invalid or expired token." });
         }
 
         var user = await _userManager.FindByIdAsync(userId);
-        if (user == null || !user.IsActive)
+        if (user == null || !user.IsActive || await _userManager.IsLockedOutAsync(user))
         {
-            return Unauthorized(new { success = false, message = "User not found or inactive." });
+            return Unauthorized(new { success = false, message = "User not found or unavailable." });
         }
 
         var roles = await _userManager.GetRolesAsync(user);
@@ -174,103 +336,5 @@ public class AuthController : ControllerBase
                 avatar_url = user.Avatar
             }
         });
-    }
-
-    private string GenerateJwtToken(User user, string role)
-    {
-        var secretKey = _configuration["Jwt:Secret"] 
-            ?? _configuration["Jwt:Key"] 
-            ?? "AUB_Digital_Academy_JWT_Secret_Key_2026_Institutional_Gateway!";
-
-        var headerJson = "{\"alg\":\"HS256\",\"typ\":\"JWT\"}";
-        var headerBase64 = Base64UrlEncode(Encoding.UTF8.GetBytes(headerJson));
-
-        long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        long exp = DateTimeOffset.UtcNow.AddDays(7).ToUnixTimeSeconds();
-
-        var payloadData = new Dictionary<string, object>
-        {
-            ["userId"] = user.Id,
-            ["sub"] = user.Id,
-            ["email"] = user.Email ?? "",
-            ["role"] = role,
-            ["name"] = user.FullName,
-            ["iat"] = now,
-            ["exp"] = exp
-        };
-
-        var payloadJson = JsonSerializer.Serialize(payloadData);
-        var payloadBase64 = Base64UrlEncode(Encoding.UTF8.GetBytes(payloadJson));
-
-        var dataToSign = $"{headerBase64}.{payloadBase64}";
-        using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(secretKey));
-        var signatureBytes = hmac.ComputeHash(Encoding.UTF8.GetBytes(dataToSign));
-        var signatureBase64 = Base64UrlEncode(signatureBytes);
-
-        return $"{dataToSign}.{signatureBase64}";
-    }
-
-    private Dictionary<string, string>? ValidateJwtToken(string token)
-    {
-        try
-        {
-            var parts = token.Split('.');
-            if (parts.Length != 3) return null;
-
-            var secretKey = _configuration["Jwt:Secret"] 
-                ?? _configuration["Jwt:Key"] 
-                ?? "AUB_Digital_Academy_JWT_Secret_Key_2026_Institutional_Gateway!";
-
-            var dataToSign = $"{parts[0]}.{parts[1]}";
-            using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(secretKey));
-            var computedSignature = Base64UrlEncode(hmac.ComputeHash(Encoding.UTF8.GetBytes(dataToSign)));
-
-            if (!CryptographicOperations.FixedTimeEquals(
-                Encoding.UTF8.GetBytes(computedSignature),
-                Encoding.UTF8.GetBytes(parts[2])))
-            {
-                return null;
-            }
-
-            var payloadBytes = Base64UrlDecode(parts[1]);
-            var payloadJson = Encoding.UTF8.GetString(payloadBytes);
-            using var doc = JsonDocument.Parse(payloadJson);
-            var root = doc.RootElement;
-
-            if (root.TryGetProperty("exp", out var expProp) && expProp.GetInt64() < DateTimeOffset.UtcNow.ToUnixTimeSeconds())
-            {
-                return null;
-            }
-
-            var dict = new Dictionary<string, string>();
-            foreach (var prop in root.EnumerateObject())
-            {
-                dict[prop.Name] = prop.Value.ToString();
-            }
-            return dict;
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    private static string Base64UrlEncode(byte[] input)
-    {
-        return Convert.ToBase64String(input)
-            .TrimEnd('=')
-            .Replace('+', '-')
-            .Replace('/', '_');
-    }
-
-    private static byte[] Base64UrlDecode(string input)
-    {
-        string incoming = input.Replace('-', '+').Replace('_', '/');
-        switch (incoming.Length % 4)
-        {
-            case 2: incoming += "=="; break;
-            case 3: incoming += "="; break;
-        }
-        return Convert.FromBase64String(incoming);
     }
 }

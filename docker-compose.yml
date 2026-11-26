@@ -45,6 +45,9 @@ services:
       - Telegram__ChatId=${TELEGRAM_CHAT_ID:-}
       - Telegram__MessageThreadId=${TELEGRAM_MESSAGE_THREAD_ID:-}
       - Telegram__BotUsername=${TELEGRAM_BOT_USERNAME:-AUBLinkBot}
+      - Jwt__Secret=${JWT_SECRET:-}
+      - Jwt__Issuer=${JWT_ISSUER:-AUBDigitalAcademy}
+      - Jwt__Audience=${JWT_AUDIENCE:-AUBDigitalAcademy.Api}
     depends_on:
       sqlserver:
         condition: service_healthy

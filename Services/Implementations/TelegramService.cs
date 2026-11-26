@@ -31,15 +31,28 @@ public class TelegramService : ITelegramService
         _logger = logger;
     }
 
+    private static string? FirstNonWhiteSpace(params string?[] candidates)
+    {
+        foreach (var candidate in candidates)
+        {
+            if (!string.IsNullOrWhiteSpace(candidate))
+            {
+                return candidate;
+            }
+        }
+        return null;
+    }
+
     /// <summary>
     /// Safely resolves the Telegram Bot token without logging or exposing the actual value.
     /// Prioritizes 'TelegramBot:Token' (.NET User Secrets), with fallback to 'Telegram:BotToken' or environment variable.
     /// </summary>
     private string? GetBotToken()
     {
-        return _configuration["TelegramBot:Token"]
-               ?? _configuration["Telegram:BotToken"]
-               ?? Environment.GetEnvironmentVariable("TELEGRAM_BOT_TOKEN");
+        return FirstNonWhiteSpace(
+            _configuration["TelegramBot:Token"],
+            _configuration["Telegram:BotToken"],
+            Environment.GetEnvironmentVariable("TELEGRAM_BOT_TOKEN"));
     }
 
     public async Task<(bool Success, string? BotUsername, string? ErrorMessage)> TestBotConnectivityAsync()
@@ -88,13 +101,15 @@ public class TelegramService : ITelegramService
         var botToken = GetBotToken();
 
         // 2. Resolve Chat ID
-        var chatId = customChatId
-                     ?? _configuration["Telegram:ChatId"]
-                     ?? Environment.GetEnvironmentVariable("TELEGRAM_CHAT_ID");
+        var chatId = FirstNonWhiteSpace(
+            customChatId,
+            _configuration["Telegram:ChatId"],
+            Environment.GetEnvironmentVariable("TELEGRAM_CHAT_ID"));
 
         // 3. Optional Message Thread ID (e.g. forum topic)
-        var threadId = _configuration["Telegram:MessageThreadId"]
-                       ?? Environment.GetEnvironmentVariable("TELEGRAM_MESSAGE_THREAD_ID");
+        var threadId = FirstNonWhiteSpace(
+            _configuration["Telegram:MessageThreadId"],
+            Environment.GetEnvironmentVariable("TELEGRAM_MESSAGE_THREAD_ID"));
 
         // Format message
         var message = $"🎓 <b>AUB Digital Academy — Student Verification</b>\n\n" +
@@ -107,7 +122,7 @@ public class TelegramService : ITelegramService
         // Dev / Simulation fallback if credentials are not configured in local environment
         if (string.IsNullOrWhiteSpace(botToken) || string.IsNullOrWhiteSpace(chatId))
         {
-            _logger.LogInformation("Telegram service: Simulation mode active. Verification code for Student ID {UniversityId} ({StudentName}) is: {Code}. (Configure 'Telegram:ChatId' or link account via /link in @AUBLinkBot to receive real messages).", universityId, studentName, verificationCode);
+            _logger.LogInformation("Telegram service: Simulation mode active for Student ID {UniversityId} ({StudentName}). OTP value suppressed from logs. (Configure 'Telegram:ChatId' or link account via /link in @AUBLinkBot to receive real messages).", universityId, studentName);
             return true;
         }
 

@@ -17,6 +17,7 @@ public class AccountController : Controller
     private readonly UserManager<User> _userManager;
     private readonly ApplicationDbContext _context;
     private readonly ITelegramService _telegramService;
+    private readonly IAuthService _authService;
     private readonly IDataProtector _protector;
     private readonly ILogger<AccountController> _logger;
 
@@ -25,6 +26,7 @@ public class AccountController : Controller
         UserManager<User> userManager,
         ApplicationDbContext context,
         ITelegramService telegramService,
+        IAuthService authService,
         IDataProtectionProvider dataProtectionProvider,
         ILogger<AccountController> logger)
     {
@@ -32,6 +34,7 @@ public class AccountController : Controller
         _userManager = userManager;
         _context = context;
         _telegramService = telegramService;
+        _authService = authService;
         _protector = dataProtectionProvider.CreateProtector("AUBDigitalAcademy.TelegramVerification");
         _logger = logger;
     }
@@ -64,45 +67,35 @@ public class AccountController : Controller
             return View(model);
         }
 
-        var user = await _userManager.FindByEmailAsync(model.LoginId)
-                   ?? await FindByUniversityIdAsync(model.LoginId);
+        var authResult = await _authService.AuthenticateCredentialsAsync(model.LoginId, model.Password);
 
-        if (user == null)
+        if (authResult.Status == CredentialCheckStatus.InvalidCredentials)
         {
             ModelState.AddModelError(string.Empty, "Invalid University ID/Email or password.");
             if (isAjax) return Json(new { success = false, message = "Invalid University ID/Email or password." });
             return View(model);
         }
 
-        if (!user.IsActive)
+        if (authResult.Status == CredentialCheckStatus.LockedOut)
+        {
+            const string lockMsg = "Your account has been temporarily locked due to multiple failed login attempts. Please try again later.";
+            _logger.LogWarning("User {UserId} account locked out.", authResult.User?.Id);
+            ModelState.AddModelError(string.Empty, lockMsg);
+            if (isAjax) return Json(new { success = false, message = lockMsg });
+            return View(model);
+        }
+
+        if (authResult.Status == CredentialCheckStatus.InactiveAccount)
         {
             ModelState.AddModelError(string.Empty, "Your account has been deactivated. Please contact the administrator.");
             if (isAjax) return Json(new { success = false, message = "Your account has been deactivated." });
             return View(model);
         }
 
-        // Check account lockout
-        if (await _userManager.IsLockedOutAsync(user))
-        {
-            const string lockMsg = "Your account has been temporarily locked due to multiple failed login attempts. Please try again later.";
-            _logger.LogWarning("User {UserId} account locked out.", user.Id);
-            ModelState.AddModelError(string.Empty, lockMsg);
-            if (isAjax) return Json(new { success = false, message = lockMsg });
-            return View(model);
-        }
-
-        // Verify credentials
-        var passwordValid = await _userManager.CheckPasswordAsync(user, model.Password);
-        if (!passwordValid)
-        {
-            await _userManager.AccessFailedAsync(user);
-            ModelState.AddModelError(string.Empty, "Invalid University ID/Email or password.");
-            if (isAjax) return Json(new { success = false, message = "Invalid University ID/Email or password." });
-            return View(model);
-        }
+        var user = authResult.User!;
 
         // Password is valid. Check if Telegram account is linked
-        if (!user.IsTelegramVerified || !user.TelegramChatId.HasValue)
+        if (authResult.Status == CredentialCheckStatus.TelegramNotLinked)
         {
             SetPendingVerificationSession(user.Id, model.RememberMe, returnUrl);
             const string linkMsg = "Please pair your Telegram account to enable required Two-Factor Authentication.";
@@ -335,58 +328,38 @@ public class AccountController : Controller
             return RedirectToAction("Login");
         }
 
-        // Query server-side pending verification request
-        var pendingRequest = await _context.TelegramVerificationRequests
-            .Where(r => r.UserId == model.UserId && !r.IsUsed)
-            .OrderByDescending(r => r.CreatedAt)
-            .FirstOrDefaultAsync();
+        // Verify server-side pending verification request via shared auth service
+        var verifyResult = await _authService.VerifyWebTwoFactorAsync(model.UserId, model.Code ?? string.Empty);
 
-        if (pendingRequest == null)
+        if (verifyResult.Status == TwoFactorVerifyStatus.AlreadyUsed)
         {
             ModelState.AddModelError(string.Empty, "No active verification code was found. Please request a new code.");
             return View(model);
         }
 
-        if (DateTime.UtcNow > pendingRequest.ExpiresAt)
+        if (verifyResult.Status == TwoFactorVerifyStatus.Expired)
         {
             ModelState.AddModelError(string.Empty, "Your verification code has expired. Please request a new code.");
             return View(model);
         }
 
-        if (pendingRequest.AttemptsCount >= pendingRequest.MaxAttempts)
+        if (verifyResult.Status == TwoFactorVerifyStatus.TooManyAttempts)
         {
-            ModelState.AddModelError(string.Empty, "Maximum verification attempts exceeded. Please request a new code.");
+            ModelState.AddModelError("Code", "Maximum verification attempts reached. Please request a new code.");
             return View(model);
         }
 
-        var enteredCode = model.Code?.Trim() ?? string.Empty;
-        if (!string.Equals(pendingRequest.Code, enteredCode, StringComparison.Ordinal))
+        if (verifyResult.Status != TwoFactorVerifyStatus.Verified)
         {
-            pendingRequest.AttemptsCount++;
-            await _context.SaveChangesAsync();
-
-            int remainingAttempts = pendingRequest.MaxAttempts - pendingRequest.AttemptsCount;
-            if (remainingAttempts > 0)
-            {
-                ModelState.AddModelError("Code", $"Invalid verification code. You have {remainingAttempts} attempt(s) remaining.");
-            }
-            else
-            {
-                ModelState.AddModelError("Code", "Maximum verification attempts reached. Please request a new code.");
-            }
+            int remainingAttempts = verifyResult.RemainingAttempts ?? 0;
+            ModelState.AddModelError("Code", $"Invalid verification code. You have {remainingAttempts} attempt(s) remaining.");
             return View(model);
         }
 
-        // Verification successful: Mark request used and mark user verified
-        pendingRequest.IsUsed = true;
-        pendingRequest.UsedAt = DateTime.UtcNow;
-
+        // Verification successful: mark user verified
         user.IsTelegramVerified = true;
         user.UpdatedAt = DateTime.UtcNow;
-
-        await _userManager.ResetAccessFailedCountAsync(user);
         await _userManager.UpdateAsync(user);
-        await _context.SaveChangesAsync();
 
         var (rememberMe, returnUrl) = GetPendingVerificationOptions();
         ClearPendingVerificationSession();
@@ -476,34 +449,9 @@ public class AccountController : Controller
 
     private async Task EnsureVerificationCodeDispatchedAsync(User user)
     {
-        var activeRequest = await _context.TelegramVerificationRequests
-            .Where(r => r.UserId == user.Id && !r.IsUsed && r.ExpiresAt > DateTime.UtcNow)
-            .OrderByDescending(r => r.CreatedAt)
-            .FirstOrDefaultAsync();
-
-        if (activeRequest == null)
+        var req = await _authService.EnsureWebVerificationCodeDispatchedAsync(user);
+        if (req.CreatedAt >= DateTime.UtcNow.AddSeconds(-5))
         {
-            var verificationCode = RandomNumberGenerator.GetInt32(100000, 1000000).ToString();
-            var newRequest = new TelegramVerificationRequest
-            {
-                UserId = user.Id,
-                UniversityId = user.UniversityId ?? string.Empty,
-                Code = verificationCode,
-                CreatedAt = DateTime.UtcNow,
-                ExpiresAt = DateTime.UtcNow.AddMinutes(10),
-                IsUsed = false,
-                AttemptsCount = 0,
-                MaxAttempts = 5
-            };
-            _context.TelegramVerificationRequests.Add(newRequest);
-            await _context.SaveChangesAsync();
-
-            await _telegramService.SendVerificationCodeAsync(
-                user.UniversityId ?? string.Empty,
-                user.FullName,
-                verificationCode,
-                user.TelegramChatId?.ToString());
-
             TempData["InfoMessage"] = "A single-use verification code has been dispatched to Telegram.";
         }
     }

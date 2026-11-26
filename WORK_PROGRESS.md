@@ -1,0 +1,80 @@
+# AUB Digital Academy — Codebase Audit & Work Progress
+
+> **Last Verified:** 2026-11-26  
+> **Reference Specification:** [`docs/project.md`](./docs/project.md)  
+> **Audit Deliverables:** [`docs/FULL_PROJECT_AUDIT.md`](./docs/FULL_PROJECT_AUDIT.md) | [`docs/DEVELOPMENT_ROADMAP.md`](./docs/DEVELOPMENT_ROADMAP.md) | [`docs/FEATURE_STATUS.md`](./docs/FEATURE_STATUS.md)
+
+---
+
+## 1. Verified Project Health & Build/Test Status
+
+- **Build (`dotnet build --no-restore`):** **0 Errors, 2 Warnings** (`NU1902`, `NU1903` on NuGet `System.Security.Cryptography.Pkcs` 9.0.4).
+- **EF Core Migrations:** All 4 SQL Server migrations (`InitialSqlServerCreate`, `AddCourseAssistantJoinTable`, `Phase4_StudentLearningAssessmentWorkflow`, `Phase4_FinalRelationalAttachmentsAndQuizSecurity`) are applied cleanly against local `aub_sqlserver`.
+- **Test Suites:**
+  - `dotnet test`: **0 test projects** (no xUnit/NUnit/MSTest project exists yet).
+  - **Authentication & Telegram Suites Executed After `TASK-P0-01` (2026-11-26): 38/38 PASSED:**
+    - `--test-api-auth` (new `ApiAuth2FaIntegrationTestRunner`): 12/12 passed
+    - `--test-auth`: 12/12 passed
+    - `--test-registration-telegram`: 14/14 passed
+  - **Other Wired CLI Integration Runners (executed during 2026-11-26 baseline audit, unchanged modules): 101/101 PASSED:**
+    - `--test-assistance-role`: 14/14 passed
+    - `--test-teacher-portal`: 14/14 passed
+    - `--test-user-management`: 14/14 passed
+    - `--test-course-integration`: 16/16 passed
+    - `--test-enrollment-ui`: 13/13 passed
+    - `--test-quiz`: 16/16 passed
+    - `--test-phase4`: 26/26 passed
+  - **Unwired CLI Runners (10 files in `Data/`):** Not wired into `Program.cs` (`CourseCreationTestRunner`, `CourseDeleteTestRunner`, `CurriculumEndToEndIntegrationTestRunner`, `EnrollmentBackendTestRunner`, `LessonCrudTestRunner`, `ModuleCrudTestRunner`, `ModuleUiIntegrationTestRunner`, `StudentFlowIntegrationTestRunner`, `StudentPlayerIntegrationTestRunner`, `StudentProgressIntegrationTestRunner`).
+  - **Coverage Gap:** No automated HTTP/Controller integration tests exist (e.g. testing `[Authorize]` filters or `AcademicController` 403 IDOR rejections).
+
+---
+
+## 2. Verified Completed Foundation (Phases 1–4)
+
+- **Identity, Web Login & API 2FA Auth (`TASK-P0-01` Completed 2026-11-26):** 4 roles (`Admin`, `Teacher`, `Assistance`, `Student`), University ID / Email login, shared credential/lockout/OTP engine (`IAuthService` / `AuthService`), mandatory Telegram 2FA (`@AUBLinkBot`, `TelegramPollingService`, 6-digit single-use codes, SHA-256 `TelegramLinkTokens`) enforced on both Web Login (`/Account/Login` -> `/Account/VerifyTelegram`) and API Login (`POST /api/Auth/login` -> `POST /api/Auth/verify-2fa`) with time-limited DataProtection `verificationId`, strict HS256 JWT validation, and no hardcoded fallback JWT secret.
+- **Recent Security Fixes Verified in Source:**
+  - `AcademicController`: `[Authorize(Roles = "Admin")]` enforced on `CreateCourse`, `DeleteCourse`, and all TA assignment endpoints (`GetCourseAssistantsJson`, `AssignCourseAssistant`, `UnassignCourseAssistant`, `ToggleAssistantCanGrade`); `CanManageCourseAsync` / `ResolveCourseIdFrom*Async` enforced across course/module/lesson/quiz/book/assignment/question endpoints.
+  - `SeedData` / `Program.cs`: `CS301` TA `CanGrade = true` seeding is gated to Development or `--test-*` CLI runners.
+- **Core LMS & Assessment:** Course/Chapter/Item CRUD, Student Enrollments (unique index + safe unenroll guard), Lesson/Book players, Quiz engine (default `MaxAttempts = 3`, future-only `MaxAttemptsAllowed`, best score, 50% pass threshold, exhaustion-gated answer reveal), Assignment submission/resubmission (<=5 files, <=10 MB, PDF/ZIP/DOCX magic-byte validation stored outside `wwwroot` + external URLs + text), Faculty grading (`IsLatest`-only + `CanGrade` enforcement), and Admin attachment soft-delete/restore.
+
+---
+
+## 3. Critical Open Gaps & Verified Bugs (Prioritized)
+
+### P0 — Critical Security & Integrity
+1. ~~**API Login (`POST /api/Auth/login`) 2FA Bypass & Hardcoded JWT Secret (`TASK-P0-01`):**~~ **RESOLVED (2026-11-26).** Shared `AuthService` now enforces lockout, active status, linked Telegram verification, OTP dispatch + single-use verification (`POST /api/Auth/verify-2fa`), and configured `Jwt:Secret`/`Jwt:Key`/`JWT_SECRET` (>=32 bytes, fail-closed `500 ConfigurationError` when unconfigured). Set `JWT_SECRET` in local `.env` or `dotnet user-secrets` before using API endpoints.
+2. **Telegram Bot Token & Simulation OTP Logging (`TASK-P0-02` — Partially Hardened):** `appsettings.json` now sets `System.Net.Http.HttpClient: Warning` and `TelegramService.cs` no longer logs plaintext `{Code}` in simulation mode; dedicated log-redaction test & `IsDevelopment()` review remain under `TASK-P0-02`.
+3. **Stored XSS Vectors:** `Views/Student/Lesson.cshtml` renders `@Html.Raw(Model.ContentHtml)` unsanitized; `Views/Academic/Course.cshtml` injects TA names/emails via unescaped `innerHTML`.
+4. **Google OAuth 2FA Bypass & Unconditional `SeedData` Password Reset:** `AccountController.ExternalLoginCallback` sets `IsTelegramVerified = true` without Telegram 2FA; `SeedData.EnsureSeedUserAsync` resets baseline accounts back to `admin123` / `teacher123` / `assistance123` / `student123` on every startup.
+5. **Registration Flow & Link Status Check:** `AccountController.Register` triggers `SendVerificationCodeAsync` with `null` `TelegramChatId` (falling back to global `Telegram:ChatId`/logs) and redirects to `VerifyTelegram` instead of `LinkTelegram`; `CheckTelegramLinkStatus` lacks pending-session verification.
+6. **NuGet Security Warnings:** `System.Security.Cryptography.Pkcs` 9.0.4 (`NU1902`, `NU1903`).
+
+### P1 — Broken Workflows & Core Logic Bugs
+1. **Broken Password Reset:** `AccountController.ResetPassword` POST is an empty stub; `ForgotPassword` only logs.
+2. **Broken Navigation Links (404 / 403):**
+   - `Views/Account/Login.cshtml` "Activate Your Account" -> `/pages/authentication/activate-account.html` (404).
+   - `TeacherService` `ManageUrl` -> `/Teacher/Courses/Details/{id}` (404; controller uses `/Teacher/CourseDetails/{id}`).
+   - `_Layout.cshtml` `/Profile` (empty `SettingsController`), `/Teacher/Submissions` (fails without `assignmentId`), `/Assistance/Dashboard` (404 TA breadcrumb), `site.js` `Ctrl+K` search -> `/Admin/Users` (403 for non-Admins).
+   - `Admin/Settings.cshtml` -> `/User/Profile` (404).
+   - `Teacher/CourseDetails.cshtml` has no link to `/Academic/Curriculum/{id}`, and `Curriculum.cshtml` "Back to Courses" sends Teachers to Admin-only `/Academic/Course` (403).
+3. **Progress Inflation & Assessment Bugs:** `GetStudentBookAsync` marks Books in `CourseProgresses`, inflating lesson completion >100%; `GetStudentQuizPlayerAsync` / `SubmitQuizAsync` ignore `Quiz.IsPublished`; quiz timer is client-side only; `TeacherService` excludes `Late` submissions from `PendingReviewsCount` and omits `IsLatest` in `GetTeacherGradesAsync`; `QuizQuestions.cshtml` lacks Edit Question UI; `Student/Dashboard.cshtml` hardcodes `"Spring 2026"`.
+
+### P2 — Missing Features (Deferred & Phase 5–6)
+- Categories, Majors, Semesters CRUD (`Views/Academic/{Category,Major,Semester,CourseItem}.cshtml` are 1-line stubs).
+- `SettingsController` Profile & Change Password.
+- **Phase 5:** Video watch tracking (>=90% anti-seek + resume; replace blind `CompleteLesson`), Sequential Access & Multi-Prerequisites, Student/Faculty Video Progress Dashboards, Lesson Discussions, In-App Notification Center, Global & Course Announcements.
+- **Phase 6:** `LoginHistory`, real `Admin/Reports`, System Lookups (`ItemTypes`, `ViewAnswerType`), Final Grades/Transcripts (`Grades`), and resolution of `Admin/{Schedule,Payments,Invoices,Payroll}` placeholders.
+
+---
+
+## 4. Open Owner Decisions Before Phase 5 Build
+
+Per [`docs/project.md`](./docs/project.md):
+1. **Sequential Access & Non-Video Items (Sec. 8.2):** Confirm what counts as "completed" for `Book`, `Quiz`, and `Assignment` items when used as prerequisites.
+2. **Lesson Discussion Peer Replies (Sec. 9):** Confirm whether students can reply to *any* student's thread or only to *their own* threads (plus faculty replies).
+
+---
+
+## 5. Next Recommended Action
+
+Continue **Phase 1 (P0)** in [`docs/DEVELOPMENT_ROADMAP.md`](./docs/DEVELOPMENT_ROADMAP.md) with **`TASK-P0-02`** (verify HTTP client token log suppression via test) and **`TASK-P0-03`** (HTML/XSS sanitization in `Lesson.cshtml` and `Course.cshtml`).
