@@ -1076,7 +1076,8 @@ public class AcademicController : Controller
                 title = lesson.Title,
                 position = lesson.Position,
                 videoUrl = lesson.VideoUrl ?? "",
-                contentHtml = lesson.ContentHtml ?? ""
+                contentHtml = lesson.ContentHtml ?? "",
+                prerequisiteItemIds = lesson.PrerequisiteItemIds
             }
         });
     }
@@ -1275,6 +1276,69 @@ public class AcademicController : Controller
 
         TempData["ErrorMessage"] = result.Message;
         return RedirectToAction(nameof(Curriculum), new { id = model.CourseId });
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> SetCourseAccessMode(int courseId, CourseAccessMode mode)
+    {
+        if (courseId <= 0)
+        {
+            return BadRequest(new { success = false, message = "Invalid course ID." });
+        }
+
+        if (!await CanManageCourseAsync(courseId))
+        {
+            return ForbiddenResult(forceJson: true);
+        }
+
+        var currentUserId = GetCurrentUserId() ?? string.Empty;
+        var isAdmin = User.IsInRole("Admin");
+
+        var result = await _curriculumService.UpdateCourseAccessModeAsync(courseId, mode, currentUserId, isAdmin);
+        if (result.IsSuccess)
+        {
+            TempData["SuccessMessage"] = result.Message;
+            return Json(new { success = true, message = result.Message, mode = mode.ToString() });
+        }
+
+        return BadRequest(new { success = false, message = result.Message });
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> UpdateItemPrerequisites(int courseItemId, [FromForm] List<int>? prerequisiteItemIds)
+    {
+        if (courseItemId <= 0)
+        {
+            return BadRequest(new { success = false, message = "Invalid course item ID." });
+        }
+
+        var item = await _context.CourseItems
+            .Include(ci => ci.Chapter)
+            .AsNoTracking()
+            .FirstOrDefaultAsync(ci => ci.Id == courseItemId);
+
+        if (item == null || item.Chapter == null)
+        {
+            return NotFound(new { success = false, message = "Course item not found." });
+        }
+
+        if (!await CanManageCourseAsync(item.Chapter.CourseId))
+        {
+            return ForbiddenResult(forceJson: true);
+        }
+
+        var currentUserId = GetCurrentUserId() ?? string.Empty;
+        var isAdmin = User.IsInRole("Admin");
+
+        var result = await _curriculumService.SetItemPrerequisitesAsync(courseItemId, prerequisiteItemIds ?? new List<int>(), currentUserId, isAdmin);
+        if (result.IsSuccess)
+        {
+            return Json(new { success = true, message = result.Message, courseItemId });
+        }
+
+        return BadRequest(new { success = false, message = result.Message });
     }
 
     [HttpPost]

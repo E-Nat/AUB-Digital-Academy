@@ -58,6 +58,16 @@ public class CurriculumService : ICurriculumService
             return null;
         }
 
+        var allCoursePrereqs = await _context.CourseItemPrerequisites
+            .Where(p => p.CourseItem.Chapter.CourseId == courseId)
+            .Include(p => p.RequiredCourseItem)
+            .AsNoTracking()
+            .ToListAsync();
+
+        var prereqMap = allCoursePrereqs
+            .GroupBy(p => p.CourseItemId)
+            .ToDictionary(g => g.Key, g => g.ToList());
+
         var viewModel = new CourseCurriculumViewModel
         {
             CourseId = course.Id,
@@ -66,6 +76,7 @@ public class CurriculumService : ICurriculumService
             CourseDescription = course.Description,
             Thumbnail = course.Thumbnail,
             Status = course.Status,
+            AccessMode = course.AccessMode,
             MajorName = course.Major?.Name,
             MajorCode = course.Major?.Code,
             SemesterName = course.Semester?.Name,
@@ -104,7 +115,9 @@ public class CurriculumService : ICurriculumService
                             PassingScore = ci.Quiz?.PassingScore,
                             MaxAttempts = ci.Quiz?.MaxAttempts,
                             IsPublished = ci.Quiz?.IsPublished ?? false,
-                            QuestionCount = ci.Quiz?.Questions?.Count ?? 0
+                            QuestionCount = ci.Quiz?.Questions?.Count ?? 0,
+                            PrerequisiteItemIds = prereqMap.TryGetValue(ci.Id, out var pList) ? pList.Select(p => p.RequiredCourseItemId).ToList() : new(),
+                            PrerequisiteItemTitles = prereqMap.TryGetValue(ci.Id, out var pList2) ? pList2.Select(p => p.RequiredCourseItem?.Title ?? $"Item #{p.RequiredCourseItemId}").ToList() : new()
                         })
                         .ToList()
                 })
@@ -392,6 +405,11 @@ public class CurriculumService : ICurriculumService
             return null;
         }
 
+        var prereqs = await _context.CourseItemPrerequisites
+            .Where(p => p.CourseItemId == item.Id)
+            .Select(p => p.RequiredCourseItemId)
+            .ToListAsync();
+
         return new LessonEditViewModel
         {
             CourseItemId = item.Id,
@@ -401,7 +419,8 @@ public class CurriculumService : ICurriculumService
             Title = item.Title,
             Position = item.Position,
             VideoUrl = item.Lesson?.VideoUrl,
-            ContentHtml = item.Lesson?.ContentHtml
+            ContentHtml = item.Lesson?.ContentHtml,
+            PrerequisiteItemIds = prereqs
         };
     }
 
@@ -492,16 +511,27 @@ public class CurriculumService : ICurriculumService
         }
     }
 
-    public Task<CurriculumOperationResult> CreateLessonAsync(LessonCreateViewModel model)
+    public async Task<CurriculumOperationResult> CreateLessonAsync(LessonCreateViewModel model)
     {
-        if (model == null) return Task.FromResult(CurriculumOperationResult.ValidationError("Lesson creation payload is required."));
-        return CreateLessonAsync(
+        if (model == null) return CurriculumOperationResult.ValidationError("Lesson creation payload is required.");
+        var result = await CreateLessonAsync(
             model.ChapterId,
             model.Title,
             model.ContentHtml,
             model.VideoUrl,
             model.Position,
             model.CourseId > 0 ? model.CourseId : null);
+
+        if (result.IsSuccess && result.EntityId.HasValue && model.PrerequisiteItemIds != null && model.PrerequisiteItemIds.Any())
+        {
+            var chapter = await _context.Chapters.AsNoTracking().FirstOrDefaultAsync(ch => ch.Id == model.ChapterId);
+            if (chapter != null)
+            {
+                await SetItemPrerequisitesInternalAsync(result.EntityId.Value, model.PrerequisiteItemIds, chapter.CourseId);
+            }
+        }
+
+        return result;
     }
 
     public async Task<CurriculumOperationResult> UpdateLessonAsync(
@@ -599,11 +629,11 @@ public class CurriculumService : ICurriculumService
         }
     }
 
-    public Task<CurriculumOperationResult> UpdateLessonAsync(LessonEditViewModel model)
+    public async Task<CurriculumOperationResult> UpdateLessonAsync(LessonEditViewModel model)
     {
-        if (model == null) return Task.FromResult(CurriculumOperationResult.ValidationError("Lesson update payload is required."));
+        if (model == null) return CurriculumOperationResult.ValidationError("Lesson update payload is required.");
         int targetId = model.CourseItemId > 0 ? model.CourseItemId : model.LessonId;
-        return UpdateLessonAsync(
+        var result = await UpdateLessonAsync(
             targetId,
             model.Title,
             model.ContentHtml,
@@ -611,6 +641,17 @@ public class CurriculumService : ICurriculumService
             model.Position,
             model.ChapterId > 0 ? model.ChapterId : null,
             model.CourseId > 0 ? model.CourseId : null);
+
+        if (result.IsSuccess && model.PrerequisiteItemIds != null)
+        {
+            var item = await _context.CourseItems.Include(ci => ci.Chapter).AsNoTracking().FirstOrDefaultAsync(ci => ci.Id == targetId);
+            if (item != null && item.Chapter != null)
+            {
+                await SetItemPrerequisitesInternalAsync(targetId, model.PrerequisiteItemIds, item.Chapter.CourseId);
+            }
+        }
+
+        return result;
     }
 
     public async Task<CurriculumOperationResult> DeleteLessonAsync(
@@ -776,6 +817,21 @@ public class CurriculumService : ICurriculumService
             }
         }
 
+        Dictionary<int, List<CourseItemPrerequisite>> prereqMap = new();
+        if (course.AccessMode == CourseAccessMode.Sequential)
+        {
+            var allPrereqs = await _context.CourseItemPrerequisites
+                .Where(p => p.CourseItem.Chapter.CourseId == courseId)
+                .Include(p => p.RequiredCourseItem)
+                .AsNoTracking()
+                .ToListAsync();
+            prereqMap = allPrereqs.GroupBy(p => p.CourseItemId).ToDictionary(g => g.Key, g => g.ToList());
+        }
+
+        var (currentAccessible, currentMissing) = string.IsNullOrWhiteSpace(studentId)
+            ? (true, new List<string>())
+            : await CheckItemAccessAsync(current.CourseItem.Id, studentId, allowAdminPreview);
+
         var modules = course.Chapters
             .OrderBy(ch => ch.Position)
             .ThenBy(ch => ch.Id)
@@ -789,18 +845,37 @@ public class CurriculumService : ICurriculumService
                     .Where(ci => (ci.Type == ItemType.Lesson && ci.Lesson != null) || (ci.Type == ItemType.Quiz && ci.Quiz != null && (ci.Quiz.IsPublished || allowAdminPreview)))
                     .OrderBy(ci => ci.Position)
                     .ThenBy(ci => ci.Id)
-                    .Select(ci => new StudentPlayerLessonItemViewModel
+                    .Select(ci =>
                     {
-                        CourseItemId = ci.Id,
-                        LessonId = ci.Lesson?.Id ?? 0,
-                        QuizId = ci.Quiz?.Id,
-                        Type = ci.Type,
-                        Title = ci.Title,
-                        Position = ci.Position,
-                        HasVideo = ci.Lesson != null && !string.IsNullOrWhiteSpace(ci.Lesson.VideoUrl),
-                        HasContent = ci.Lesson != null && !string.IsNullOrWhiteSpace(ci.Lesson.ContentHtml),
-                        IsCurrent = ci.Id == current.CourseItem.Id,
-                        IsCompleted = completedItemIds.Contains(ci.Id)
+                        bool isLocked = false;
+                        List<string> itemMissing = new();
+                        if (!allowAdminPreview && course.AccessMode == CourseAccessMode.Sequential && prereqMap.TryGetValue(ci.Id, out var pList))
+                        {
+                            foreach (var p in pList)
+                            {
+                                if (!completedItemIds.Contains(p.RequiredCourseItemId))
+                                {
+                                    isLocked = true;
+                                    itemMissing.Add(p.RequiredCourseItem?.Title ?? $"Item #{p.RequiredCourseItemId}");
+                                }
+                            }
+                        }
+
+                        return new StudentPlayerLessonItemViewModel
+                        {
+                            CourseItemId = ci.Id,
+                            LessonId = ci.Lesson?.Id ?? 0,
+                            QuizId = ci.Quiz?.Id,
+                            Type = ci.Type,
+                            Title = ci.Title,
+                            Position = ci.Position,
+                            HasVideo = ci.Lesson != null && !string.IsNullOrWhiteSpace(ci.Lesson.VideoUrl),
+                            HasContent = ci.Lesson != null && !string.IsNullOrWhiteSpace(ci.Lesson.ContentHtml),
+                            IsCurrent = ci.Id == current.CourseItem.Id,
+                            IsCompleted = completedItemIds.Contains(ci.Id),
+                            IsLocked = isLocked,
+                            MissingPrerequisites = itemMissing
+                        };
                     }).ToList()
             }).ToList();
 
@@ -820,6 +895,9 @@ public class CurriculumService : ICurriculumService
             ContentHtml = _htmlSanitizer.SanitizeLessonHtml(current.Lesson.ContentHtml),
             VideoUrl = _htmlSanitizer.SanitizeResourceUrl(current.Lesson.VideoUrl),
             IsCompleted = completedItemIds.Contains(current.CourseItem.Id),
+            IsLocked = !currentAccessible,
+            MissingPrerequisites = currentMissing,
+            AccessMode = course.AccessMode,
             LastVideoPositionSeconds = lastVideoPosition,
             VideoQualifyingPercentage = videoQualifyingPct,
             CurrentLessonIndex = currentIndex + 1,
@@ -899,6 +977,15 @@ public class CurriculumService : ICurriculumService
             _logger.LogWarning("MarkLessonCompleteAsync: CourseItem ID {CourseItemId} belongs to Course {ActualCourseId}, not requested Course {RequestedCourseId}.",
                 courseItemId, courseItem.Chapter.CourseId, courseId);
             return CurriculumOperationResult.ValidationError("Lesson does not belong to the specified course.");
+        }
+
+        // Check prerequisites in Sequential access mode
+        var (isAccessible, missingPrereqs) = await CheckItemAccessAsync(courseItemId, studentId);
+        if (!isAccessible)
+        {
+            _logger.LogWarning("MarkLessonCompleteAsync: Student {StudentId} blocked by prerequisites for item {CourseItemId}: {Missing}",
+                studentId, courseItemId, string.Join(", ", missingPrereqs));
+            return CurriculumOperationResult.ValidationError($"Prerequisites not met. Please complete: {string.Join(", ", missingPrereqs)}.");
         }
 
         // Idempotent duplicate check: Check if CourseProgress already exists for this student and CourseItem
@@ -1975,6 +2062,8 @@ public class CurriculumService : ICurriculumService
                     }).ToList()
             }).ToList();
 
+        var (isQuizAccessible, missingQuizPrereqs) = await CheckItemAccessAsync(currentItem.Id, studentId, allowAdminPreview);
+
         return new StudentQuizPlayerViewModel
         {
             CourseId = course.Id,
@@ -1991,6 +2080,8 @@ public class CurriculumService : ICurriculumService
             TimeLimitMinutes = quiz.TimeLimitMinutes,
             MaxAttempts = effectiveMaxAttempts,
             PassingScore = quiz.PassingScore,
+            IsLocked = !isQuizAccessible,
+            MissingPrerequisites = missingQuizPrereqs,
             IsPublished = quiz.IsPublished,
             HasSubmission = latestSubmission != null,
             AttemptCount = allSubmissions.Count,
@@ -2388,6 +2479,17 @@ public class CurriculumService : ICurriculumService
         var allItems = course.Chapters.SelectMany(ch => ch.CourseItems).ToList();
         var totalLessons = allItems.Count(ci => ci.Type == ItemType.Lesson);
 
+        Dictionary<int, List<CourseItemPrerequisite>> prereqMap = new();
+        if (course.AccessMode == CourseAccessMode.Sequential)
+        {
+            var allPrereqs = await _context.CourseItemPrerequisites
+                .Where(p => p.CourseItem.Chapter.CourseId == courseId)
+                .Include(p => p.RequiredCourseItem)
+                .AsNoTracking()
+                .ToListAsync();
+            prereqMap = allPrereqs.GroupBy(p => p.CourseItemId).ToDictionary(g => g.Key, g => g.ToList());
+        }
+
         var modules = course.Chapters
             .OrderBy(ch => ch.Position)
             .ThenBy(ch => ch.Id)
@@ -2418,6 +2520,36 @@ public class CurriculumService : ICurriculumService
                             isCompleted = true;
                         }
 
+                        bool isLocked = false;
+                        List<string> missingTitles = new();
+                        if (!allowAdminPreview && course.AccessMode == CourseAccessMode.Sequential && prereqMap.TryGetValue(ci.Id, out var itemPrereqs) && itemPrereqs.Count > 0)
+                        {
+                            foreach (var req in itemPrereqs)
+                            {
+                                bool reqDone = completedItemIds.Contains(req.RequiredCourseItemId);
+                                if (!reqDone)
+                                {
+                                    if (req.RequiredCourseItem != null && req.RequiredCourseItem.Type == ItemType.Quiz &&
+                                        quizPassedMap.TryGetValue(req.RequiredCourseItemId, out var qP) && qP.HasPassed)
+                                    {
+                                        reqDone = true;
+                                    }
+                                    else if (req.RequiredCourseItem != null && req.RequiredCourseItem.Type == ItemType.Assignment &&
+                                             req.RequiredCourseItem.Assignment != null &&
+                                             assignmentCompletedMap.TryGetValue(req.RequiredCourseItem.Assignment.Id, out var aP) && aP)
+                                    {
+                                        reqDone = true;
+                                    }
+                                }
+
+                                if (!reqDone)
+                                {
+                                    isLocked = true;
+                                    missingTitles.Add(req.RequiredCourseItem?.Title ?? $"Item #{req.RequiredCourseItemId}");
+                                }
+                            }
+                        }
+
                         return new StudentPlayerLessonItemViewModel
                         {
                             CourseItemId = ci.Id,
@@ -2432,6 +2564,8 @@ public class CurriculumService : ICurriculumService
                             HasContent = ci.Lesson != null && !string.IsNullOrWhiteSpace(ci.Lesson.ContentHtml),
                             IsCurrent = ci.Id == currentCourseItemId,
                             IsCompleted = isCompleted,
+                            IsLocked = isLocked,
+                            MissingPrerequisites = missingTitles,
                             HasPassedQuiz = isPassedQuiz,
                             BestQuizScore = bestQuizScore
                         };
@@ -2523,6 +2657,7 @@ public class CurriculumService : ICurriculumService
         }).OrderBy(s => s.AttemptNumber).ToList();
 
         var nav = await BuildStudentCurriculumNavigationAsync(courseId, studentId, courseItemId, courseItem.ChapterId, allowAdminPreview);
+        var (isAssignmentAccessible, missingAssignmentPrereqs) = await CheckItemAccessAsync(courseItem.Id, studentId, allowAdminPreview);
 
         return new StudentAssignmentViewModel
         {
@@ -2540,6 +2675,8 @@ public class CurriculumService : ICurriculumService
             Instruction = assignment.Instruction,
             DueDate = assignment.DueDate,
             MaxScore = assignment.MaxScore,
+            IsLocked = !isAssignmentAccessible,
+            MissingPrerequisites = missingAssignmentPrereqs,
             HasSubmission = latestSub != null,
             LatestSubmissionId = latestSub?.Id,
             LatestAttemptNumber = latestSub?.AttemptNumber ?? 0,
@@ -2807,8 +2944,10 @@ public class CurriculumService : ICurriculumService
         var book = courseItem.Book;
         var course = courseItem.Chapter.Course!;
 
-        // Auto mark as completed for enrolled students only (Admin preview is strictly read-only)
-        bool shouldMarkComplete = !allowAdminPreview;
+        var (isBookAccessible, missingBookPrereqs) = await CheckItemAccessAsync(courseItemId, studentId, allowAdminPreview);
+
+        // Auto mark as completed for enrolled students only (Admin preview is strictly read-only and requires unlocked access)
+        bool shouldMarkComplete = !allowAdminPreview && isBookAccessible;
         if (shouldMarkComplete)
         {
             await MarkLessonCompleteAsync(studentId, courseId, courseItemId);
@@ -2842,6 +2981,8 @@ public class CurriculumService : ICurriculumService
             FileType = fileType,
             FileSize = book.FileSize,
             IsCompleted = shouldMarkComplete,
+            IsLocked = !isBookAccessible,
+            MissingPrerequisites = missingBookPrereqs,
             Modules = nav.Modules,
             CourseProgressPercentage = nav.ProgressPercentage,
             CompletedLessonsCount = nav.CompletedLessonsCount,
@@ -2993,5 +3134,186 @@ public class CurriculumService : ICurriculumService
         viewModel.GradeItems = viewModel.GradeItems.OrderByDescending(g => g.Date).ToList();
 
         return viewModel;
+    }
+
+    // =========================================================================
+    // PHASE 5A — COURSE ACCESS MODES (FREE vs SEQUENTIAL) & PREREQUISITES
+    // =========================================================================
+
+    public async Task<CourseAccessMode> GetCourseAccessModeAsync(int courseId)
+    {
+        if (courseId <= 0) return CourseAccessMode.Free;
+        return await _context.Courses
+            .Where(c => c.Id == courseId)
+            .Select(c => c.AccessMode)
+            .FirstOrDefaultAsync();
+    }
+
+    public async Task<CurriculumOperationResult> UpdateCourseAccessModeAsync(int courseId, CourseAccessMode mode, string userId, bool isAdmin)
+    {
+        if (courseId <= 0) return CurriculumOperationResult.ValidationError("Invalid course ID.");
+        var course = await _context.Courses.FirstOrDefaultAsync(c => c.Id == courseId);
+        if (course == null) return CurriculumOperationResult.NotFound("Course not found.");
+
+        if (!isAdmin && course.TeacherId != userId)
+        {
+            return CurriculumOperationResult.Forbidden("You are not authorized to modify settings for this course.");
+        }
+
+        course.AccessMode = mode;
+        course.UpdatedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync();
+
+        _logger.LogInformation("Updated Course {CourseId} AccessMode to {Mode} by user {UserId}.", courseId, mode, userId);
+        return CurriculumOperationResult.Success(course.Id, course.Title, $"Course access mode set to {mode}.");
+    }
+
+    public async Task<List<int>> GetItemPrerequisiteIdsAsync(int courseItemId)
+    {
+        if (courseItemId <= 0) return new List<int>();
+        return await _context.CourseItemPrerequisites
+            .Where(p => p.CourseItemId == courseItemId)
+            .Select(p => p.RequiredCourseItemId)
+            .ToListAsync();
+    }
+
+    public async Task<CurriculumOperationResult> SetItemPrerequisitesAsync(int courseItemId, IEnumerable<int> requiredItemIds, string userId, bool isAdmin)
+    {
+        if (courseItemId <= 0) return CurriculumOperationResult.ValidationError("Invalid course item ID.");
+
+        var item = await _context.CourseItems
+            .Include(ci => ci.Chapter)
+                .ThenInclude(ch => ch.Course)
+            .FirstOrDefaultAsync(ci => ci.Id == courseItemId);
+
+        if (item == null) return CurriculumOperationResult.NotFound("Course item not found.");
+        var course = item.Chapter.Course;
+
+        if (!isAdmin && course.TeacherId != userId)
+        {
+            return CurriculumOperationResult.Forbidden("You are not authorized to manage prerequisites for this course.");
+        }
+
+        return await SetItemPrerequisitesInternalAsync(courseItemId, requiredItemIds, course.Id);
+    }
+
+    private async Task<CurriculumOperationResult> SetItemPrerequisitesInternalAsync(int courseItemId, IEnumerable<int>? requiredItemIds, int courseId)
+    {
+        var distinctReqIds = (requiredItemIds ?? Enumerable.Empty<int>())
+            .Where(id => id > 0 && id != courseItemId)
+            .Distinct()
+            .ToList();
+
+        if (distinctReqIds.Any())
+        {
+            var validCount = await _context.CourseItems
+                .Where(ci => distinctReqIds.Contains(ci.Id) && ci.Chapter.CourseId == courseId)
+                .CountAsync();
+
+            if (validCount != distinctReqIds.Count)
+            {
+                return CurriculumOperationResult.ValidationError("All prerequisites must belong to the same course.");
+            }
+
+            var hasCircular = await _context.CourseItemPrerequisites
+                .Where(p => distinctReqIds.Contains(p.CourseItemId) && p.RequiredCourseItemId == courseItemId)
+                .AnyAsync();
+
+            if (hasCircular)
+            {
+                return CurriculumOperationResult.ValidationError("Circular prerequisite dependency detected.");
+            }
+        }
+
+        var existing = await _context.CourseItemPrerequisites
+            .Where(p => p.CourseItemId == courseItemId)
+            .ToListAsync();
+
+        _context.CourseItemPrerequisites.RemoveRange(existing);
+
+        foreach (var reqId in distinctReqIds)
+        {
+            _context.CourseItemPrerequisites.Add(new CourseItemPrerequisite
+            {
+                CourseItemId = courseItemId,
+                RequiredCourseItemId = reqId
+            });
+        }
+
+        await _context.SaveChangesAsync();
+        return CurriculumOperationResult.Success(courseItemId, string.Empty, "Prerequisites updated successfully.");
+    }
+
+    public async Task<(bool IsAccessible, List<string> MissingPrerequisites)> CheckItemAccessAsync(int courseItemId, string studentId, bool allowAdminPreview = false)
+    {
+        if (allowAdminPreview) return (true, new List<string>());
+        if (courseItemId <= 0 || string.IsNullOrWhiteSpace(studentId)) return (false, new List<string> { "Invalid item or student." });
+
+        var item = await _context.CourseItems
+            .Include(ci => ci.Chapter)
+                .ThenInclude(ch => ch.Course)
+            .AsNoTracking()
+            .FirstOrDefaultAsync(ci => ci.Id == courseItemId);
+
+        if (item == null || item.Chapter?.Course == null) return (false, new List<string> { "Item not found." });
+        var course = item.Chapter.Course;
+
+        if (course.AccessMode == CourseAccessMode.Free)
+        {
+            return (true, new List<string>());
+        }
+
+        var prerequisites = await _context.CourseItemPrerequisites
+            .Include(p => p.RequiredCourseItem)
+            .Where(p => p.CourseItemId == courseItemId)
+            .AsNoTracking()
+            .ToListAsync();
+
+        if (!prerequisites.Any())
+        {
+            return (true, new List<string>());
+        }
+
+        var reqIds = prerequisites.Select(p => p.RequiredCourseItemId).ToList();
+
+        var completedProgressIds = await _context.CourseProgresses
+            .Where(cp => cp.StudentId == studentId && cp.IsCompleted && reqIds.Contains(cp.CourseItemId))
+            .Select(cp => cp.CourseItemId)
+            .ToListAsync();
+
+        var completedVideoIds = await _context.VideoLessonProgresses
+            .Where(vp => vp.StudentId == studentId && vp.IsCompleted && reqIds.Contains(vp.CourseItemId))
+            .Select(vp => vp.CourseItemId)
+            .ToListAsync();
+
+        var passedQuizIds = await _context.QuizSubmissions
+            .Where(qs => qs.StudentId == studentId && qs.IsPassed && reqIds.Contains(qs.Quiz.CourseItemId))
+            .Select(qs => qs.Quiz.CourseItemId)
+            .ToListAsync();
+
+        var submittedAssignmentIds = await _context.AssignmentSubmissions
+            .Where(s => s.StudentId == studentId && reqIds.Contains(s.Assignment.CourseItemId) &&
+                        (s.Status == SubmissionStatus.Graded || s.Status == SubmissionStatus.Submitted || s.Status == SubmissionStatus.Late))
+            .Select(s => s.Assignment.CourseItemId)
+            .ToListAsync();
+
+        var completedSet = completedProgressIds
+            .Concat(completedVideoIds)
+            .Concat(passedQuizIds)
+            .Concat(submittedAssignmentIds)
+            .ToHashSet();
+
+        var missing = prerequisites
+            .Where(p => !completedSet.Contains(p.RequiredCourseItemId))
+            .Select(p => p.RequiredCourseItem?.Title ?? $"Item #{p.RequiredCourseItemId}")
+            .Distinct()
+            .ToList();
+
+        if (missing.Any())
+        {
+            return (false, missing);
+        }
+
+        return (true, new List<string>());
     }
 }

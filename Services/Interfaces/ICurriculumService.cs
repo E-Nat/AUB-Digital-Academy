@@ -290,6 +290,34 @@ public interface ICurriculumService
     /// evaluating assignments and quizzes against the 50% threshold.
     /// </summary>
     Task<StudentGradesViewModel> GetStudentGradesAsync(string studentId, int? courseId = null);
+
+    /// <summary>
+    /// Retrieves the CourseAccessMode (Free vs Sequential) for the given course.
+    /// </summary>
+    Task<AUBDigitalAcademy.Models.Enums.CourseAccessMode> GetCourseAccessModeAsync(int courseId);
+
+    /// <summary>
+    /// Updates the CourseAccessMode for a course. Only owner teacher or admin can modify.
+    /// Switching access mode strictly preserves all existing student progress.
+    /// </summary>
+    Task<CurriculumOperationResult> UpdateCourseAccessModeAsync(int courseId, AUBDigitalAcademy.Models.Enums.CourseAccessMode mode, string userId, bool isAdmin);
+
+    /// <summary>
+    /// Retrieves all required prerequisite CourseItem IDs for a specific CourseItem.
+    /// </summary>
+    Task<List<int>> GetItemPrerequisiteIdsAsync(int courseItemId);
+
+    /// <summary>
+    /// Sets/replaces the prerequisites for a CourseItem. Enforces that prerequisites belong to the same course,
+    /// prevents self-dependencies and cycle dependencies, and requires teacher ownership or admin rights.
+    /// </summary>
+    Task<CurriculumOperationResult> SetItemPrerequisitesAsync(int courseItemId, IEnumerable<int> requiredItemIds, string userId, bool isAdmin);
+
+    /// <summary>
+    /// Verifies whether a student can access a course item under the course's access mode rules.
+    /// In Free access mode, always accessible. In Sequential mode, requires all prerequisites to be completed.
+    /// </summary>
+    Task<(bool IsAccessible, List<string> MissingPrerequisites)> CheckItemAccessAsync(int courseItemId, string studentId, bool allowAdminPreview = false);
 }
 
 public sealed record VideoHeartbeatResult(

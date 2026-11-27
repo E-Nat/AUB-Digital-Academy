@@ -108,6 +108,9 @@ public class StudentLessonPlayerViewModel
     public bool HasVideo => !string.IsNullOrWhiteSpace(VideoUrl);
     public bool HasContent => !string.IsNullOrWhiteSpace(ContentHtml);
     public bool IsCompleted { get; set; }
+    public bool IsLocked { get; set; }
+    public List<string> MissingPrerequisites { get; set; } = new();
+    public AUBDigitalAcademy.Models.Enums.CourseAccessMode AccessMode { get; set; } = AUBDigitalAcademy.Models.Enums.CourseAccessMode.Free;
     public double LastVideoPositionSeconds { get; set; }
     public int VideoQualifyingPercentage { get; set; }
 
@@ -161,6 +164,8 @@ public class StudentPlayerLessonItemViewModel
     public bool HasContent { get; set; }
     public bool IsCurrent { get; set; }
     public bool IsCompleted { get; set; }
+    public bool IsLocked { get; set; }
+    public List<string> MissingPrerequisites { get; set; } = new();
     public bool HasPassedQuiz { get; set; }
     public double? BestQuizScore { get; set; }
 }
@@ -190,6 +195,8 @@ public class StudentQuizPlayerViewModel
     public bool IsPublished { get; set; }
 
     // Submission Context
+    public bool IsLocked { get; set; }
+    public List<string> MissingPrerequisites { get; set; } = new();
     public bool HasSubmission { get; set; }
     public int AttemptCount { get; set; }
     public int CurrentAttemptNumber => AttemptCount + 1;
@@ -308,6 +315,8 @@ public class StudentAssignmentViewModel
     public bool IsPastDue => DateTime.UtcNow > DueDate;
 
     // Latest Submission Context
+    public bool IsLocked { get; set; }
+    public List<string> MissingPrerequisites { get; set; } = new();
     public bool HasSubmission { get; set; }
     public int? LatestSubmissionId { get; set; }
     public int LatestAttemptNumber { get; set; }
@@ -382,6 +391,8 @@ public class StudentBookViewModel
     public string FileType { get; set; } = "PDF";
     public long? FileSize { get; set; }
     public bool IsCompleted { get; set; }
+    public bool IsLocked { get; set; }
+    public List<string> MissingPrerequisites { get; set; } = new();
 
     // Curriculum Navigation Sidebar
     public List<StudentPlayerModuleViewModel> Modules { get; set; } = new();

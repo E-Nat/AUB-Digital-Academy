@@ -499,6 +499,13 @@ public class StudentController : Controller
             return NotFound("Lesson not found in this course.");
         }
 
+        if (playerModel.IsLocked)
+        {
+            Response.StatusCode = StatusCodes.Status403Forbidden;
+            ViewBag.IsLocked = true;
+            ViewBag.MissingPrerequisites = playerModel.MissingPrerequisites;
+        }
+
         ViewData["Title"] = $"{playerModel.LessonTitle} - {playerModel.CourseTitle}";
         ViewData["ActivePage"] = "Courses";
 
@@ -539,6 +546,17 @@ public class StudentController : Controller
                               await _context.Courses.AsNoTracking().AnyAsync(c => c.Id == cId && c.TeacherId == currentUserId) ||
                               await _context.CourseAssistants.AsNoTracking().AnyAsync(ca => ca.CourseId == cId && ca.AssistantId == currentUserId);
             if (!authorized) return Forbid();
+
+            var lessonItem = await _context.Lessons
+                .Where(l => l.VideoUrl == expectedUrl)
+                .Select(l => l.CourseItem)
+                .FirstOrDefaultAsync();
+
+            if (lessonItem != null)
+            {
+                var (isAccessible, _) = await _curriculumService.CheckItemAccessAsync(lessonItem.Id, currentUserId);
+                if (!isAccessible) return Forbid();
+            }
         }
 
         var videoInfo = _videoStorageService.GetVideoPhysicalPath(safeFileName);
@@ -571,6 +589,12 @@ public class StudentController : Controller
         if (isAdmin && !isEnrolled)
         {
             return Json(new { success = true, isAdminPreview = true, watchedPercentage = 0, isCompleted = false });
+        }
+
+        var (isAccessible, missingPrereqs) = await _curriculumService.CheckItemAccessAsync(courseItemId, currentUserId, isAdmin);
+        if (!isAccessible)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { success = false, message = $"This lesson is locked by prerequisites: {string.Join(", ", missingPrereqs)}." });
         }
 
         var result = await _curriculumService.RecordVideoHeartbeatAsync(
@@ -630,6 +654,12 @@ public class StudentController : Controller
         {
             _logger.LogWarning("CompleteLesson access denied: Student '{StudentId}' is not enrolled in Course ID {CourseId}.", currentUserId, courseId);
             return Forbid();
+        }
+
+        var (isItemAccessible, missingPrereqsList) = await _curriculumService.CheckItemAccessAsync(courseItemId, currentUserId, isAdmin);
+        if (!isItemAccessible)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { success = false, message = $"This lesson is locked by prerequisites: {string.Join(", ", missingPrereqsList)}." });
         }
 
         // 2. Mark lesson complete via service layer (idempotent, SQL Server unique-constraint guarded)
@@ -734,6 +764,13 @@ public class StudentController : Controller
             return NotFound("Quiz not found in this course.");
         }
 
+        if (playerModel.IsLocked)
+        {
+            Response.StatusCode = StatusCodes.Status403Forbidden;
+            TempData["ErrorMessage"] = $"This quiz is locked. You must first complete: {string.Join(", ", playerModel.MissingPrerequisites)}.";
+            return RedirectToAction(nameof(Course), new { id = courseId.Value });
+        }
+
         // Server-side quiz attempt timer: persist StartedAtUtc across browser refreshes
         if (!isAdmin && playerModel.CanAttempt && playerModel.TimeLimitMinutes > 0 && _memoryCache != null)
         {
@@ -784,6 +821,13 @@ public class StudentController : Controller
         {
             _logger.LogWarning("SubmitQuiz access denied: Student '{StudentId}' is not enrolled in Course ID {CourseId}.", currentUserId, courseId);
             return Forbid();
+        }
+
+        var (isQuizAccessible, missingQuizPrereqs) = await _curriculumService.CheckItemAccessAsync(courseItemId, currentUserId, isAdmin);
+        if (!isQuizAccessible)
+        {
+            TempData["ErrorMessage"] = $"This quiz is locked by prerequisites: {string.Join(", ", missingQuizPrereqs)}.";
+            return StatusCode(StatusCodes.Status403Forbidden, RedirectToAction(nameof(Course), new { id = courseId }));
         }
 
         // Server-side quiz timer enforcement (30-second grace period for auto-submit latency)
@@ -956,6 +1000,13 @@ public class StudentController : Controller
             return NotFound("Assignment not found or you are not enrolled in this course.");
         }
 
+        if (model.IsLocked)
+        {
+            Response.StatusCode = StatusCodes.Status403Forbidden;
+            TempData["ErrorMessage"] = $"This assignment is locked. You must first complete: {string.Join(", ", model.MissingPrerequisites)}.";
+            return RedirectToAction(nameof(Course), new { id = courseId.Value });
+        }
+
         ViewData["Title"] = $"{model.Title} - {model.CourseTitle}";
         ViewData["ActivePage"] = "Courses";
         return View("Assignment", model);
@@ -975,6 +1026,13 @@ public class StudentController : Controller
     {
         var currentUserId = _userManager.GetUserId(User);
         if (string.IsNullOrEmpty(currentUserId)) return Challenge();
+
+        var (isAssignmentAccessible, missingAssignmentPrereqs) = await _curriculumService.CheckItemAccessAsync(courseItemId, currentUserId, User.IsInRole("Admin"));
+        if (!isAssignmentAccessible)
+        {
+            TempData["ErrorMessage"] = $"This assignment is locked by prerequisites: {string.Join(", ", missingAssignmentPrereqs)}.";
+            return RedirectToAction(nameof(Course), new { id = courseId });
+        }
 
         var (result, submission) = await _curriculumService.SubmitAssignmentAsync(
             courseId,
@@ -1119,6 +1177,13 @@ public class StudentController : Controller
         if (model == null)
         {
             return NotFound("Book not found or you are not enrolled in this course.");
+        }
+
+        if (model.IsLocked)
+        {
+            Response.StatusCode = StatusCodes.Status403Forbidden;
+            TempData["ErrorMessage"] = $"This book is locked. You must first complete: {string.Join(", ", model.MissingPrerequisites)}.";
+            return RedirectToAction(nameof(Course), new { id = courseId.Value });
         }
 
         ViewData["Title"] = $"{model.Title} - {model.CourseTitle}";

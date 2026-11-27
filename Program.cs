@@ -28,7 +28,8 @@ bool isEnrollmentTestMode = isInitTestDbOnly ||
                             args.Contains("--test-navigation-phase1") ||
                             args.Contains("--test-navigation-phase2") ||
                             args.Contains("--test-academic-lookups") ||
-                            args.Contains("--test-video-tracking");
+                            args.Contains("--test-video-tracking") ||
+                            args.Contains("--test-course-access-modes");
 
 // Add services to the container.
 string connectionString;
@@ -284,6 +285,12 @@ if (args.Contains("--test-academic-lookups"))
 if (args.Contains("--test-video-tracking"))
 {
     await VideoWatchTrackingTestRunner.RunTestsAsync(app.Services);
+    return;
+}
+
+if (args.Contains("--test-course-access-modes"))
+{
+    await CourseAccessModePrerequisitesTestRunner.RunTestsAsync(app.Services);
     return;
 }
 

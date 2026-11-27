@@ -1,3 +1,4 @@
+@using AUBDigitalAcademy.Models.Enums
 @model AUBDigitalAcademy.Models.ViewModels.CourseCurriculumViewModel
 @{
     ViewData["Title"] = $"{Model.CourseTitle} - Curriculum";
@@ -157,6 +158,37 @@
                 </p>
             </div>
             <div class="d-flex align-items-center gap-2">
+                <!-- Course Access Mode Dropdown -->
+                <div class="dropdown">
+                    <button class="btn btn-sm @(Model.AccessMode == CourseAccessMode.Sequential ? "btn-warning text-dark fw-bold" : "btn-outline-light") dropdown-toggle d-inline-flex align-items-center gap-1 shadow-sm" type="button" id="accessModeDropdown" data-bs-toggle="dropdown" aria-expanded="false" title="Configure course access mode">
+                        <i class="bi @(Model.AccessMode == CourseAccessMode.Sequential ? "bi-lock-fill" : "bi-unlock-fill")"></i>
+                        <span id="currentAccessModeLabel">Mode: @(Model.AccessMode == CourseAccessMode.Sequential ? "Sequential Access" : "Free Access")</span>
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end shadow border-0" aria-labelledby="accessModeDropdown" style="min-width: 280px;">
+                        <li>
+                            <h6 class="dropdown-header text-uppercase small fw-bold">Course Access Mode</h6>
+                        </li>
+                        <li>
+                            <button type="button" class="dropdown-item d-flex align-items-start gap-2 py-2 set-access-mode-btn" data-mode="0">
+                                <i class="bi bi-unlock fs-5 text-success mt-1"></i>
+                                <div>
+                                    <div class="fw-semibold @(Model.AccessMode == CourseAccessMode.Free ? "text-primary" : "")">Free Access @(Model.AccessMode == CourseAccessMode.Free ? "✓" : "")</div>
+                                    <small class="text-muted">Students can open any published lesson freely.</small>
+                                </div>
+                            </button>
+                        </li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li>
+                            <button type="button" class="dropdown-item d-flex align-items-start gap-2 py-2 set-access-mode-btn" data-mode="1">
+                                <i class="bi bi-lock fs-5 text-warning mt-1"></i>
+                                <div>
+                                    <div class="fw-semibold @(Model.AccessMode == CourseAccessMode.Sequential ? "text-primary" : "")">Sequential Access @(Model.AccessMode == CourseAccessMode.Sequential ? "✓" : "")</div>
+                                    <small class="text-muted">Students must satisfy prerequisites before opening locked items.</small>
+                                </div>
+                            </button>
+                        </li>
+                    </ul>
+                </div>
                 <a href="@coursesBackUrl" class="btn btn-sm btn-outline-light d-inline-flex align-items-center gap-1 shadow-sm">
                     <i class="bi bi-arrow-left"></i>
                     <span>Back to Courses</span>
@@ -376,6 +408,12 @@
                                                     {
                                                         <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle" style="font-size: 0.65rem;">Draft</span>
                                                     }
+                                                }
+                                                @if (item.PrerequisiteItemTitles != null && item.PrerequisiteItemTitles.Any())
+                                                {
+                                                    <span class="badge bg-warning-subtle text-dark border border-warning-subtle" style="font-size: 0.65rem;" title="Prerequisites: @string.Join(", ", item.PrerequisiteItemTitles)">
+                                                        <i class="bi bi-lock-fill text-warning me-0.5"></i> Req: @string.Join(", ", item.PrerequisiteItemTitles)
+                                                    </span>
                                                 }
                                             </div>
                                         </div>
@@ -762,6 +800,38 @@
                         <label for="createLessonContentHtml" class="form-label fw-bold small text-dark">Lesson Content / Notes <span class="text-muted fw-normal">(HTML / Text, Optional)</span></label>
                         <textarea class="form-control font-monospace" id="createLessonContentHtml" name="ContentHtml" rows="5" placeholder="Add lecture notes, reading material, or guidelines for students..."></textarea>
                     </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold small text-dark d-flex align-items-center justify-content-between">
+                            <span><i class="bi bi-lock-fill text-warning me-1"></i> Prerequisites <span class="text-muted fw-normal">(Optional, for Sequential Access)</span></span>
+                            <span class="badge bg-light text-muted border fw-normal" style="font-size: 0.7rem;">Multiple Allowed</span>
+                        </label>
+                        <div class="border rounded p-2 bg-light bg-opacity-50" style="max-height: 140px; overflow-y: auto;" id="createLessonPrerequisitesList">
+                            @if (Model.Modules != null && Model.Modules.Any())
+                            {
+                                @foreach (var m in Model.Modules)
+                                {
+                                    @if (m.Items.Any())
+                                    {
+                                        <div class="small fw-bold text-muted mt-1 mb-1">Module: @m.Title</div>
+                                        @foreach (var itm in m.Items)
+                                        {
+                                            <div class="form-check form-check-sm mb-1 ms-2">
+                                                <input class="form-check-input create-prereq-check" type="checkbox" name="PrerequisiteItemIds" value="@itm.Id" id="createPrereq_@itm.Id" />
+                                                <label class="form-check-label small text-dark" for="createPrereq_@itm.Id">
+                                                    [@itm.Type] @itm.Title
+                                                </label>
+                                            </div>
+                                        }
+                                    }
+                                }
+                            }
+                            else
+                            {
+                                <small class="text-muted">No other items in this course yet.</small>
+                            }
+                        </div>
+                    </div>
                 </div>
 
                 <div class="modal-footer border-top bg-light">
@@ -834,6 +904,34 @@
                     <div class="mb-2">
                         <label for="editLessonContentHtml" class="form-label fw-bold small text-dark">Lesson Content / Notes <span class="text-muted fw-normal">(HTML / Text, Optional)</span></label>
                         <textarea class="form-control font-monospace" id="editLessonContentHtml" name="ContentHtml" rows="5"></textarea>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold small text-dark d-flex align-items-center justify-content-between">
+                            <span><i class="bi bi-lock-fill text-warning me-1"></i> Prerequisites <span class="text-muted fw-normal">(Optional, for Sequential Access)</span></span>
+                            <span class="badge bg-light text-muted border fw-normal" style="font-size: 0.7rem;">Multiple Allowed</span>
+                        </label>
+                        <div class="border rounded p-2 bg-light bg-opacity-50" style="max-height: 140px; overflow-y: auto;" id="editLessonPrerequisitesList">
+                            @if (Model.Modules != null && Model.Modules.Any())
+                            {
+                                @foreach (var m in Model.Modules)
+                                {
+                                    @if (m.Items.Any())
+                                    {
+                                        <div class="small fw-bold text-muted mt-1 mb-1">Module: @m.Title</div>
+                                        @foreach (var itm in m.Items)
+                                        {
+                                            <div class="form-check form-check-sm mb-1 ms-2 edit-prereq-item-wrap" data-itemid="@itm.Id">
+                                                <input class="form-check-input edit-prereq-check" type="checkbox" name="PrerequisiteItemIds" value="@itm.Id" id="editPrereq_@itm.Id" />
+                                                <label class="form-check-label small text-dark" for="editPrereq_@itm.Id">
+                                                    [@itm.Type] @itm.Title
+                                                </label>
+                                            </div>
+                                        }
+                                    }
+                                }
+                            }
+                        </div>
                     </div>
                 </div>
 
@@ -1793,6 +1891,7 @@
                     document.getElementById('createLessonContentHtml').value = '';
                     document.getElementById('createLessonTitleError').textContent = '';
                     document.getElementById('createLessonVideoUrlError').textContent = '';
+                    document.querySelectorAll('.create-prereq-check').forEach(c => c.checked = false);
                 });
             });
 
@@ -1824,6 +1923,11 @@
                     document.getElementById('editLessonTitleError').textContent = '';
                     document.getElementById('editLessonVideoUrlError').textContent = '';
 
+                    document.querySelectorAll('.edit-prereq-check').forEach(c => c.checked = false);
+                    document.querySelectorAll('.edit-prereq-item-wrap').forEach(w => {
+                        w.style.display = (w.getAttribute('data-itemid') === id) ? 'none' : 'block';
+                    });
+
                     // Fetch freshest database state via AJAX
                     fetch(`/Academic/GetLessonJson?id=${id}&courseId=${courseId}&chapterId=${chapterId}`)
                         .then(r => r.json())
@@ -1837,6 +1941,13 @@
                                 document.getElementById('editLessonRemoveVideoWrap').style.display = vUrl ? 'block' : 'none';
                                 document.getElementById('editLessonContentHtml').value = data.lesson.contentHtml || '';
                                 document.getElementById('editLessonLessonId').value = data.lesson.lessonId || 0;
+
+                                if (data.lesson.prerequisiteItemIds && Array.isArray(data.lesson.prerequisiteItemIds)) {
+                                    data.lesson.prerequisiteItemIds.forEach(pId => {
+                                        const el = document.getElementById('editPrereq_' + pId);
+                                        if (el) el.checked = true;
+                                    });
+                                }
                             }
                         })
                         .catch(err => console.warn('Could not refresh lesson payload from server', err));
@@ -2043,6 +2154,35 @@
                     });
                 });
             }
+
+            // Set Course Access Mode
+            document.querySelectorAll('.set-access-mode-btn').forEach(btn => {
+                btn.addEventListener('click', function () {
+                    const mode = this.getAttribute('data-mode');
+                    const courseId = '@Model.CourseId';
+                    const token = document.querySelector('input[name="__RequestVerificationToken"]')?.value || '';
+
+                    const formData = new FormData();
+                    formData.append('courseId', courseId);
+                    formData.append('mode', mode);
+                    formData.append('__RequestVerificationToken', token);
+
+                    fetch('/Academic/SetCourseAccessMode', {
+                        method: 'POST',
+                        body: formData,
+                        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                    })
+                    .then(r => r.json())
+                    .then(data => {
+                        if (data.success) {
+                            window.location.reload();
+                        } else {
+                            alert(data.message || 'Failed to update access mode.');
+                        }
+                    })
+                    .catch(() => alert('Network error while updating access mode.'));
+                });
+            });
         });
     </script>
 }

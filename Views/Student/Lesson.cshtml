@@ -77,6 +77,25 @@
     <div class="row g-4">
         <!-- Left / Center Column: Video & Lesson Content -->
         <div class="col-lg-8">
+            @if (Model.IsLocked)
+            {
+                <div class="alert alert-warning border border-warning shadow-sm mb-4 d-flex align-items-start gap-3 p-3 rounded-3" role="alert">
+                    <div class="fs-3 text-warning flex-shrink-0"><i class="bi bi-lock-fill"></i></div>
+                    <div>
+                        <h5 class="fw-bold text-dark mb-1">This Lesson is Locked</h5>
+                        <p class="small text-muted mb-2">
+                            This course enforces <strong>Sequential Access</strong>. You must complete the required prerequisite item(s) below before you can complete this lesson:
+                        </p>
+                        <ul class="mb-0 small fw-semibold text-dark">
+                            @foreach (var prereq in Model.MissingPrerequisites)
+                            {
+                                <li><i class="bi bi-arrow-right-short text-warning"></i> @prereq</li>
+                            }
+                        </ul>
+                    </div>
+                </div>
+            }
+
             <!-- Video Player Section (Rendered only when a safe VideoUrl exists) -->
             @if (hasSafeVideo)
             {
@@ -173,7 +192,14 @@
 
                     <!-- Center: Mark as Complete / Completed Action -->
                     <div class="d-flex align-items-center gap-2" id="completionActionContainer">
-                        @if (Model.IsCompleted)
+                        @if (Model.IsLocked)
+                        {
+                            <button type="button" class="btn btn-outline-warning d-inline-flex align-items-center gap-2" disabled aria-disabled="true" title="Locked by course prerequisites">
+                                <i class="bi bi-lock-fill"></i>
+                                <span>Locked</span>
+                            </button>
+                        }
+                        else if (Model.IsCompleted)
                         {
                             <button type="button" class="btn btn-success d-inline-flex align-items-center gap-2" disabled aria-disabled="true">
                                 <i class="bi bi-check-circle-fill"></i>
@@ -295,11 +321,15 @@
                                                     _ => $"/Student/Course/{Model.CourseId}/Lesson/{lesson.CourseItemId}"
                                                 };
 
-                                                <a href="@itemUrl"
-                                                   class="player-lesson-link d-flex align-items-center gap-2 text-decoration-none @(lesson.IsCurrent ? "current-lesson" : "")"
-                                                   title="@lesson.Title"
+                                                <a href="@(lesson.IsLocked ? "javascript:void(0)" : itemUrl)"
+                                                   class="player-lesson-link d-flex align-items-center gap-2 text-decoration-none @(lesson.IsCurrent ? "current-lesson" : "") @(lesson.IsLocked ? "opacity-50" : "")"
+                                                   title="@(lesson.IsLocked ? $"Locked. Prerequisites: {string.Join(", ", lesson.MissingPrerequisites)}" : lesson.Title)"
                                                    data-item-id="@lesson.CourseItemId">
-                                                    @if (lesson.IsCompleted || lesson.HasPassedQuiz)
+                                                    @if (lesson.IsLocked)
+                                                    {
+                                                        <i class="bi bi-lock-fill text-warning fs-6 flex-shrink-0" title="Locked by prerequisites"></i>
+                                                    }
+                                                    else if (lesson.IsCompleted || lesson.HasPassedQuiz)
                                                     {
                                                         <i class="bi bi-check-circle-fill text-success fs-6 flex-shrink-0" title="Completed"></i>
                                                     }
@@ -325,7 +355,7 @@
                                                     }
 
                                                     <div class="flex-grow-1 text-truncate">
-                                                        <div class="small fw-medium @(lesson.IsCurrent ? "text-primary fw-bold" : "text-dark") text-truncate">
+                                                        <div class="small fw-medium @(lesson.IsCurrent ? "text-primary fw-bold" : (lesson.IsLocked ? "text-muted" : "text-dark")) text-truncate">
                                                             @lesson.Title
                                                         </div>
                                                         <span class="text-muted" style="font-size: 0.75rem;">
@@ -333,13 +363,19 @@
                                                         </span>
                                                     </div>
 
-                                                    @if (lesson.IsCurrent)
+                                                    @if (lesson.IsLocked)
+                                                    {
+                                                        <span class="badge bg-warning-subtle text-dark border border-warning-subtle rounded-pill px-2 py-1 flex-shrink-0" style="font-size: 0.65rem;">
+                                                            <i class="bi bi-lock-fill text-warning me-0.5"></i> Locked
+                                                        </span>
+                                                    }
+                                                    else if (lesson.IsCurrent)
                                                     {
                                                         <span class="badge bg-primary text-white rounded-pill px-2 py-1 flex-shrink-0" style="font-size: 0.65rem;">
                                                             ▶ Current
                                                         </span>
                                                     }
-                                                    @if (lesson.IsCompleted || lesson.HasPassedQuiz)
+                                                    else if (lesson.IsCompleted || lesson.HasPassedQuiz)
                                                     {
                                                         <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-2 py-1 flex-shrink-0 badge-completed" style="font-size: 0.65rem;">
                                                             ✓ @(isQuiz ? "Passed" : "Completed")

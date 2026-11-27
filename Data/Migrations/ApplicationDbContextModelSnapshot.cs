@@ -278,6 +278,9 @@ namespace AUBDigitalAcademy.Data.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<int>("AccessMode")
+                        .HasColumnType("int");
+
                     b.Property<string>("Code")
                         .IsRequired()
                         .HasMaxLength(20)
@@ -385,6 +388,30 @@ namespace AUBDigitalAcademy.Data.Migrations
                     b.HasIndex("ChapterId");
 
                     b.ToTable("CourseItems");
+                });
+
+            modelBuilder.Entity("AUBDigitalAcademy.Models.CourseItemPrerequisite", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("CourseItemId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("RequiredCourseItemId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RequiredCourseItemId");
+
+                    b.HasIndex("CourseItemId", "RequiredCourseItemId")
+                        .IsUnique();
+
+                    b.ToTable("CourseItemPrerequisites");
                 });
 
             modelBuilder.Entity("AUBDigitalAcademy.Models.CourseProgress", b =>
@@ -1227,6 +1254,25 @@ namespace AUBDigitalAcademy.Data.Migrations
                     b.Navigation("Chapter");
                 });
 
+            modelBuilder.Entity("AUBDigitalAcademy.Models.CourseItemPrerequisite", b =>
+                {
+                    b.HasOne("AUBDigitalAcademy.Models.CourseItem", "CourseItem")
+                        .WithMany("Prerequisites")
+                        .HasForeignKey("CourseItemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("AUBDigitalAcademy.Models.CourseItem", "RequiredCourseItem")
+                        .WithMany()
+                        .HasForeignKey("RequiredCourseItemId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("CourseItem");
+
+                    b.Navigation("RequiredCourseItem");
+                });
+
             modelBuilder.Entity("AUBDigitalAcademy.Models.CourseProgress", b =>
                 {
                     b.HasOne("AUBDigitalAcademy.Models.CourseItem", "CourseItem")
@@ -1485,6 +1531,8 @@ namespace AUBDigitalAcademy.Data.Migrations
                     b.Navigation("Book");
 
                     b.Navigation("Lesson");
+
+                    b.Navigation("Prerequisites");
 
                     b.Navigation("Progress");
 

@@ -26,6 +26,7 @@ public class ApplicationDbContext : IdentityDbContext<User>
     public DbSet<Enrollment> Enrollments { get; set; }
     public DbSet<CourseProgress> CourseProgresses { get; set; }
     public DbSet<VideoLessonProgress> VideoLessonProgresses { get; set; }
+    public DbSet<CourseItemPrerequisite> CourseItemPrerequisites { get; set; }
     public DbSet<QuizSubmission> QuizSubmissions { get; set; }
     public DbSet<AssignmentSubmission> AssignmentSubmissions { get; set; }
     public DbSet<AssignmentAttachment> AssignmentAttachments { get; set; }
@@ -84,6 +85,22 @@ public class ApplicationDbContext : IdentityDbContext<User>
                 .WithMany()
                 .HasForeignKey(v => v.CourseItemId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // CourseItemPrerequisite
+        builder.Entity<CourseItemPrerequisite>(entity =>
+        {
+            entity.HasIndex(p => new { p.CourseItemId, p.RequiredCourseItemId }).IsUnique();
+
+            entity.HasOne(p => p.CourseItem)
+                .WithMany(ci => ci.Prerequisites)
+                .HasForeignKey(p => p.CourseItemId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(p => p.RequiredCourseItem)
+                .WithMany()
+                .HasForeignKey(p => p.RequiredCourseItemId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         // Category

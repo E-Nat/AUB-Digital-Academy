@@ -22,6 +22,8 @@ public class Course
 
     public CourseStatus Status { get; set; } = CourseStatus.Draft;
 
+    public CourseAccessMode AccessMode { get; set; } = CourseAccessMode.Free;
+
     public int MajorId { get; set; }
 
     [ForeignKey(nameof(MajorId))]

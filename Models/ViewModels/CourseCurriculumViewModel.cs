@@ -11,6 +11,7 @@ public class CourseCurriculumViewModel
     public string? CourseDescription { get; set; }
     public string? Thumbnail { get; set; }
     public CourseStatus Status { get; set; } = CourseStatus.Draft;
+    public CourseAccessMode AccessMode { get; set; } = CourseAccessMode.Free;
     public string? MajorName { get; set; }
     public string? MajorCode { get; set; }
     public string? SemesterName { get; set; }
@@ -102,4 +103,6 @@ public class CurriculumItemViewModel
     public int? MaxAttempts { get; set; }
     public bool IsPublished { get; set; }
     public int QuestionCount { get; set; }
+    public List<int> PrerequisiteItemIds { get; set; } = new();
+    public List<string> PrerequisiteItemTitles { get; set; } = new();
 }

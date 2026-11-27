@@ -465,11 +465,15 @@
                                                     _ => $"/Student/Course/{Model.CourseId}/Lesson/{item.CourseItemId}"
                                                 };
 
-                                                <a href="@itemUrl"
-                                                   class="player-lesson-link d-flex align-items-center gap-2 text-decoration-none @(item.IsCurrent ? "current-lesson" : "")"
-                                                   title="@item.Title"
+                                                <a href="@(item.IsLocked ? "javascript:void(0)" : itemUrl)"
+                                                   class="player-lesson-link d-flex align-items-center gap-2 text-decoration-none @(item.IsCurrent ? "current-lesson" : "") @(item.IsLocked ? "opacity-50" : "")"
+                                                   title="@(item.IsLocked ? $"Locked. Prerequisites: {string.Join(", ", item.MissingPrerequisites)}" : item.Title)"
                                                    data-item-id="@item.CourseItemId">
-                                                    @if (item.IsCompleted || item.HasPassedQuiz)
+                                                    @if (item.IsLocked)
+                                                    {
+                                                        <i class="bi bi-lock-fill text-warning fs-6 flex-shrink-0" title="Locked by prerequisites"></i>
+                                                    }
+                                                    else if (item.IsCompleted || item.HasPassedQuiz)
                                                     {
                                                         <i class="bi bi-check-circle-fill text-success fs-6 flex-shrink-0" title="Completed"></i>
                                                     }
@@ -503,7 +507,11 @@
                                                         </span>
                                                     </div>
 
-                                                    @if (item.IsCurrent)
+                                                    @if (item.IsLocked)
+                                                    {
+                                                        <span class="badge bg-warning-subtle text-dark border border-warning-subtle rounded-pill px-2 py-0 text-xs">Locked</span>
+                                                    }
+                                                    else if (item.IsCurrent)
                                                     {
                                                         <span class="badge bg-primary text-white rounded-pill px-2 py-0 text-xs">Active</span>
                                                     }

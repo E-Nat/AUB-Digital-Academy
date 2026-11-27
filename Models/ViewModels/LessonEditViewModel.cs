@@ -36,4 +36,6 @@ public class LessonEditViewModel
     [Display(Name = "Order / Position")]
     [Range(1, 1000, ErrorMessage = "Position must be a positive integer.")]
     public int Position { get; set; }
+
+    public List<int> PrerequisiteItemIds { get; set; } = new();
 }
