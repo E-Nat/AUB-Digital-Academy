@@ -10,7 +10,7 @@ public class VideoStorageService : IVideoStorageService
     private readonly ILogger<VideoStorageService> _logger;
 
     private static readonly string[] AllowedExtensions = { ".mp4", ".webm", ".ogg" };
-    private const long MaxFileSize = 200L * 1024 * 1024; // 200 MB
+    private const long MaxFileSize = 500L * 1024 * 1024; // 500 MB
 
     public VideoStorageService(IWebHostEnvironment environment, ILogger<VideoStorageService> logger)
     {
@@ -70,7 +70,7 @@ public class VideoStorageService : IVideoStorageService
 
         if (file.Length > MaxFileSize)
         {
-            return (false, null, "Video file exceeds the 200 MB maximum upload limit.");
+            return (false, null, "Video file exceeds the 500 MB maximum upload limit.");
         }
 
         var ext = Path.GetExtension(file.FileName).ToLowerInvariant();

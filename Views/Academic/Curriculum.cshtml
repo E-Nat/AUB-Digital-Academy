@@ -744,7 +744,7 @@
 
                     <div class="row g-3 mb-3">
                         <div class="col-md-8">
-                            <label for="createLessonVideoFile" class="form-label fw-bold small text-dark">Upload Video <span class="text-muted fw-normal">(Optional, MP4/WebM/OGG up to 200 MB)</span></label>
+                            <label for="createLessonVideoFile" class="form-label fw-bold small text-dark">Upload Video <span class="text-muted fw-normal">(Optional, MP4/WebM/OGG up to 500 MB)</span></label>
                             <div class="input-group">
                                 <span class="input-group-text bg-light text-muted"><i class="bi bi-camera-video"></i></span>
                                 <input type="file" class="form-control" id="createLessonVideoFile" name="VideoFile" accept=".mp4,.webm,.ogg,video/mp4,video/webm,video/ogg" />
@@ -1861,6 +1861,61 @@
                 });
             });
 
+            // Helper to parse JSON or surface clear HTTP/network error without losing the modal
+            async function submitLessonFormAjax(form, url, submitBtn, defaultBtnHtml, titleErrorEl, videoErrorEl, fallbackMessage) {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    body: new FormData(form),
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest'
+                    }
+                });
+
+                const contentType = response.headers.get('content-type') || '';
+                if (!response.ok) {
+                    let msg = fallbackMessage;
+                    if (response.status === 413) {
+                        msg = 'Video file is too large (maximum 500 MB).';
+                    } else if (response.status === 400 || response.status === 403) {
+                        msg = 'Upload rejected (session expired or unauthorized). Please refresh the page and try again.';
+                    } else if (contentType.includes('application/json')) {
+                        try {
+                            const errJson = await response.json();
+                            if (errJson && errJson.message) msg = errJson.message;
+                        } catch (_) { }
+                    } else {
+                        msg = `Upload failed (HTTP ${response.status}). Please try again.`;
+                    }
+                    (videoErrorEl || titleErrorEl).textContent = msg;
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = defaultBtnHtml;
+                    return;
+                }
+
+                if (!contentType.includes('application/json')) {
+                    (videoErrorEl || titleErrorEl).textContent = 'Unexpected server response. Please refresh the page and try again.';
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = defaultBtnHtml;
+                    return;
+                }
+
+                const data = await response.json();
+                if (data.success) {
+                    window.location.reload();
+                } else {
+                    const msg = data.message || fallbackMessage;
+                    if (videoErrorEl && /video|mp4|webm|ogg|signature|upload|500 mb|200 mb/i.test(msg)) {
+                        videoErrorEl.textContent = msg;
+                    } else {
+                        titleErrorEl.textContent = msg;
+                    }
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = defaultBtnHtml;
+                }
+            }
+
+            const MAX_VIDEO_BYTES = 500 * 1024 * 1024;
+
             // AJAX handling for Create Lesson Form
             const createLessonForm = document.getElementById('createLessonForm');
             if (createLessonForm) {
@@ -1869,36 +1924,37 @@
                     const submitBtn = document.getElementById('submitCreateLessonBtn');
                     const titleInput = document.getElementById('createLessonTitle');
                     const titleError = document.getElementById('createLessonTitleError');
+                    const videoInput = document.getElementById('createLessonVideoFile');
+                    const videoError = document.getElementById('createLessonVideoUrlError');
+
+                    titleError.textContent = '';
+                    videoError.textContent = '';
 
                     if (!titleInput.value.trim()) {
                         titleError.textContent = 'Lesson title is required.';
                         return;
                     }
 
+                    if (videoInput && videoInput.files && videoInput.files[0] && videoInput.files[0].size > MAX_VIDEO_BYTES) {
+                        videoError.textContent = 'Video file exceeds the 500 MB maximum upload limit.';
+                        return;
+                    }
+
                     submitBtn.disabled = true;
-                    submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"></span> Saving...';
+                    submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"></span> Uploading...';
 
-                    const formData = new FormData(createLessonForm);
-
-                    fetch('/Academic/CreateLesson', {
-                        method: 'POST',
-                        body: formData,
-                        headers: {
-                            'X-Requested-With': 'XMLHttpRequest'
-                        }
-                    })
-                    .then(r => r.json())
-                    .then(data => {
-                        if (data.success) {
-                            window.location.reload();
-                        } else {
-                            titleError.textContent = data.message || 'Failed to create lesson.';
-                            submitBtn.disabled = false;
-                            submitBtn.innerHTML = '<i class="bi bi-check-lg"></i> <span>Save Lesson</span>';
-                        }
-                    })
-                    .catch(() => {
-                        createLessonForm.submit();
+                    submitLessonFormAjax(
+                        createLessonForm,
+                        '/Academic/CreateLesson',
+                        submitBtn,
+                        '<i class="bi bi-check-lg"></i> <span>Save Lesson</span>',
+                        titleError,
+                        videoError,
+                        'Failed to create lesson.'
+                    ).catch(() => {
+                        videoError.textContent = 'Network error while uploading video. Please check your connection and try again.';
+                        submitBtn.disabled = false;
+                        submitBtn.innerHTML = '<i class="bi bi-check-lg"></i> <span>Save Lesson</span>';
                     });
                 });
             }
@@ -1911,36 +1967,37 @@
                     const submitBtn = document.getElementById('submitEditLessonBtn');
                     const titleInput = document.getElementById('editLessonTitle');
                     const titleError = document.getElementById('editLessonTitleError');
+                    const videoInput = document.getElementById('editLessonVideoFile');
+                    const videoError = document.getElementById('editLessonVideoUrlError');
+
+                    titleError.textContent = '';
+                    videoError.textContent = '';
 
                     if (!titleInput.value.trim()) {
                         titleError.textContent = 'Lesson title is required.';
                         return;
                     }
 
+                    if (videoInput && videoInput.files && videoInput.files[0] && videoInput.files[0].size > MAX_VIDEO_BYTES) {
+                        videoError.textContent = 'Video file exceeds the 500 MB maximum upload limit.';
+                        return;
+                    }
+
                     submitBtn.disabled = true;
                     submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"></span> Updating...';
 
-                    const formData = new FormData(editLessonForm);
-
-                    fetch('/Academic/EditLesson', {
-                        method: 'POST',
-                        body: formData,
-                        headers: {
-                            'X-Requested-With': 'XMLHttpRequest'
-                        }
-                    })
-                    .then(r => r.json())
-                    .then(data => {
-                        if (data.success) {
-                            window.location.reload();
-                        } else {
-                            titleError.textContent = data.message || 'Failed to update lesson.';
-                            submitBtn.disabled = false;
-                            submitBtn.innerHTML = '<i class="bi bi-check-lg"></i> <span>Save Changes</span>';
-                        }
-                    })
-                    .catch(() => {
-                        editLessonForm.submit();
+                    submitLessonFormAjax(
+                        editLessonForm,
+                        '/Academic/EditLesson',
+                        submitBtn,
+                        '<i class="bi bi-check-lg"></i> <span>Save Changes</span>',
+                        titleError,
+                        videoError,
+                        'Failed to update lesson.'
+                    ).catch(() => {
+                        videoError.textContent = 'Network error while uploading video. Please check your connection and try again.';
+                        submitBtn.disabled = false;
+                        submitBtn.innerHTML = '<i class="bi bi-check-lg"></i> <span>Save Changes</span>';
                     });
                 });
             }

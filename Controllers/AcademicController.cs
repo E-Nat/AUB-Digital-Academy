@@ -1083,8 +1083,8 @@ public class AcademicController : Controller
 
     [HttpPost]
     [ValidateAntiForgeryToken]
-    [RequestSizeLimit(209_715_200)]
-    [RequestFormLimits(MultipartBodyLengthLimit = 209_715_200)]
+    [RequestSizeLimit(536_870_912)]
+    [RequestFormLimits(MultipartBodyLengthLimit = 536_870_912)]
     public async Task<IActionResult> CreateLesson(LessonCreateViewModel model)
     {
         bool isAjax = Request.Headers["X-Requested-With"] == "XMLHttpRequest";
@@ -1173,8 +1173,8 @@ public class AcademicController : Controller
 
     [HttpPost]
     [ValidateAntiForgeryToken]
-    [RequestSizeLimit(209_715_200)]
-    [RequestFormLimits(MultipartBodyLengthLimit = 209_715_200)]
+    [RequestSizeLimit(536_870_912)]
+    [RequestFormLimits(MultipartBodyLengthLimit = 536_870_912)]
     public async Task<IActionResult> EditLesson(LessonEditViewModel model)
     {
         bool isAjax = Request.Headers["X-Requested-With"] == "XMLHttpRequest";

@@ -365,6 +365,7 @@ public class CurriculumService : ICurriculumService
     public Task<IEnumerable<CurriculumItemViewModel>?> GetLessonsByModuleAsync(int moduleId) =>
         GetLessonsByChapterIdAsync(moduleId);
 
+    // Get Lesson
     public async Task<LessonEditViewModel?> GetLessonAsync(int courseItemId, int? expectedChapterId = null, int? expectedCourseId = null)
     {
         if (courseItemId <= 0) return null;
