@@ -2149,4 +2149,392 @@ public class AcademicController : Controller
 
         return Json(new { success = true, canGrade = assignment.CanGrade, message = $"Grading authority {(canGrade ? "granted" : "revoked")}." });
     }
+
+    // =========================================================================
+    // TASK-P2-01 — ACADEMIC LOOKUP CRUD (CATEGORIES, MAJORS, SEMESTERS)
+    // =========================================================================
+
+    [Authorize(Roles = "Admin")]
+    [HttpGet]
+    public async Task<IActionResult> Category()
+    {
+        ViewData["Title"] = "Academic Categories";
+        ViewData["ActivePage"] = "Academic";
+
+        var categories = await _context.Categories
+            .AsNoTracking()
+            .Include(c => c.Majors)
+            .OrderBy(c => c.Name)
+            .ToListAsync();
+
+        return View(categories);
+    }
+
+    [Authorize(Roles = "Admin")]
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> CreateCategory(string name)
+    {
+        var trimmed = name?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(trimmed) || trimmed.Length > 100)
+        {
+            TempData["ErrorMessage"] = "Category name is required and must be 100 characters or fewer.";
+            return RedirectToAction(nameof(Category));
+        }
+
+        var normalized = trimmed.ToUpperInvariant();
+        if (await _context.Categories.AnyAsync(c => c.Name.ToUpper() == normalized))
+        {
+            TempData["ErrorMessage"] = $"Category '{trimmed}' already exists.";
+            return RedirectToAction(nameof(Category));
+        }
+
+        _context.Categories.Add(new Category { Name = trimmed });
+        await _context.SaveChangesAsync();
+        TempData["SuccessMessage"] = $"Category '{trimmed}' created successfully.";
+        return RedirectToAction(nameof(Category));
+    }
+
+    [Authorize(Roles = "Admin")]
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> EditCategory(int id, string name)
+    {
+        var category = await _context.Categories.FindAsync(id);
+        if (category == null)
+        {
+            TempData["ErrorMessage"] = "Category not found.";
+            return RedirectToAction(nameof(Category));
+        }
+
+        var trimmed = name?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(trimmed) || trimmed.Length > 100)
+        {
+            TempData["ErrorMessage"] = "Category name is required and must be 100 characters or fewer.";
+            return RedirectToAction(nameof(Category));
+        }
+
+        var normalized = trimmed.ToUpperInvariant();
+        if (await _context.Categories.AnyAsync(c => c.Id != id && c.Name.ToUpper() == normalized))
+        {
+            TempData["ErrorMessage"] = $"Another category named '{trimmed}' already exists.";
+            return RedirectToAction(nameof(Category));
+        }
+
+        category.Name = trimmed;
+        await _context.SaveChangesAsync();
+        TempData["SuccessMessage"] = $"Category '{trimmed}' updated successfully.";
+        return RedirectToAction(nameof(Category));
+    }
+
+    [Authorize(Roles = "Admin")]
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> DeleteCategory(int id)
+    {
+        var category = await _context.Categories
+            .Include(c => c.Majors)
+            .FirstOrDefaultAsync(c => c.Id == id);
+        if (category == null)
+        {
+            TempData["ErrorMessage"] = "Category not found.";
+            return RedirectToAction(nameof(Category));
+        }
+
+        if (category.Majors.Any())
+        {
+            TempData["ErrorMessage"] = $"Cannot delete category '{category.Name}' because {category.Majors.Count} major(s) reference it.";
+            return RedirectToAction(nameof(Category));
+        }
+
+        _context.Categories.Remove(category);
+        await _context.SaveChangesAsync();
+        TempData["SuccessMessage"] = $"Category '{category.Name}' deleted.";
+        return RedirectToAction(nameof(Category));
+    }
+
+    [Authorize(Roles = "Admin")]
+    [HttpGet]
+    public async Task<IActionResult> Major()
+    {
+        ViewData["Title"] = "Academic Majors";
+        ViewData["ActivePage"] = "Academic";
+
+        var majors = await _context.Majors
+            .AsNoTracking()
+            .Include(m => m.Category)
+            .Include(m => m.Courses)
+            .OrderBy(m => m.Code)
+            .ToListAsync();
+
+        ViewBag.Categories = await _context.Categories
+            .AsNoTracking()
+            .OrderBy(c => c.Name)
+            .ToListAsync();
+
+        return View(majors);
+    }
+
+    [Authorize(Roles = "Admin")]
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> CreateMajor(string name, string code, int categoryId)
+    {
+        var trimmedName = name?.Trim() ?? string.Empty;
+        var normalizedCode = (code?.Trim() ?? string.Empty).ToUpperInvariant();
+        if (string.IsNullOrWhiteSpace(trimmedName) || trimmedName.Length > 100 ||
+            string.IsNullOrWhiteSpace(normalizedCode) || normalizedCode.Length > 20 || categoryId <= 0)
+        {
+            TempData["ErrorMessage"] = "Valid major name, code (max 20 chars), and category are required.";
+            return RedirectToAction(nameof(Major));
+        }
+
+        if (!await _context.Categories.AnyAsync(c => c.Id == categoryId))
+        {
+            TempData["ErrorMessage"] = "Selected category does not exist.";
+            return RedirectToAction(nameof(Major));
+        }
+
+        if (await _context.Majors.AnyAsync(m => m.Code.ToUpper() == normalizedCode))
+        {
+            TempData["ErrorMessage"] = $"Major code '{normalizedCode}' already exists.";
+            return RedirectToAction(nameof(Major));
+        }
+
+        _context.Majors.Add(new Major { Name = trimmedName, Code = normalizedCode, CategoryId = categoryId });
+        await _context.SaveChangesAsync();
+        TempData["SuccessMessage"] = $"Major '{normalizedCode} - {trimmedName}' created successfully.";
+        return RedirectToAction(nameof(Major));
+    }
+
+    [Authorize(Roles = "Admin")]
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> EditMajor(int id, string name, string code, int categoryId)
+    {
+        var major = await _context.Majors.FindAsync(id);
+        if (major == null)
+        {
+            TempData["ErrorMessage"] = "Major not found.";
+            return RedirectToAction(nameof(Major));
+        }
+
+        var trimmedName = name?.Trim() ?? string.Empty;
+        var normalizedCode = (code?.Trim() ?? string.Empty).ToUpperInvariant();
+        if (string.IsNullOrWhiteSpace(trimmedName) || trimmedName.Length > 100 ||
+            string.IsNullOrWhiteSpace(normalizedCode) || normalizedCode.Length > 20 || categoryId <= 0)
+        {
+            TempData["ErrorMessage"] = "Valid major name, code (max 20 chars), and category are required.";
+            return RedirectToAction(nameof(Major));
+        }
+
+        if (!await _context.Categories.AnyAsync(c => c.Id == categoryId))
+        {
+            TempData["ErrorMessage"] = "Selected category does not exist.";
+            return RedirectToAction(nameof(Major));
+        }
+
+        if (await _context.Majors.AnyAsync(m => m.Id != id && m.Code.ToUpper() == normalizedCode))
+        {
+            TempData["ErrorMessage"] = $"Another major with code '{normalizedCode}' already exists.";
+            return RedirectToAction(nameof(Major));
+        }
+
+        major.Name = trimmedName;
+        major.Code = normalizedCode;
+        major.CategoryId = categoryId;
+        await _context.SaveChangesAsync();
+        TempData["SuccessMessage"] = $"Major '{normalizedCode} - {trimmedName}' updated successfully.";
+        return RedirectToAction(nameof(Major));
+    }
+
+    [Authorize(Roles = "Admin")]
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> DeleteMajor(int id)
+    {
+        var major = await _context.Majors
+            .Include(m => m.Courses)
+            .FirstOrDefaultAsync(m => m.Id == id);
+        if (major == null)
+        {
+            TempData["ErrorMessage"] = "Major not found.";
+            return RedirectToAction(nameof(Major));
+        }
+
+        if (major.Courses.Any())
+        {
+            TempData["ErrorMessage"] = $"Cannot delete major '{major.Code}' because {major.Courses.Count} course(s) reference it.";
+            return RedirectToAction(nameof(Major));
+        }
+
+        _context.Majors.Remove(major);
+        await _context.SaveChangesAsync();
+        TempData["SuccessMessage"] = $"Major '{major.Code}' deleted.";
+        return RedirectToAction(nameof(Major));
+    }
+
+    [Authorize(Roles = "Admin")]
+    [HttpGet]
+    public async Task<IActionResult> Semester()
+    {
+        ViewData["Title"] = "Academic Semesters";
+        ViewData["ActivePage"] = "Academic";
+
+        var semesters = await _context.Semesters
+            .AsNoTracking()
+            .Include(s => s.Courses)
+            .OrderByDescending(s => s.StartDate)
+            .ToListAsync();
+
+        return View(semesters);
+    }
+
+    [Authorize(Roles = "Admin")]
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> CreateSemester(string name, string code, DateTime startDate, DateTime endDate, bool isCurrent = false)
+    {
+        var trimmedName = name?.Trim() ?? string.Empty;
+        var normalizedCode = (code?.Trim() ?? string.Empty).ToUpperInvariant();
+        if (string.IsNullOrWhiteSpace(trimmedName) || trimmedName.Length > 50 ||
+            string.IsNullOrWhiteSpace(normalizedCode) || normalizedCode.Length > 20)
+        {
+            TempData["ErrorMessage"] = "Valid semester name (max 50 chars) and code (max 20 chars) are required.";
+            return RedirectToAction(nameof(Semester));
+        }
+
+        if (endDate <= startDate)
+        {
+            TempData["ErrorMessage"] = "End date must be after start date.";
+            return RedirectToAction(nameof(Semester));
+        }
+
+        if (await _context.Semesters.AnyAsync(s => s.Code.ToUpper() == normalizedCode))
+        {
+            TempData["ErrorMessage"] = $"Semester code '{normalizedCode}' already exists.";
+            return RedirectToAction(nameof(Semester));
+        }
+
+        using var tx = await _context.Database.BeginTransactionAsync();
+        if (isCurrent)
+        {
+            var currentSemesters = await _context.Semesters.Where(s => s.IsCurrent).ToListAsync();
+            foreach (var s in currentSemesters) s.IsCurrent = false;
+        }
+
+        _context.Semesters.Add(new Semester
+        {
+            Name = trimmedName,
+            Code = normalizedCode,
+            StartDate = startDate,
+            EndDate = endDate,
+            IsCurrent = isCurrent
+        });
+        await _context.SaveChangesAsync();
+        await tx.CommitAsync();
+
+        TempData["SuccessMessage"] = $"Semester '{normalizedCode} - {trimmedName}' created successfully.";
+        return RedirectToAction(nameof(Semester));
+    }
+
+    [Authorize(Roles = "Admin")]
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> EditSemester(int id, string name, string code, DateTime startDate, DateTime endDate, bool isCurrent = false)
+    {
+        var semester = await _context.Semesters.FindAsync(id);
+        if (semester == null)
+        {
+            TempData["ErrorMessage"] = "Semester not found.";
+            return RedirectToAction(nameof(Semester));
+        }
+
+        var trimmedName = name?.Trim() ?? string.Empty;
+        var normalizedCode = (code?.Trim() ?? string.Empty).ToUpperInvariant();
+        if (string.IsNullOrWhiteSpace(trimmedName) || trimmedName.Length > 50 ||
+            string.IsNullOrWhiteSpace(normalizedCode) || normalizedCode.Length > 20)
+        {
+            TempData["ErrorMessage"] = "Valid semester name (max 50 chars) and code (max 20 chars) are required.";
+            return RedirectToAction(nameof(Semester));
+        }
+
+        if (endDate <= startDate)
+        {
+            TempData["ErrorMessage"] = "End date must be after start date.";
+            return RedirectToAction(nameof(Semester));
+        }
+
+        if (await _context.Semesters.AnyAsync(s => s.Id != id && s.Code.ToUpper() == normalizedCode))
+        {
+            TempData["ErrorMessage"] = $"Another semester with code '{normalizedCode}' already exists.";
+            return RedirectToAction(nameof(Semester));
+        }
+
+        using var tx = await _context.Database.BeginTransactionAsync();
+        if (isCurrent)
+        {
+            var others = await _context.Semesters.Where(s => s.Id != id && s.IsCurrent).ToListAsync();
+            foreach (var s in others) s.IsCurrent = false;
+        }
+
+        semester.Name = trimmedName;
+        semester.Code = normalizedCode;
+        semester.StartDate = startDate;
+        semester.EndDate = endDate;
+        semester.IsCurrent = isCurrent;
+        await _context.SaveChangesAsync();
+        await tx.CommitAsync();
+
+        TempData["SuccessMessage"] = $"Semester '{normalizedCode} - {trimmedName}' updated successfully.";
+        return RedirectToAction(nameof(Semester));
+    }
+
+    [Authorize(Roles = "Admin")]
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> SetCurrentSemester(int id)
+    {
+        var target = await _context.Semesters.FindAsync(id);
+        if (target == null)
+        {
+            TempData["ErrorMessage"] = "Semester not found.";
+            return RedirectToAction(nameof(Semester));
+        }
+
+        using var tx = await _context.Database.BeginTransactionAsync();
+        var all = await _context.Semesters.ToListAsync();
+        foreach (var s in all) s.IsCurrent = (s.Id == id);
+        await _context.SaveChangesAsync();
+        await tx.CommitAsync();
+
+        TempData["SuccessMessage"] = $"'{target.Name}' is now the active current semester.";
+        return RedirectToAction(nameof(Semester));
+    }
+
+    [Authorize(Roles = "Admin")]
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> DeleteSemester(int id)
+    {
+        var semester = await _context.Semesters
+            .Include(s => s.Courses)
+            .FirstOrDefaultAsync(s => s.Id == id);
+        if (semester == null)
+        {
+            TempData["ErrorMessage"] = "Semester not found.";
+            return RedirectToAction(nameof(Semester));
+        }
+
+        if (semester.Courses.Any())
+        {
+            TempData["ErrorMessage"] = $"Cannot delete semester '{semester.Code}' because {semester.Courses.Count} course(s) reference it.";
+            return RedirectToAction(nameof(Semester));
+        }
+
+        _context.Semesters.Remove(semester);
+        await _context.SaveChangesAsync();
+        TempData["SuccessMessage"] = $"Semester '{semester.Code}' deleted.";
+        return RedirectToAction(nameof(Semester));
+    }
 }

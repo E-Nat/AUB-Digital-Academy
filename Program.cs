@@ -26,7 +26,8 @@ bool isEnrollmentTestMode = isInitTestDbOnly ||
                             args.Contains("--test-teacher-portal") ||
                             args.Contains("--test-phase4") ||
                             args.Contains("--test-navigation-phase1") ||
-                            args.Contains("--test-navigation-phase2");
+                            args.Contains("--test-navigation-phase2") ||
+                            args.Contains("--test-academic-lookups");
 
 // Add services to the container.
 string connectionString;
@@ -269,6 +270,12 @@ if (args.Contains("--test-enrollment-ui"))
 if (args.Contains("--test-enrollment-backend"))
 {
     Environment.ExitCode = await EnrollmentBackendTestRunner.RunTestsAsync(app.Services);
+    return;
+}
+
+if (args.Contains("--test-academic-lookups"))
+{
+    await AcademicLookupTestRunner.RunTestsAsync(app.Services);
     return;
 }
 

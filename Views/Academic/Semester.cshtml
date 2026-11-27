@@ -1,0 +1,153 @@
+@model IEnumerable<AUBDigitalAcademy.Models.Semester>
+@{
+    ViewData["Title"] = "Academic Semesters";
+    ViewData["ActivePage"] = "Academic";
+}
+
+<div class="container-fluid py-4 px-4">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
+        <div>
+            <h2 class="fw-bold text-dark mb-1">Academic Semesters</h2>
+            <p class="text-muted small mb-0">Manage academic terms and set the active current semester.</p>
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+            <a href="/Academic/Course" class="btn btn-outline-secondary btn-sm">Courses</a>
+            <a href="/Academic/Category" class="btn btn-outline-secondary btn-sm">Categories</a>
+            <a href="/Academic/Major" class="btn btn-outline-secondary btn-sm">Majors</a>
+            <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#createSemesterModal">
+                <i class="bi bi-plus-lg me-1"></i> Add Semester
+            </button>
+        </div>
+    </div>
+
+    @if (TempData["SuccessMessage"] != null)
+    {
+        <div class="alert alert-success alert-dismissible fade show">@TempData["SuccessMessage"]<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+    }
+    @if (TempData["ErrorMessage"] != null)
+    {
+        <div class="alert alert-danger alert-dismissible fade show">@TempData["ErrorMessage"]<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+    }
+
+    <div class="card border-0 shadow-sm rounded-4 overflow-hidden">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th class="ps-4">Code</th>
+                        <th>Name</th>
+                        <th>Dates</th>
+                        <th>Status</th>
+                        <th>Courses</th>
+                        <th class="text-end pe-4">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var s in Model)
+                    {
+                        <tr>
+                            <td class="ps-4"><span class="badge bg-dark font-monospace">@s.Code</span></td>
+                            <td class="fw-semibold">@s.Name</td>
+                            <td class="small text-muted">@s.StartDate.ToString("yyyy-MM-dd") &rarr; @s.EndDate.ToString("yyyy-MM-dd")</td>
+                            <td>
+                                @if (s.IsCurrent)
+                                {
+                                    <span class="badge bg-success rounded-pill">Current</span>
+                                }
+                                else
+                                {
+                                    <form asp-action="SetCurrentSemester" method="post" class="d-inline">
+                                        @Html.AntiForgeryToken()
+                                        <input type="hidden" name="id" value="@s.Id" />
+                                        <button type="submit" class="btn btn-sm btn-outline-success">Set Current</button>
+                                    </form>
+                                }
+                            </td>
+                            <td><span class="badge bg-primary-subtle text-primary rounded-pill">@s.Courses.Count</span></td>
+                            <td class="text-end pe-4">
+                                <button type="button" class="btn btn-sm btn-outline-primary me-1 edit-sem-btn"
+                                        data-id="@s.Id" data-code="@s.Code" data-name="@s.Name"
+                                        data-start="@s.StartDate.ToString("yyyy-MM-dd")" data-end="@s.EndDate.ToString("yyyy-MM-dd")"
+                                        data-current="@s.IsCurrent.ToString().ToLower()"
+                                        data-bs-toggle="modal" data-bs-target="#editSemesterModal">
+                                    <i class="bi bi-pencil"></i> Edit
+                                </button>
+                                <form asp-action="DeleteSemester" method="post" class="d-inline" onsubmit="return confirm('Delete this semester?');">
+                                    @Html.AntiForgeryToken()
+                                    <input type="hidden" name="id" value="@s.Id" />
+                                    <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i> Delete</button>
+                                </form>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="createSemesterModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <form asp-action="CreateSemester" method="post" class="modal-content">
+            @Html.AntiForgeryToken()
+            <div class="modal-header"><h5 class="modal-title">Add Semester</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+            <div class="modal-body">
+                <div class="mb-3"><label class="form-label fw-semibold">Code</label><input type="text" name="code" class="form-control" maxlength="20" required /></div>
+                <div class="mb-3"><label class="form-label fw-semibold">Name</label><input type="text" name="name" class="form-control" maxlength="50" required /></div>
+                <div class="row g-2 mb-3">
+                    <div class="col-6"><label class="form-label fw-semibold">Start Date</label><input type="date" name="startDate" class="form-control" required /></div>
+                    <div class="col-6"><label class="form-label fw-semibold">End Date</label><input type="date" name="endDate" class="form-control" required /></div>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" name="isCurrent" value="true" id="createSemCurrent" />
+                    <label class="form-check-label" for="createSemCurrent">Set as current semester</label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
+                <button type="submit" class="btn btn-primary">Create</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="modal fade" id="editSemesterModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <form asp-action="EditSemester" method="post" class="modal-content">
+            @Html.AntiForgeryToken()
+            <input type="hidden" id="editSemId" name="id" />
+            <div class="modal-header"><h5 class="modal-title">Edit Semester</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+            <div class="modal-body">
+                <div class="mb-3"><label class="form-label fw-semibold">Code</label><input type="text" id="editSemCode" name="code" class="form-control" maxlength="20" required /></div>
+                <div class="mb-3"><label class="form-label fw-semibold">Name</label><input type="text" id="editSemName" name="name" class="form-control" maxlength="50" required /></div>
+                <div class="row g-2 mb-3">
+                    <div class="col-6"><label class="form-label fw-semibold">Start Date</label><input type="date" id="editSemStart" name="startDate" class="form-control" required /></div>
+                    <div class="col-6"><label class="form-label fw-semibold">End Date</label><input type="date" id="editSemEnd" name="endDate" class="form-control" required /></div>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" name="isCurrent" value="true" id="editSemCurrent" />
+                    <label class="form-check-label" for="editSemCurrent">Set as current semester</label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
+                <button type="submit" class="btn btn-primary">Save</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        document.querySelectorAll('.edit-sem-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.getElementById('editSemId').value = btn.dataset.id;
+                document.getElementById('editSemCode').value = btn.dataset.code;
+                document.getElementById('editSemName').value = btn.dataset.name;
+                document.getElementById('editSemStart').value = btn.dataset.start;
+                document.getElementById('editSemEnd').value = btn.dataset.end;
+                document.getElementById('editSemCurrent').checked = btn.dataset.current === 'true';
+            });
+        });
+    </script>
+}
