@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using AUBDigitalAcademy.Data;
 using AUBDigitalAcademy.Models;
@@ -750,6 +751,8 @@ public class CurriculumService : ICurriculumService
         // Query real student completion data from SQL Server if studentId is supplied
         HashSet<int> completedItemIds = new();
         HashSet<int> completedLessonIds = new();
+        double lastVideoPosition = 0;
+        int videoQualifyingPct = 0;
         if (!string.IsNullOrWhiteSpace(studentId))
         {
             var completedRows = await _context.CourseProgresses
@@ -759,6 +762,17 @@ public class CurriculumService : ICurriculumService
                 .ToListAsync();
             completedItemIds = completedRows.Select(x => x.CourseItemId).ToHashSet();
             completedLessonIds = completedRows.Where(x => x.Type == ItemType.Lesson).Select(x => x.CourseItemId).ToHashSet();
+
+            var videoProg = await _context.VideoLessonProgresses
+                .AsNoTracking()
+                .FirstOrDefaultAsync(v => v.StudentId == studentId && v.CourseItemId == current.CourseItem.Id);
+            if (videoProg != null)
+            {
+                lastVideoPosition = videoProg.LastPositionSeconds;
+                videoQualifyingPct = videoProg.VideoDurationSeconds > 0
+                    ? Math.Min(100, (int)Math.Round((videoProg.QualifyingWatchedSeconds / videoProg.VideoDurationSeconds) * 100.0))
+                    : (videoProg.IsCompleted ? 100 : 0);
+            }
         }
 
         var modules = course.Chapters
@@ -805,6 +819,8 @@ public class CurriculumService : ICurriculumService
             ContentHtml = _htmlSanitizer.SanitizeLessonHtml(current.Lesson.ContentHtml),
             VideoUrl = _htmlSanitizer.SanitizeResourceUrl(current.Lesson.VideoUrl),
             IsCompleted = completedItemIds.Contains(current.CourseItem.Id),
+            LastVideoPositionSeconds = lastVideoPosition,
+            VideoQualifyingPercentage = videoQualifyingPct,
             CurrentLessonIndex = currentIndex + 1,
             TotalLessonsCount = orderedLessons.Count,
             CompletedLessonsCount = completedLessonIds.Count,
@@ -868,6 +884,7 @@ public class CurriculumService : ICurriculumService
         // Verify lesson exists and belongs to a chapter in the specified course
         var courseItem = await _context.CourseItems
             .Include(ci => ci.Chapter)
+            .Include(ci => ci.Lesson)
             .FirstOrDefaultAsync(ci => ci.Id == courseItemId);
 
         if (courseItem == null || courseItem.Chapter == null)
@@ -891,6 +908,22 @@ public class CurriculumService : ICurriculumService
         {
             _logger.LogInformation("MarkLessonCompleteAsync: Lesson ID {CourseItemId} is already completed by student {StudentId}.", courseItemId, studentId);
             return CurriculumOperationResult.Success(courseItemId, courseItem.Title, "Lesson is already marked as complete.");
+        }
+
+        // Gate video lessons: require >= 90% qualifying watched playback before completion
+        if (courseItem.Type == ItemType.Lesson && courseItem.Lesson != null && !string.IsNullOrWhiteSpace(courseItem.Lesson.VideoUrl))
+        {
+            var videoProgress = await _context.VideoLessonProgresses
+                .AsNoTracking()
+                .FirstOrDefaultAsync(v => v.StudentId == studentId && v.CourseItemId == courseItemId);
+            bool videoCompleted = videoProgress != null &&
+                                  (videoProgress.IsCompleted ||
+                                   (videoProgress.VideoDurationSeconds > 0 &&
+                                    (videoProgress.QualifyingWatchedSeconds / videoProgress.VideoDurationSeconds) >= 0.90));
+            if (!videoCompleted)
+            {
+                return CurriculumOperationResult.ValidationError("Please watch at least 90% of the lesson video before marking this lesson as complete.");
+            }
         }
 
         // Create new completion record in SQL Server
@@ -921,6 +954,151 @@ public class CurriculumService : ICurriculumService
             _logger.LogError(ex, "MarkLessonCompleteAsync: Unexpected error saving progress for student {StudentId}, Lesson {CourseItemId}.", studentId, courseItemId);
             return CurriculumOperationResult.Failed($"Failed to record completion: {ex.Message}");
         }
+    }
+
+    public async Task<VideoHeartbeatResult> RecordVideoHeartbeatAsync(
+        string studentId,
+        int courseId,
+        int courseItemId,
+        double currentPositionSeconds,
+        double videoDurationSeconds,
+        double segmentStartSeconds,
+        double segmentEndSeconds,
+        bool isPlaybackAdvance)
+    {
+        if (string.IsNullOrWhiteSpace(studentId) || courseId <= 0 || courseItemId <= 0)
+        {
+            return new VideoHeartbeatResult(false, 0, 0, false, 0, "Invalid video heartbeat parameters.");
+        }
+
+        var isEnrolled = await _context.Enrollments.AsNoTracking().AnyAsync(e => e.StudentId == studentId && e.CourseId == courseId);
+        if (!isEnrolled)
+        {
+            return new VideoHeartbeatResult(false, 0, 0, false, 0, "Student is not enrolled in this course.");
+        }
+
+        var courseItem = await _context.CourseItems
+            .AsNoTracking()
+            .Include(ci => ci.Chapter)
+            .Include(ci => ci.Lesson)
+            .FirstOrDefaultAsync(ci => ci.Id == courseItemId && ci.Type == ItemType.Lesson);
+
+        if (courseItem == null || courseItem.Chapter == null || courseItem.Chapter.CourseId != courseId ||
+            courseItem.Lesson == null || string.IsNullOrWhiteSpace(courseItem.Lesson.VideoUrl))
+        {
+            return new VideoHeartbeatResult(false, 0, 0, false, 0, "Video lesson not found in this course.");
+        }
+
+        var progress = await _context.VideoLessonProgresses
+            .FirstOrDefaultAsync(v => v.StudentId == studentId && v.CourseItemId == courseItemId);
+
+        if (progress == null)
+        {
+            progress = new VideoLessonProgress
+            {
+                StudentId = studentId,
+                CourseItemId = courseItemId,
+                WatchedIntervalsJson = "[]",
+                LastActivityAt = DateTime.UtcNow
+            };
+            _context.VideoLessonProgresses.Add(progress);
+        }
+
+        if (videoDurationSeconds > 0)
+        {
+            progress.VideoDurationSeconds = videoDurationSeconds;
+        }
+
+        double effectiveDuration = progress.VideoDurationSeconds;
+        double clampedPos = effectiveDuration > 0
+            ? Math.Clamp(currentPositionSeconds, 0, effectiveDuration)
+            : Math.Max(0, currentPositionSeconds);
+        progress.LastPositionSeconds = clampedPos;
+        progress.LastActivityAt = DateTime.UtcNow;
+
+        var intervals = DeserializeIntervals(progress.WatchedIntervalsJson);
+
+        // Anti-seek rule: only accept continuous forward playback segments <= 15s per heartbeat
+        if (isPlaybackAdvance && segmentStartSeconds >= 0 && segmentEndSeconds > segmentStartSeconds)
+        {
+            double clampedStart = effectiveDuration > 0 ? Math.Clamp(segmentStartSeconds, 0, effectiveDuration) : segmentStartSeconds;
+            double clampedEnd = effectiveDuration > 0 ? Math.Clamp(segmentEndSeconds, 0, effectiveDuration) : segmentEndSeconds;
+            double span = clampedEnd - clampedStart;
+
+            if (span > 0 && span <= 15.0)
+            {
+                progress.WatchedDurationSeconds += span;
+                intervals.Add(new[] { Math.Round(clampedStart, 2), Math.Round(clampedEnd, 2) });
+            }
+        }
+
+        var merged = MergeIntervals(intervals);
+        double qualifying = merged.Sum(iv => iv[1] - iv[0]);
+        progress.WatchedIntervalsJson = JsonSerializer.Serialize(merged);
+        progress.QualifyingWatchedSeconds = Math.Round(qualifying, 2);
+
+        int pct = effectiveDuration > 0
+            ? Math.Min(100, (int)Math.Round((progress.QualifyingWatchedSeconds / effectiveDuration) * 100.0))
+            : 0;
+
+        bool reachedThreshold = effectiveDuration > 0 && (progress.QualifyingWatchedSeconds / effectiveDuration) >= 0.90;
+        if (reachedThreshold && !progress.IsCompleted)
+        {
+            progress.IsCompleted = true;
+            progress.CompletedAt = DateTime.UtcNow;
+        }
+
+        await _context.SaveChangesAsync();
+
+        if (progress.IsCompleted)
+        {
+            await MarkLessonCompleteAsync(studentId, courseId, courseItemId);
+        }
+
+        return new VideoHeartbeatResult(
+            true,
+            progress.QualifyingWatchedSeconds,
+            progress.IsCompleted ? Math.Max(90, pct) : pct,
+            progress.IsCompleted,
+            progress.LastPositionSeconds);
+    }
+
+    private static List<double[]> DeserializeIntervals(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return new List<double[]>();
+        try
+        {
+            var parsed = JsonSerializer.Deserialize<List<double[]>>(json);
+            return parsed?.Where(iv => iv != null && iv.Length == 2 && iv[1] > iv[0]).ToList() ?? new List<double[]>();
+        }
+        catch
+        {
+            return new List<double[]>();
+        }
+    }
+
+    private static List<double[]> MergeIntervals(List<double[]> intervals)
+    {
+        if (intervals.Count == 0) return new List<double[]>();
+
+        var ordered = intervals.OrderBy(iv => iv[0]).ThenBy(iv => iv[1]).ToList();
+        var merged = new List<double[]> { new[] { ordered[0][0], ordered[0][1] } };
+
+        for (int i = 1; i < ordered.Count; i++)
+        {
+            var last = merged[^1];
+            var curr = ordered[i];
+            if (curr[0] <= last[1] + 1.0)
+            {
+                last[1] = Math.Max(last[1], curr[1]);
+            }
+            else
+            {
+                merged.Add(new[] { curr[0], curr[1] });
+            }
+        }
+
+        return merged;
     }
 
     public async Task<int> GetStudentCompletedLessonsCountAsync(string studentId)

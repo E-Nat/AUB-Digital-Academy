@@ -91,7 +91,7 @@
                         else if (isDirectVideoFile)
                         {
                             <div class="p-2 bg-black">
-                                <video controls class="w-100 rounded" style="max-height: 500px;" preload="metadata">
+                                <video id="lessonVideoPlayer" controls class="w-100 rounded" style="max-height: 500px;" preload="metadata">
                                     <source src="@safeVideoUrl" />
                                     Your browser does not support the video tag.
                                 </video>
@@ -128,8 +128,8 @@
                         }
                         @if (hasSafeVideo)
                         {
-                            <span class="badge bg-light text-muted border">
-                                <i class="bi bi-check-circle text-success me-1"></i> Video Attached
+                            <span class="badge bg-light text-muted border" id="videoWatchProgressBadge">
+                                <i class="bi bi-play-circle text-primary me-1"></i> Watched: @Model.VideoQualifyingPercentage%
                             </span>
                         }
                     </div>
@@ -437,5 +437,105 @@
             }
             form.submit();
         });
+
+        // Phase 5A: HTML5 Video Anti-Seek Watch Tracking (>=90%) & Resume
+        (function () {
+            const video = document.getElementById('lessonVideoPlayer');
+            if (!video) return;
+
+            const resumePos = @Model.LastVideoPositionSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            const heartbeatUrl = '/Student/Course/@Model.CourseId/Lesson/@Model.CourseItemId/VideoHeartbeat';
+            const tokenInput = document.querySelector('input[name="__RequestVerificationToken"]');
+            const antiForgeryToken = tokenInput ? tokenInput.value : '';
+
+            let lastStableTime = 0;
+            let pendingStart = null;
+            let pendingEnd = null;
+            let isSeeking = false;
+            let lastSentAt = 0;
+
+            video.addEventListener('loadedmetadata', function () {
+                if (resumePos > 0 && video.duration > 2 && resumePos < video.duration - 1) {
+                    video.currentTime = resumePos;
+                    lastStableTime = resumePos;
+                }
+            });
+
+            video.addEventListener('seeking', function () {
+                isSeeking = true;
+                pendingStart = null;
+                pendingEnd = null;
+            });
+
+            video.addEventListener('seeked', function () {
+                isSeeking = false;
+                lastStableTime = video.currentTime;
+            });
+
+            async function sendHeartbeat(isAdvance) {
+                if (!video.duration || isNaN(video.duration)) return;
+                const segStart = isAdvance && pendingStart !== null ? pendingStart : 0;
+                const segEnd = isAdvance && pendingEnd !== null ? pendingEnd : 0;
+                pendingStart = null;
+                pendingEnd = null;
+                lastSentAt = Date.now();
+
+                const body = new URLSearchParams({
+                    currentPositionSeconds: video.currentTime.toFixed(2),
+                    videoDurationSeconds: video.duration.toFixed(2),
+                    segmentStartSeconds: segStart.toFixed(2),
+                    segmentEndSeconds: segEnd.toFixed(2),
+                    isPlaybackAdvance: isAdvance ? 'true' : 'false'
+                });
+
+                try {
+                    const res = await fetch(heartbeatUrl, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                            'RequestVerificationToken': antiForgeryToken
+                        },
+                        body: body.toString()
+                    });
+                    if (!res.ok) return;
+                    const data = await res.json();
+                    if (data.success) {
+                        const badge = document.getElementById('videoWatchProgressBadge');
+                        if (badge && data.watchedPercentage !== undefined) {
+                            badge.innerHTML = `<i class="bi bi-play-circle text-primary me-1"></i> Watched: ${data.watchedPercentage}%`;
+                        }
+                        if (data.isCompleted) {
+                            const container = document.getElementById('completionActionContainer');
+                            if (container) {
+                                container.innerHTML = '<button type="button" class="btn btn-success d-inline-flex align-items-center gap-2" disabled aria-disabled="true"><i class="bi bi-check-circle-fill"></i><span>Completed</span></button>';
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.warn('Video heartbeat error:', e);
+                }
+            }
+
+            video.addEventListener('timeupdate', function () {
+                if (isSeeking || video.paused) return;
+                const nowPos = video.currentTime;
+                const delta = nowPos - lastStableTime;
+                if (delta > 0 && delta <= 4.0) {
+                    if (pendingStart === null) pendingStart = lastStableTime;
+                    pendingEnd = nowPos;
+                } else if (delta > 4.0 || delta < 0) {
+                    pendingStart = null;
+                    pendingEnd = null;
+                }
+                lastStableTime = nowPos;
+
+                if (Date.now() - lastSentAt >= 4000) {
+                    sendHeartbeat(pendingStart !== null && pendingEnd !== null);
+                }
+            });
+
+            video.addEventListener('pause', () => sendHeartbeat(pendingStart !== null && pendingEnd !== null));
+            video.addEventListener('ended', () => sendHeartbeat(pendingStart !== null && pendingEnd !== null));
+        })();
     </script>
 }

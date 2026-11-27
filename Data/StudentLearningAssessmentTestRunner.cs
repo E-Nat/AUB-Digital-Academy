@@ -123,8 +123,18 @@ public static class StudentLearningAssessmentTestRunner
             throw new Exception("StudentLessonPlayerAsync failed to load for enrolled student.");
 
         var markResult = await curriculumService.MarkLessonCompleteAsync(studentUser.Id, cs301.Id, firstLessonItem.Id);
+        if (!markResult.IsSuccess && !string.IsNullOrWhiteSpace(lessonPlayer.VideoUrl))
+        {
+            // Phase 5A: Video lessons require >= 90% qualifying watched playback
+            for (int sec = 0; sec < 90; sec += 10)
+            {
+                await curriculumService.RecordVideoHeartbeatAsync(
+                    studentUser.Id, cs301.Id, firstLessonItem.Id, sec + 10, 100.0, sec, sec + 10, true);
+            }
+            markResult = await curriculumService.MarkLessonCompleteAsync(studentUser.Id, cs301.Id, firstLessonItem.Id);
+        }
         if (!markResult.IsSuccess)
-            throw new Exception("MarkLessonCompleteAsync failed.");
+            throw new Exception($"MarkLessonCompleteAsync failed: {markResult.Message}");
 
         var isCompletedInDb = await context.CourseProgresses.AnyAsync(cp => cp.StudentId == studentUser.Id && cp.CourseItemId == firstLessonItem.Id && cp.IsCompleted);
         if (!isCompletedInDb)

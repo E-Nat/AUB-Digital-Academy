@@ -25,6 +25,7 @@ public class ApplicationDbContext : IdentityDbContext<User>
     public DbSet<Assignment> Assignments { get; set; }
     public DbSet<Enrollment> Enrollments { get; set; }
     public DbSet<CourseProgress> CourseProgresses { get; set; }
+    public DbSet<VideoLessonProgress> VideoLessonProgresses { get; set; }
     public DbSet<QuizSubmission> QuizSubmissions { get; set; }
     public DbSet<AssignmentSubmission> AssignmentSubmissions { get; set; }
     public DbSet<AssignmentAttachment> AssignmentAttachments { get; set; }
@@ -66,6 +67,22 @@ public class ApplicationDbContext : IdentityDbContext<User>
             entity.HasOne(t => t.User)
                 .WithMany(u => u.TelegramLinkTokens)
                 .HasForeignKey(t => t.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // VideoLessonProgress
+        builder.Entity<VideoLessonProgress>(entity =>
+        {
+            entity.HasIndex(v => new { v.StudentId, v.CourseItemId }).IsUnique();
+
+            entity.HasOne(v => v.Student)
+                .WithMany()
+                .HasForeignKey(v => v.StudentId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(v => v.CourseItem)
+                .WithMany()
+                .HasForeignKey(v => v.CourseItemId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
 

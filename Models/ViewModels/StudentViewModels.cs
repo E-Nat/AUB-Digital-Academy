@@ -107,6 +107,8 @@ public class StudentLessonPlayerViewModel
     public bool HasVideo => !string.IsNullOrWhiteSpace(VideoUrl);
     public bool HasContent => !string.IsNullOrWhiteSpace(ContentHtml);
     public bool IsCompleted { get; set; }
+    public double LastVideoPositionSeconds { get; set; }
+    public int VideoQualifyingPercentage { get; set; }
 
     // Curriculum Position & Progress Tracking
     public int CurrentLessonIndex { get; set; } // 1-based index (e.g. Lesson 2 of 10)

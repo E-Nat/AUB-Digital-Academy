@@ -123,6 +123,16 @@ public interface ICurriculumService
     /// </summary>
     Task<CurriculumOperationResult> MarkLessonCompleteAsync(string studentId, int courseId, int courseItemId);
 
+    Task<VideoHeartbeatResult> RecordVideoHeartbeatAsync(
+        string studentId,
+        int courseId,
+        int courseItemId,
+        double currentPositionSeconds,
+        double videoDurationSeconds,
+        double segmentStartSeconds,
+        double segmentEndSeconds,
+        bool isPlaybackAdvance);
+
     /// <summary>
     /// Retrieves total count of completed lessons across all enrolled courses for a student.
     /// </summary>
@@ -279,3 +289,11 @@ public interface ICurriculumService
     /// </summary>
     Task<StudentGradesViewModel> GetStudentGradesAsync(string studentId, int? courseId = null);
 }
+
+public sealed record VideoHeartbeatResult(
+    bool Success,
+    double QualifyingWatchedSeconds,
+    int WatchedPercentage,
+    bool IsCompleted,
+    double LastPositionSeconds,
+    string? ErrorMessage = null);

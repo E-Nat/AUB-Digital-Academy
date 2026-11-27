@@ -540,6 +540,57 @@ public class StudentController : Controller
         return PhysicalFile(videoInfo.Value.FullPath, videoInfo.Value.ContentType, enableRangeProcessing: true);
     }
 
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    [Route("Student/Course/{courseId:int}/Lesson/{courseItemId:int}/VideoHeartbeat")]
+    public async Task<IActionResult> VideoHeartbeat(
+        int courseId,
+        int courseItemId,
+        double currentPositionSeconds,
+        double videoDurationSeconds,
+        double segmentStartSeconds,
+        double segmentEndSeconds,
+        bool isPlaybackAdvance = true)
+    {
+        if (courseId <= 0 || courseItemId <= 0) return BadRequest(new { success = false });
+
+        var currentUserId = _userManager.GetUserId(User);
+        if (string.IsNullOrEmpty(currentUserId)) return Challenge();
+
+        var isAdmin = User.IsInRole("Admin");
+        var isEnrolled = await _enrollmentService.IsStudentEnrolledAsync(currentUserId, courseId);
+        if (!isEnrolled && !isAdmin) return Forbid();
+
+        if (isAdmin && !isEnrolled)
+        {
+            return Json(new { success = true, isAdminPreview = true, watchedPercentage = 0, isCompleted = false });
+        }
+
+        var result = await _curriculumService.RecordVideoHeartbeatAsync(
+            currentUserId,
+            courseId,
+            courseItemId,
+            currentPositionSeconds,
+            videoDurationSeconds,
+            segmentStartSeconds,
+            segmentEndSeconds,
+            isPlaybackAdvance);
+
+        if (!result.Success)
+        {
+            return BadRequest(new { success = false, message = result.ErrorMessage });
+        }
+
+        return Json(new
+        {
+            success = true,
+            qualifyingWatchedSeconds = result.QualifyingWatchedSeconds,
+            watchedPercentage = result.WatchedPercentage,
+            isCompleted = result.IsCompleted,
+            lastPositionSeconds = result.LastPositionSeconds
+        });
+    }
+
     /// <summary>
     /// Mark Lesson as Complete:
     /// Server-side action allowing an enrolled student to mark a lesson as completed.
