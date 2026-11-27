@@ -302,11 +302,12 @@ public class StudentController : Controller
             .GroupBy(s => s.AssignmentId)
             .ToDictionary(g => g.Key, g => g.Any(s => s.Status == SubmissionStatus.Graded || s.Status == SubmissionStatus.Submitted || s.Status == SubmissionStatus.Late));
 
-        // Find first item for "Start Learning"
+        // Find first item for "Start Learning" (exclude unpublished quizzes for non-admin students)
         var firstLesson = course.Chapters
             .OrderBy(ch => ch.Position)
             .ThenBy(ch => ch.Id)
             .SelectMany(ch => ch.CourseItems
+                .Where(ci => isAdmin || ci.Type != ItemType.Quiz || (ci.Quiz != null && ci.Quiz.IsPublished))
                 .OrderBy(ci => ci.Position)
                 .ThenBy(ci => ci.Id))
             .FirstOrDefault();
@@ -320,6 +321,7 @@ public class StudentController : Controller
                 Title = ch.Title,
                 Position = ch.Position,
                 Lessons = ch.CourseItems
+                    .Where(ci => isAdmin || ci.Type != ItemType.Quiz || (ci.Quiz != null && ci.Quiz.IsPublished))
                     .OrderBy(ci => ci.Position)
                     .ThenBy(ci => ci.Id)
                     .Select(ci =>
@@ -476,7 +478,7 @@ public class StudentController : Controller
         }
 
         // 2. Load complete Lesson Player ViewModel with completion tracking & ownership validation
-        var playerModel = await _curriculumService.GetStudentLessonPlayerAsync(courseId.Value, lessonId, currentUserId);
+        var playerModel = await _curriculumService.GetStudentLessonPlayerAsync(courseId.Value, lessonId, currentUserId, allowAdminPreview: isAdmin);
         if (playerModel == null)
         {
             _logger.LogWarning("Lesson ID {LessonId} not found or does not belong to Course ID {CourseId}.", lessonId, courseId.Value);
@@ -618,7 +620,7 @@ public class StudentController : Controller
             return Forbid();
         }
 
-        var playerModel = await _curriculumService.GetStudentQuizPlayerAsync(courseId.Value, courseItemId, currentUserId);
+        var playerModel = await _curriculumService.GetStudentQuizPlayerAsync(courseId.Value, courseItemId, currentUserId, allowAdminPreview: isAdmin);
         if (playerModel == null)
         {
             _logger.LogWarning("Quiz CourseItem ID {CourseItemId} not found or does not belong to Course ID {CourseId}.", courseItemId, courseId.Value);
@@ -746,7 +748,7 @@ public class StudentController : Controller
             return NotFound("Quiz submission does not belong to this course or quiz item.");
         }
 
-        var resultModel = await _curriculumService.GetStudentQuizResultAsync(courseId, courseItemId, submissionId, currentUserId);
+        var resultModel = await _curriculumService.GetStudentQuizResultAsync(courseId, courseItemId, submissionId, currentUserId, allowAdminPreview: isAdmin);
         if (resultModel == null)
         {
             return NotFound("Quiz result details not found.");
@@ -770,6 +772,8 @@ public class StudentController : Controller
         var currentUserId = _userManager.GetUserId(User);
         if (string.IsNullOrEmpty(currentUserId)) return Challenge();
 
+        var isAdmin = User.IsInRole("Admin");
+
         if (!courseId.HasValue || courseId.Value <= 0)
         {
             var item = await _context.CourseItems
@@ -786,7 +790,14 @@ public class StudentController : Controller
             }
         }
 
-        var model = await _curriculumService.GetStudentAssignmentAsync(courseId.Value, courseItemId, currentUserId);
+        var isEnrolled = await _enrollmentService.IsStudentEnrolledAsync(currentUserId, courseId.Value);
+        if (!isEnrolled && !isAdmin)
+        {
+            _logger.LogWarning("Assignment access denied: Student '{StudentId}' is not enrolled in Course ID {CourseId}.", currentUserId, courseId.Value);
+            return Forbid();
+        }
+
+        var model = await _curriculumService.GetStudentAssignmentAsync(courseId.Value, courseItemId, currentUserId, allowAdminPreview: isAdmin);
         if (model == null)
         {
             return NotFound("Assignment not found or you are not enrolled in this course.");
@@ -868,6 +879,7 @@ public class StudentController : Controller
         if (string.IsNullOrEmpty(currentUserId)) return Challenge();
 
         var submission = await _context.AssignmentSubmissions
+            .Include(s => s.Attachments)
             .Include(s => s.Assignment)
                 .ThenInclude(a => a.CourseItem)
                     .ThenInclude(ci => ci.Chapter)
@@ -883,6 +895,14 @@ public class StudentController : Controller
         if (string.IsNullOrEmpty(submission.FileUrl))
         {
             return BadRequest("No file attached to this submission.");
+        }
+
+        bool isSoftDeleted = submission.Attachments.Any(a =>
+            a.IsDeleted && string.Equals(a.StoragePath, submission.FileUrl, StringComparison.OrdinalIgnoreCase)) ||
+            (submission.Attachments.Any() && submission.Attachments.All(a => a.IsDeleted));
+        if (isSoftDeleted)
+        {
+            return NotFound("Attachment not found or has been removed.");
         }
 
         if (submission.FileUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
@@ -917,6 +937,8 @@ public class StudentController : Controller
         var currentUserId = _userManager.GetUserId(User);
         if (string.IsNullOrEmpty(currentUserId)) return Challenge();
 
+        var isAdmin = User.IsInRole("Admin");
+
         if (!courseId.HasValue || courseId.Value <= 0)
         {
             var item = await _context.CourseItems
@@ -933,7 +955,14 @@ public class StudentController : Controller
             }
         }
 
-        var model = await _curriculumService.GetStudentBookAsync(courseId.Value, courseItemId, currentUserId);
+        var isEnrolled = await _enrollmentService.IsStudentEnrolledAsync(currentUserId, courseId.Value);
+        if (!isEnrolled && !isAdmin)
+        {
+            _logger.LogWarning("Book access denied: Student '{StudentId}' is not enrolled in Course ID {CourseId}.", currentUserId, courseId.Value);
+            return Forbid();
+        }
+
+        var model = await _curriculumService.GetStudentBookAsync(courseId.Value, courseItemId, currentUserId, allowAdminPreview: isAdmin);
         if (model == null)
         {
             return NotFound("Book not found or you are not enrolled in this course.");

@@ -695,7 +695,7 @@ public class CurriculumService : ICurriculumService
         return maxPos + 1;
     }
 
-    public async Task<StudentLessonPlayerViewModel?> GetStudentLessonPlayerAsync(int courseId, int lessonId, string? studentId = null)
+    public async Task<StudentLessonPlayerViewModel?> GetStudentLessonPlayerAsync(int courseId, int lessonId, string? studentId = null, bool allowAdminPreview = false)
     {
         if (courseId <= 0 || lessonId <= 0) return null;
 
@@ -749,14 +749,16 @@ public class CurriculumService : ICurriculumService
 
         // Query real student completion data from SQL Server if studentId is supplied
         HashSet<int> completedItemIds = new();
+        HashSet<int> completedLessonIds = new();
         if (!string.IsNullOrWhiteSpace(studentId))
         {
-            var completedList = await _context.CourseProgresses
+            var completedRows = await _context.CourseProgresses
                 .AsNoTracking()
                 .Where(cp => cp.StudentId == studentId && cp.IsCompleted && cp.CourseItem.Chapter.CourseId == courseId)
-                .Select(cp => cp.CourseItemId)
+                .Select(cp => new { cp.CourseItemId, cp.CourseItem.Type })
                 .ToListAsync();
-            completedItemIds = new HashSet<int>(completedList);
+            completedItemIds = completedRows.Select(x => x.CourseItemId).ToHashSet();
+            completedLessonIds = completedRows.Where(x => x.Type == ItemType.Lesson).Select(x => x.CourseItemId).ToHashSet();
         }
 
         var modules = course.Chapters
@@ -769,7 +771,7 @@ public class CurriculumService : ICurriculumService
                 Position = ch.Position,
                 IsCurrentModule = ch.Id == current.Chapter.Id,
                 Lessons = ch.CourseItems
-                    .Where(ci => (ci.Type == ItemType.Lesson && ci.Lesson != null) || (ci.Type == ItemType.Quiz && ci.Quiz != null))
+                    .Where(ci => (ci.Type == ItemType.Lesson && ci.Lesson != null) || (ci.Type == ItemType.Quiz && ci.Quiz != null && (ci.Quiz.IsPublished || allowAdminPreview)))
                     .OrderBy(ci => ci.Position)
                     .ThenBy(ci => ci.Id)
                     .Select(ci => new StudentPlayerLessonItemViewModel
@@ -805,7 +807,7 @@ public class CurriculumService : ICurriculumService
             IsCompleted = completedItemIds.Contains(current.CourseItem.Id),
             CurrentLessonIndex = currentIndex + 1,
             TotalLessonsCount = orderedLessons.Count,
-            CompletedLessonsCount = completedItemIds.Count,
+            CompletedLessonsCount = completedLessonIds.Count,
             PreviousLesson = previous == null ? null : new StudentLessonNavigationItemViewModel
             {
                 CourseItemId = previous.CourseItem.Id,
@@ -927,7 +929,7 @@ public class CurriculumService : ICurriculumService
 
         return await _context.CourseProgresses
             .AsNoTracking()
-            .CountAsync(cp => cp.StudentId == studentId && cp.IsCompleted);
+            .CountAsync(cp => cp.StudentId == studentId && cp.IsCompleted && cp.CourseItem.Type == ItemType.Lesson);
     }
 
     public async Task<Dictionary<int, (int TotalLessons, int CompletedLessons)>> GetStudentCoursesProgressAsync(string studentId, IEnumerable<int> courseIds)
@@ -950,7 +952,7 @@ public class CurriculumService : ICurriculumService
         {
             completedLessonsMap = await _context.CourseProgresses
                 .AsNoTracking()
-                .Where(cp => cp.StudentId == studentId && cp.IsCompleted && idList.Contains(cp.CourseItem.Chapter.CourseId))
+                .Where(cp => cp.StudentId == studentId && cp.IsCompleted && cp.CourseItem.Type == ItemType.Lesson && idList.Contains(cp.CourseItem.Chapter.CourseId))
                 .GroupBy(cp => cp.CourseItem.Chapter.CourseId)
                 .Select(g => new { CourseId = g.Key, Count = g.Count() })
                 .ToDictionaryAsync(x => x.CourseId, x => x.Count);
@@ -1635,16 +1637,19 @@ public class CurriculumService : ICurriculumService
         };
     }
 
-    public async Task<StudentQuizPlayerViewModel?> GetStudentQuizPlayerAsync(int courseId, int courseItemId, string studentId)
+    public async Task<StudentQuizPlayerViewModel?> GetStudentQuizPlayerAsync(int courseId, int courseItemId, string studentId, bool allowAdminPreview = false)
     {
         if (courseId <= 0 || courseItemId <= 0 || string.IsNullOrWhiteSpace(studentId)) return null;
 
-        // Enrollment check
-        var isEnrolled = await _context.Enrollments.AnyAsync(e => e.StudentId == studentId && e.CourseId == courseId);
-        if (!isEnrolled)
+        // Enrollment check (bypassed only for explicit server-verified Admin preview)
+        if (!allowAdminPreview)
         {
-            _logger.LogWarning("GetStudentQuizPlayerAsync: Student {StudentId} is not enrolled in Course {CourseId}.", studentId, courseId);
-            return null;
+            var isEnrolled = await _context.Enrollments.AnyAsync(e => e.StudentId == studentId && e.CourseId == courseId);
+            if (!isEnrolled)
+            {
+                _logger.LogWarning("GetStudentQuizPlayerAsync: Student {StudentId} is not enrolled in Course {CourseId}.", studentId, courseId);
+                return null;
+            }
         }
 
         var course = await _context.Courses
@@ -1683,6 +1688,12 @@ public class CurriculumService : ICurriculumService
         }
 
         var quiz = currentItem.Quiz;
+        if (!quiz.IsPublished && !allowAdminPreview)
+        {
+            _logger.LogWarning("GetStudentQuizPlayerAsync: Student {StudentId} attempted to access unpublished Quiz {QuizId} (CourseItem {CourseItemId}).",
+                studentId, quiz.Id, courseItemId);
+            return null;
+        }
 
         // Student submissions for this quiz
         var allSubmissions = await _context.QuizSubmissions
@@ -1698,16 +1709,17 @@ public class CurriculumService : ICurriculumService
             : (quiz.MaxAttempts > 0 ? quiz.MaxAttempts : 3);
         var bestScore = allSubmissions.Any() ? allSubmissions.Max(s => s.Score) : (double?)null;
 
-        // Query completed lesson IDs for progress
-        var completedList = await _context.CourseProgresses
+        // Query completed item IDs (all types for sidebar indicators) and lesson-only IDs for progress
+        var completedRows = await _context.CourseProgresses
             .AsNoTracking()
             .Where(cp => cp.StudentId == studentId && cp.IsCompleted && cp.CourseItem.Chapter.CourseId == courseId)
-            .Select(cp => cp.CourseItemId)
+            .Select(cp => new { cp.CourseItemId, cp.CourseItem.Type })
             .ToListAsync();
-        var completedItemIds = new HashSet<int>(completedList);
+        var completedItemIds = completedRows.Select(x => x.CourseItemId).ToHashSet();
+        var completedLessonCount = completedRows.Count(x => x.Type == ItemType.Lesson);
 
         var totalLessons = course.Chapters.SelectMany(ch => ch.CourseItems.Where(ci => ci.Type == ItemType.Lesson)).Count();
-        var progressPct = totalLessons > 0 ? (int)Math.Round((double)completedItemIds.Count / totalLessons * 100) : 0;
+        var progressPct = totalLessons > 0 ? Math.Min(100, (int)Math.Round((double)completedLessonCount / totalLessons * 100)) : 0;
 
         var modules = course.Chapters
             .OrderBy(ch => ch.Position)
@@ -1719,7 +1731,7 @@ public class CurriculumService : ICurriculumService
                 Position = ch.Position,
                 IsCurrentModule = ch.Id == currentChapter.Id,
                 Lessons = ch.CourseItems
-                    .Where(ci => (ci.Type == ItemType.Lesson && ci.Lesson != null) || (ci.Type == ItemType.Quiz && ci.Quiz != null))
+                    .Where(ci => (ci.Type == ItemType.Lesson && ci.Lesson != null) || (ci.Type == ItemType.Quiz && ci.Quiz != null && (ci.Quiz.IsPublished || allowAdminPreview)))
                     .OrderBy(ci => ci.Position)
                     .ThenBy(ci => ci.Id)
                     .Select(ci => new StudentPlayerLessonItemViewModel
@@ -1762,7 +1774,7 @@ public class CurriculumService : ICurriculumService
             LatestIsPassed = latestSubmission?.IsPassed,
             LatestSubmittedAt = latestSubmission?.SubmittedAt,
             CourseProgressPercentage = progressPct,
-            CompletedLessonsCount = completedItemIds.Count,
+            CompletedLessonsCount = completedLessonCount,
             TotalLessonsCount = totalLessons,
             Questions = quiz.Questions
                 .OrderBy(q => q.Order)
@@ -1824,6 +1836,12 @@ public class CurriculumService : ICurriculumService
         }
 
         var quiz = courseItem.Quiz;
+        if (!quiz.IsPublished)
+        {
+            _logger.LogWarning("SubmitQuizAsync: Student {StudentId} attempted to submit unpublished Quiz {QuizId} (CourseItem {CourseItemId}).",
+                studentId, quiz.Id, courseItemId);
+            return (CurriculumOperationResult.NotFound("Quiz not found."), null);
+        }
 
         // Query student's first attempt to determine effective MaxAttempts (future-only limit rule)
         var firstAttempt = await _context.QuizSubmissions
@@ -1966,7 +1984,7 @@ public class CurriculumService : ICurriculumService
         return (CurriculumOperationResult.Ok("Quiz submitted successfully.", submission.Id), outcome);
     }
 
-    public async Task<StudentQuizResultViewModel?> GetStudentQuizResultAsync(int courseId, int courseItemId, int submissionId, string studentId)
+    public async Task<StudentQuizResultViewModel?> GetStudentQuizResultAsync(int courseId, int courseItemId, int submissionId, string studentId, bool allowAdminPreview = false)
     {
         if (courseId <= 0 || courseItemId <= 0 || submissionId <= 0 || string.IsNullOrWhiteSpace(studentId)) return null;
 
@@ -1985,7 +2003,8 @@ public class CurriculumService : ICurriculumService
 
         if (submission == null) return null;
 
-        // Student isolation check: student can only view their own submission
+        // Student isolation check: student can only view their own submission (Admin preview may inspect any)
+        if (!allowAdminPreview && submission.StudentId != studentId)
         if (submission.StudentId != studentId)
         {
             _logger.LogWarning("GetStudentQuizResultAsync: Student {StudentId} attempted to access submission {SubmissionId} belonging to {OwnerId}.",
@@ -2009,7 +2028,7 @@ public class CurriculumService : ICurriculumService
         // Load all attempts for attempt number and highest score
         var allStudentAttempts = await _context.QuizSubmissions
             .AsNoTracking()
-            .Where(qs => qs.QuizId == quiz.Id && qs.StudentId == studentId)
+            .Where(qs => qs.QuizId == quiz.Id && qs.StudentId == submission.StudentId)
             .OrderBy(qs => qs.SubmittedAt)
             .ToListAsync();
 
@@ -2083,11 +2102,15 @@ public class CurriculumService : ICurriculumService
     // PHASE 4 — SHARED CURRICULUM NAVIGATION HELPER
     // =========================================================================
 
+    private static bool IsQuizVisibleToStudent(CourseItem ci, bool allowAdminPreview = false) =>
+        ci.Type != ItemType.Quiz || (ci.Quiz != null && (ci.Quiz.IsPublished || allowAdminPreview));
+
     private async Task<(List<StudentPlayerModuleViewModel> Modules, int CompletedLessonsCount, int TotalLessonsCount, int ProgressPercentage)> BuildStudentCurriculumNavigationAsync(
         int courseId,
         string studentId,
         int currentCourseItemId,
-        int currentChapterId)
+        int currentChapterId,
+        bool allowAdminPreview = false)
     {
         var course = await _context.Courses
             .AsNoTracking()
@@ -2110,12 +2133,13 @@ public class CurriculumService : ICurriculumService
             return (new List<StudentPlayerModuleViewModel>(), 0, 0, 0);
         }
 
-        var completedList = await _context.CourseProgresses
+        var completedRows = await _context.CourseProgresses
             .AsNoTracking()
             .Where(cp => cp.StudentId == studentId && cp.IsCompleted && cp.CourseItem.Chapter.CourseId == courseId)
-            .Select(cp => cp.CourseItemId)
+            .Select(cp => new { cp.CourseItemId, cp.CourseItem.Type })
             .ToListAsync();
-        var completedItemIds = new HashSet<int>(completedList);
+        var completedItemIds = completedRows.Select(x => x.CourseItemId).ToHashSet();
+        var completedLessonIds = completedRows.Where(x => x.Type == ItemType.Lesson).Select(x => x.CourseItemId).ToHashSet();
 
         // Quiz submissions for passed status
         var quizSubmissions = await _context.QuizSubmissions
@@ -2148,6 +2172,7 @@ public class CurriculumService : ICurriculumService
                 Position = ch.Position,
                 IsCurrentModule = ch.Id == currentChapterId,
                 Lessons = ch.CourseItems
+                    .Where(ci => IsQuizVisibleToStudent(ci, allowAdminPreview))
                     .OrderBy(ci => ci.Position)
                     .ThenBy(ci => ci.Id)
                     .Select(ci =>
@@ -2187,7 +2212,7 @@ public class CurriculumService : ICurriculumService
                     }).ToList()
             }).ToList();
 
-        int totalCompleted = completedItemIds.Count;
+        int totalCompleted = completedLessonIds.Count;
         int progressPct = totalLessons > 0 ? (int)Math.Round((double)totalCompleted / totalLessons * 100) : 0;
         if (progressPct > 100) progressPct = 100;
 
@@ -2198,15 +2223,18 @@ public class CurriculumService : ICurriculumService
     // PHASE 4 — ASSIGNMENT STUDENT PLAYER & SUBMISSION
     // =========================================================================
 
-    public async Task<StudentAssignmentViewModel?> GetStudentAssignmentAsync(int courseId, int courseItemId, string studentId)
+    public async Task<StudentAssignmentViewModel?> GetStudentAssignmentAsync(int courseId, int courseItemId, string studentId, bool allowAdminPreview = false)
     {
         if (courseId <= 0 || courseItemId <= 0 || string.IsNullOrWhiteSpace(studentId)) return null;
 
-        var isEnrolled = await _context.Enrollments.AnyAsync(e => e.StudentId == studentId && e.CourseId == courseId);
-        if (!isEnrolled)
+        if (!allowAdminPreview)
         {
-            _logger.LogWarning("GetStudentAssignmentAsync: Student {StudentId} is not enrolled in Course {CourseId}.", studentId, courseId);
-            return null;
+            var isEnrolled = await _context.Enrollments.AnyAsync(e => e.StudentId == studentId && e.CourseId == courseId);
+            if (!isEnrolled)
+            {
+                _logger.LogWarning("GetStudentAssignmentAsync: Student {StudentId} is not enrolled in Course {CourseId}.", studentId, courseId);
+                return null;
+            }
         }
 
         var courseItem = await _context.CourseItems
@@ -2268,7 +2296,7 @@ public class CurriculumService : ICurriculumService
             }).ToList()
         }).OrderBy(s => s.AttemptNumber).ToList();
 
-        var nav = await BuildStudentCurriculumNavigationAsync(courseId, studentId, courseItemId, courseItem.ChapterId);
+        var nav = await BuildStudentCurriculumNavigationAsync(courseId, studentId, courseItemId, courseItem.ChapterId, allowAdminPreview);
 
         return new StudentAssignmentViewModel
         {
@@ -2390,10 +2418,32 @@ public class CurriculumService : ICurriculumService
         }
 
         var createdAttachments = new List<AssignmentAttachment>();
+        var newlySavedPaths = new List<string>();
         string? firstSavedPath = null;
         string? firstOriginalName = null;
         long? firstFileSizeBytes = null;
         string? firstContentType = null;
+
+        async Task CleanupSavedFilesAsync()
+        {
+            if (_storageService == null || newlySavedPaths.Count == 0) return;
+
+            foreach (var storedPath in newlySavedPaths)
+            {
+                try
+                {
+                    var deleted = await _storageService.DeleteAssignmentFileAsync(storedPath);
+                    if (!deleted)
+                    {
+                        _logger.LogWarning("SubmitAssignmentAsync cleanup: File '{StoredPath}' was not deleted or already absent.", storedPath);
+                    }
+                }
+                catch (Exception cleanupEx)
+                {
+                    _logger.LogError(cleanupEx, "SubmitAssignmentAsync cleanup failed for '{StoredPath}'.", storedPath);
+                }
+            }
+        }
 
         if (hasFiles)
         {
@@ -2406,13 +2456,20 @@ public class CurriculumService : ICurriculumService
             {
                 if (f.Length > 10 * 1024 * 1024)
                 {
+                    await CleanupSavedFilesAsync();
                     return (CurriculumOperationResult.ValidationError($"File '{f.FileName}' exceeds the maximum allowed size of 10 MB."), null);
                 }
 
                 var saveResult = await _storageService.SaveAssignmentFileAsync(f, studentId, assignment.Id);
                 if (!saveResult.Success)
                 {
+                    await CleanupSavedFilesAsync();
                     return (CurriculumOperationResult.ValidationError(saveResult.ErrorMessage ?? $"File upload failed for '{f.FileName}'."), null);
+                }
+
+                if (!string.IsNullOrWhiteSpace(saveResult.StoredPath))
+                {
+                    newlySavedPaths.Add(saveResult.StoredPath);
                 }
 
                 if (firstSavedPath == null)
@@ -2469,8 +2526,16 @@ public class CurriculumService : ICurriculumService
             Attachments = createdAttachments
         };
 
-        _context.AssignmentSubmissions.Add(newSubmission);
-        await _context.SaveChangesAsync();
+        try
+        {
+            _context.AssignmentSubmissions.Add(newSubmission);
+            await _context.SaveChangesAsync();
+        }
+        catch
+        {
+            await CleanupSavedFilesAsync();
+            throw;
+        }
 
         _logger.LogInformation("Student {StudentId} submitted Assignment {AssignmentId} (Attempt {Attempt}, Status {Status}, Attachments {Count}, ExternalUrl {HasUrl}).",
             studentId, assignment.Id, nextAttemptNumber, status, createdAttachments.Count, hasUrl);
@@ -2482,12 +2547,12 @@ public class CurriculumService : ICurriculumService
     // PHASE 4 — BOOK READER
     // =========================================================================
 
-    public async Task<StudentBookViewModel?> GetStudentBookAsync(int courseId, int courseItemId, string studentId)
+    public async Task<StudentBookViewModel?> GetStudentBookAsync(int courseId, int courseItemId, string studentId, bool allowAdminPreview = false)
     {
         if (courseId <= 0 || courseItemId <= 0 || string.IsNullOrWhiteSpace(studentId)) return null;
 
         var isEnrolled = await _context.Enrollments.AnyAsync(e => e.StudentId == studentId && e.CourseId == courseId);
-        if (!isEnrolled)
+        if (!isEnrolled && !allowAdminPreview)
         {
             _logger.LogWarning("GetStudentBookAsync: Student {StudentId} is not enrolled in Course {CourseId}.", studentId, courseId);
             return null;
@@ -2516,10 +2581,14 @@ public class CurriculumService : ICurriculumService
         var book = courseItem.Book;
         var course = courseItem.Chapter.Course!;
 
-        // Auto mark as completed for course progress
-        await MarkLessonCompleteAsync(studentId, courseId, courseItemId);
+        // Auto mark as completed for enrolled students only (Admin preview is strictly read-only)
+        bool shouldMarkComplete = !allowAdminPreview;
+        if (shouldMarkComplete)
+        {
+            await MarkLessonCompleteAsync(studentId, courseId, courseItemId);
+        }
 
-        var nav = await BuildStudentCurriculumNavigationAsync(courseId, studentId, courseItemId, courseItem.ChapterId);
+        var nav = await BuildStudentCurriculumNavigationAsync(courseId, studentId, courseItemId, courseItem.ChapterId, allowAdminPreview);
 
         var safeFileUrl = _htmlSanitizer.SanitizeResourceUrl(book.FileUrl) ?? string.Empty;
 
@@ -2546,7 +2615,7 @@ public class CurriculumService : ICurriculumService
             FileUrl = safeFileUrl,
             FileType = fileType,
             FileSize = book.FileSize,
-            IsCompleted = true,
+            IsCompleted = shouldMarkComplete,
             Modules = nav.Modules,
             CourseProgressPercentage = nav.ProgressPercentage,
             CompletedLessonsCount = nav.CompletedLessonsCount,
@@ -2650,10 +2719,11 @@ public class CurriculumService : ICurriculumService
             });
         }
 
-        // Load quizzes for target courses
+        // Load quizzes for target courses (only published quizzes, or quizzes with existing student submissions)
         var quizzes = await _context.Quizzes
             .AsNoTracking()
-            .Where(q => targetCourseIds.Contains(q.CourseItem.Chapter.CourseId))
+            .Where(q => targetCourseIds.Contains(q.CourseItem.Chapter.CourseId) &&
+                        (q.IsPublished || q.Submissions.Any(s => s.StudentId == studentId)))
             .Include(q => q.CourseItem)
                 .ThenInclude(ci => ci.Chapter)
                     .ThenInclude(ch => ch.Course)

@@ -134,13 +134,13 @@ public class AdminController : Controller
             var studentIds = recentEnrollmentsList.Select(e => e.StudentId).Distinct().ToList();
             var progressRecords = await _context.CourseProgresses
                 .AsNoTracking()
-                .Where(cp => studentIds.Contains(cp.StudentId) && cp.IsCompleted)
+                .Where(cp => studentIds.Contains(cp.StudentId) && cp.IsCompleted && cp.CourseItem.Type == ItemType.Lesson)
                 .ToListAsync();
 
             foreach (var e in recentEnrollmentsList)
             {
-                int totalItems = e.Course?.Chapters.Sum(ch => ch.CourseItems.Count) ?? 0;
-                var courseItemIds = e.Course?.Chapters.SelectMany(ch => ch.CourseItems.Select(ci => ci.Id)).ToHashSet() ?? new HashSet<int>();
+                int totalItems = e.Course?.Chapters.Sum(ch => ch.CourseItems.Count(ci => ci.Type == ItemType.Lesson)) ?? 0;
+                var courseItemIds = e.Course?.Chapters.SelectMany(ch => ch.CourseItems.Where(ci => ci.Type == ItemType.Lesson).Select(ci => ci.Id)).ToHashSet() ?? new HashSet<int>();
                 int completedItems = progressRecords.Count(cp => cp.StudentId == e.StudentId && courseItemIds.Contains(cp.CourseItemId));
                 int progPct = totalItems > 0 ? (int)Math.Round((double)completedItems / totalItems * 100) : 0;
 

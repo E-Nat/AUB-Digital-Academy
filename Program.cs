@@ -20,7 +20,11 @@ builder.Services.AddDataProtection()
 bool isInitTestDbOnly = args.Contains("--init-test-db");
 bool isEnrollmentTestMode = isInitTestDbOnly ||
                             args.Contains("--test-enrollment-ui") ||
-                            args.Contains("--test-enrollment-backend");
+                            args.Contains("--test-enrollment-backend") ||
+                            args.Contains("--test-student-progress") ||
+                            args.Contains("--test-quiz") ||
+                            args.Contains("--test-teacher-portal") ||
+                            args.Contains("--test-phase4");
 
 // Add services to the container.
 string connectionString;
@@ -263,6 +267,12 @@ if (args.Contains("--test-enrollment-ui"))
 if (args.Contains("--test-enrollment-backend"))
 {
     Environment.ExitCode = await EnrollmentBackendTestRunner.RunTestsAsync(app.Services);
+    return;
+}
+
+if (args.Contains("--test-student-progress"))
+{
+    await StudentProgressIntegrationTestRunner.RunTestsAsync(app.Services);
     return;
 }
 

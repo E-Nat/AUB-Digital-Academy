@@ -10,4 +10,6 @@ public interface IAssignmentStorageService
 
     Task<(byte[]? FileBytes, string ContentType, string DownloadFileName)?> GetAssignmentFileAsync(
         string storedPath, string? originalFileName);
+
+    Task<bool> DeleteAssignmentFileAsync(string storedPath);
 }

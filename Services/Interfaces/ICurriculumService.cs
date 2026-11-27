@@ -109,7 +109,7 @@ public interface ICurriculumService
     /// Loads complete Student Lesson Player data for a specific course and lesson (or CourseItem),
     /// strictly enforcing course-curriculum ownership, loading student completion status, and computing curriculum-ordered Previous/Next pointers.
     /// </summary>
-    Task<StudentLessonPlayerViewModel?> GetStudentLessonPlayerAsync(int courseId, int lessonId, string? studentId = null);
+    Task<StudentLessonPlayerViewModel?> GetStudentLessonPlayerAsync(int courseId, int lessonId, string? studentId = null, bool allowAdminPreview = false);
 
     /// <summary>
     /// Returns the CourseItemId of the first available lesson in the course by Module Position then Item Position.
@@ -191,7 +191,7 @@ public interface ICurriculumService
     /// Loads complete Student Quiz Player data for a specific course and quiz item,
     /// verifying student enrollment, course ownership, and loading questions without exposing correct answer flags.
     /// </summary>
-    Task<StudentQuizPlayerViewModel?> GetStudentQuizPlayerAsync(int courseId, int courseItemId, string studentId);
+    Task<StudentQuizPlayerViewModel?> GetStudentQuizPlayerAsync(int courseId, int courseItemId, string studentId, bool allowAdminPreview = false);
 
     /// <summary>
     /// Evaluates student quiz answers against SQL Server question options, computes score, determines pass/fail,
@@ -202,7 +202,7 @@ public interface ICurriculumService
     /// <summary>
     /// Loads student quiz submission result, strictly verifying student ownership and course hierarchy.
     /// </summary>
-    Task<StudentQuizResultViewModel?> GetStudentQuizResultAsync(int courseId, int courseItemId, int submissionId, string studentId);
+    Task<StudentQuizResultViewModel?> GetStudentQuizResultAsync(int courseId, int courseItemId, int submissionId, string studentId, bool allowAdminPreview = false);
 
     // ==========================================
     // PHASE 4 — ASSIGNMENTS, BOOKS & GRADEBOOK
@@ -212,7 +212,7 @@ public interface ICurriculumService
     /// Loads complete Student Assignment view data for a specific course and assignment item,
     /// verifying student enrollment, course ownership, and loading submission history and grades.
     /// </summary>
-    Task<StudentAssignmentViewModel?> GetStudentAssignmentAsync(int courseId, int courseItemId, string studentId);
+    Task<StudentAssignmentViewModel?> GetStudentAssignmentAsync(int courseId, int courseItemId, string studentId, bool allowAdminPreview = false);
 
     /// <summary>
     /// Handles assignment submission (file upload, external URL, or text response) with multi-versioning,
@@ -271,7 +271,7 @@ public interface ICurriculumService
     /// Loads complete Student Book Reader view data for a specific course and book item,
     /// verifying student enrollment, course ownership, and tracking completion.
     /// </summary>
-    Task<StudentBookViewModel?> GetStudentBookAsync(int courseId, int courseItemId, string studentId);
+    Task<StudentBookViewModel?> GetStudentBookAsync(int courseId, int courseItemId, string studentId, bool allowAdminPreview = false);
 
     /// <summary>
     /// Computes and aggregates the comprehensive student gradebook across all enrolled courses,

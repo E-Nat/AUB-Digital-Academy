@@ -605,6 +605,178 @@ public static class QuizIntegrationTestRunner
                 return;
             }
             Pass("Quiz with zero Questions handled safely (no division-by-zero, score = 0.0)");
+
+            // -------------------------------------------------------------
+            // TEST 17: Draft Quiz Security (Unpublished Quiz Isolation)
+            // -------------------------------------------------------------
+            var draftQuizCreate = await curriculumService.CreateQuizAsync(new QuizCreateViewModel
+            {
+                CourseId = course1.Id,
+                ChapterId = module1.Id,
+                Title = "Draft Secret Quiz",
+                TimeLimitMinutes = 15,
+                PassingScore = 60.0,
+                MaxAttempts = 2,
+                IsPublished = false
+            });
+            if (!draftQuizCreate.IsSuccess || !draftQuizCreate.EntityId.HasValue)
+            {
+                Fail("Draft Quiz Security", $"Failed to create draft quiz: {draftQuizCreate.Message}");
+                return;
+            }
+            int draftQuizItemId = draftQuizCreate.EntityId.Value;
+            var draftQuizEntity = await context.Quizzes.FirstAsync(q => q.CourseItemId == draftQuizItemId);
+
+            await curriculumService.AddQuestionAsync(draftQuizEntity.Id, new QuestionViewModel
+            {
+                QuizId = draftQuizEntity.Id,
+                Text = "Secret Draft Question?",
+                Points = 10,
+                Options = new List<QuestionOptionViewModel>
+                {
+                    new() { Text = "Option A", IsCorrect = true },
+                    new() { Text = "Option B", IsCorrect = false }
+                }
+            });
+            var draftOptionId = await context.QuestionOptions
+                .Where(o => o.Question.QuizId == draftQuizEntity.Id && o.IsCorrect)
+                .Select(o => o.Id)
+                .FirstAsync();
+            var draftQuestionId = await context.Questions
+                .Where(q => q.QuizId == draftQuizEntity.Id)
+                .Select(q => q.Id)
+                .FirstAsync();
+
+            // 17a: Draft quiz absent from student course overview & gradebook; published quiz remains visible
+            var overviewRes = await studentACtrl.Course(course1.Id);
+            var overviewVm = (overviewRes as ViewResult)?.Model as StudentCourseOverviewViewModel;
+            var overviewItems = overviewVm?.Modules.SelectMany(m => m.Lessons).ToList() ?? new();
+            bool draftHiddenInOverview = !overviewItems.Any(i => i.CourseItemId == draftQuizItemId);
+            bool publishedVisibleInOverview = overviewItems.Any(i => i.CourseItemId == quizItem.Id);
+
+            var gradesVm = await curriculumService.GetStudentGradesAsync(studentA.Id, course1.Id);
+            bool draftHiddenInGrades = !gradesVm.GradeItems.Any(g => g.CourseItemId == draftQuizItemId);
+            bool publishedVisibleInGrades = gradesVm.GradeItems.Any(g => g.CourseItemId == quizItem.Id);
+
+            if (!draftHiddenInOverview || !publishedVisibleInOverview || !draftHiddenInGrades || !publishedVisibleInGrades)
+            {
+                Fail("Draft Quiz Security (Visibility)", $"OverviewHidden={draftHiddenInOverview}, OverviewPub={publishedVisibleInOverview}, GradesHidden={draftHiddenInGrades}, GradesPub={publishedVisibleInGrades}");
+                return;
+            }
+
+            // 17b: Student direct access to draft quiz player (by CourseItemId and by QuizId) is rejected
+            var draftPlayerByItem = await studentACtrl.Quiz(course1.Id, draftQuizItemId);
+            var draftPlayerByQuizId = await studentACtrl.Quiz(null, draftQuizEntity.Id);
+            if ((draftPlayerByItem is not NotFoundResult && draftPlayerByItem is not NotFoundObjectResult) ||
+                (draftPlayerByQuizId is not NotFoundResult && draftPlayerByQuizId is not NotFoundObjectResult))
+            {
+                Fail("Draft Quiz Security (Player)", $"Expected NotFound for draft quiz player, got {draftPlayerByItem.GetType().Name} and {draftPlayerByQuizId.GetType().Name}");
+                return;
+            }
+
+            // 17c: Student submission to draft quiz is rejected and creates no submissions or progress
+            var draftSubmitRes = await studentACtrl.SubmitQuiz(course1.Id, draftQuizItemId, new Dictionary<int, int> { { draftQuestionId, draftOptionId } });
+            if (draftSubmitRes is not NotFoundResult && draftSubmitRes is not NotFoundObjectResult && draftSubmitRes is not ForbidResult)
+            {
+                Fail("Draft Quiz Security (Submit)", $"Expected NotFound/Forbid for draft quiz submit, got {draftSubmitRes.GetType().Name}");
+                return;
+            }
+
+            int draftSubCount = await context.QuizSubmissions.CountAsync(qs => qs.QuizId == draftQuizEntity.Id);
+            int draftProgressCount = await context.CourseProgresses.CountAsync(cp => cp.CourseItemId == draftQuizItemId);
+            if (draftSubCount != 0 || draftProgressCount != 0)
+            {
+                Fail("Draft Quiz Security (No Side Effects)", $"Expected 0 submissions and 0 progress, got Subs={draftSubCount}, Progress={draftProgressCount}");
+                return;
+            }
+
+            // 17d: Faculty/Admin authoring access to draft quiz remains intact
+            var facultyDraftEdit = await curriculumService.GetQuizAsync(draftQuizItemId);
+            if (facultyDraftEdit == null || facultyDraftEdit.IsPublished)
+            {
+                Fail("Draft Quiz Security (Authoring)", "Faculty/Admin GetQuizAsync failed to load draft quiz.");
+                return;
+            }
+            Pass("Draft Quiz Security: Draft quiz hidden from student listings/grades, player & submit rejected with no DB side effects, published & authoring access preserved");
+
+            // -------------------------------------------------------------
+            // TEST 18: Admin Preview Bypass (Read-Only)
+            // -------------------------------------------------------------
+            var previewLessonRes = await curriculumService.CreateLessonAsync(module1.Id, "Preview Lesson", "<p>Lesson body</p>", null, null, course1.Id);
+            var previewBookRes = await curriculumService.CreateBookAsync(new BookCreateViewModel { CourseId = course1.Id, ChapterId = module1.Id, Title = "Preview Book", FileUrl = "/files/preview.pdf", FileType = "PDF" });
+            var previewAssignRes = await curriculumService.CreateAssignmentAsync(new AssignmentCreateViewModel { CourseId = course1.Id, ChapterId = module1.Id, Title = "Preview Assignment", Instruction = "Submit work", MaxScore = 100 });
+            if (!previewLessonRes.IsSuccess || !previewBookRes.IsSuccess || !previewAssignRes.IsSuccess)
+            {
+                Fail("Admin Preview Setup", "Failed to create Lesson/Book/Assignment fixtures.");
+                return;
+            }
+            int pLessonItemId = previewLessonRes.EntityId!.Value;
+            int pBookItemId = previewBookRes.EntityId!.Value;
+            int pAssignItemId = previewAssignRes.EntityId!.Value;
+
+            var adminUser = await userManager.FindByEmailAsync("admin@aub.com")
+                ?? new User { UserName = $"admin-prev-{testRunId}@aub.edu", Email = $"admin-prev-{testRunId}@aub.edu", FullName = "Admin Previewer", UniversityId = $"ADM-{testRunId}" };
+            bool createdTempAdmin = adminUser.Id == null || await userManager.FindByIdAsync(adminUser.Id) == null;
+            if (createdTempAdmin)
+            {
+                await userManager.CreateAsync(adminUser, "AdminPass123!");
+            }
+
+            StudentController BuildAdminController(User admin)
+            {
+                var ctrl = new StudentController(enrollmentService, courseService, curriculumService, userManager, context, studentLogger);
+                var claims = new List<Claim>
+                {
+                    new(ClaimTypes.NameIdentifier, admin.Id),
+                    new(ClaimTypes.Name, admin.UserName!),
+                    new(ClaimTypes.Role, "Admin")
+                };
+                ctrl.ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { User = new ClaimsPrincipal(new ClaimsIdentity(claims, "TestAuth")) } };
+                ctrl.TempData = new TempDataDictionary(ctrl.HttpContext, new DummyTempDataProvider());
+                return ctrl;
+            }
+
+            var adminCtrl = BuildAdminController(adminUser);
+
+            // 18a: Unenrolled Admin can preview Lesson, Book, Assignment, and Draft Quiz
+            var adminLessonRes = await adminCtrl.Lesson(course1.Id, pLessonItemId);
+            var adminBookRes = await adminCtrl.Book(course1.Id, pBookItemId);
+            var adminAssignRes = await adminCtrl.Assignment(course1.Id, pAssignItemId);
+            var adminDraftQuizRes = await adminCtrl.Quiz(course1.Id, draftQuizItemId);
+
+            if (adminLessonRes is not ViewResult || adminBookRes is not ViewResult || adminAssignRes is not ViewResult || adminDraftQuizRes is not ViewResult)
+            {
+                Fail("Admin Preview Access", $"Expected ViewResult for all 4 previews, got Lesson={adminLessonRes.GetType().Name}, Book={adminBookRes.GetType().Name}, Assign={adminAssignRes.GetType().Name}, DraftQuiz={adminDraftQuizRes.GetType().Name}");
+                return;
+            }
+
+            // 18b: Admin preview is strictly read-only (no CourseProgress, QuizSubmission, QuizSubmissionAnswer, or AssignmentSubmission)
+            int adminProgressCount = await context.CourseProgresses.CountAsync(cp => cp.StudentId == adminUser.Id);
+            int adminQuizSubCount = await context.QuizSubmissions.CountAsync(qs => qs.StudentId == adminUser.Id && qs.QuizId == draftQuizEntity.Id);
+            int adminAssignSubCount = await context.AssignmentSubmissions.CountAsync(s => s.StudentId == adminUser.Id);
+            if (adminProgressCount != 0 || adminQuizSubCount != 0 || adminAssignSubCount != 0)
+            {
+                Fail("Admin Preview Read-Only", $"Expected 0 mutations for Admin, got Progress={adminProgressCount}, QuizSubs={adminQuizSubCount}, AssignSubs={adminAssignSubCount}");
+                return;
+            }
+
+            // 18c: Unenrolled Student B remains denied (403 Forbid) for Lesson, Book, Assignment, and Draft Quiz
+            var studentB_Lesson = await studentBCtrl.Lesson(course1.Id, pLessonItemId);
+            var studentB_Book = await studentBCtrl.Book(course1.Id, pBookItemId);
+            var studentB_Assign = await studentBCtrl.Assignment(course1.Id, pAssignItemId);
+            var studentB_DraftQuiz = await studentBCtrl.Quiz(course1.Id, draftQuizItemId);
+            if (studentB_Lesson is not ForbidResult || studentB_Book is not ForbidResult || studentB_Assign is not ForbidResult || studentB_DraftQuiz is not ForbidResult)
+            {
+                Fail("Unenrolled Student Denial", $"Expected ForbidResult for unenrolled Student B, got Lesson={studentB_Lesson.GetType().Name}, Book={studentB_Book.GetType().Name}, Assign={studentB_Assign.GetType().Name}, Quiz={studentB_DraftQuiz.GetType().Name}");
+                return;
+            }
+
+            if (createdTempAdmin)
+            {
+                await userManager.DeleteAsync(adminUser);
+            }
+
+            Pass("Admin Preview Bypass: Admin previews Lesson, Book, Assignment, and Draft Quiz without enrollment and without DB mutations; unenrolled Student B remains denied");
         }
         finally
         {

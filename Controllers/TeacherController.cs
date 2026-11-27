@@ -182,6 +182,7 @@ public class TeacherController : Controller
         if (string.IsNullOrEmpty(teacherId)) return Challenge();
 
         var submission = await _context.AssignmentSubmissions
+            .Include(s => s.Attachments)
             .Include(s => s.Assignment)
                 .ThenInclude(a => a.CourseItem)
                     .ThenInclude(ci => ci.Chapter)
@@ -198,6 +199,14 @@ public class TeacherController : Controller
         if (string.IsNullOrEmpty(submission.FileUrl))
         {
             return BadRequest("No file attached to this submission.");
+        }
+
+        bool isSoftDeleted = submission.Attachments.Any(a =>
+            a.IsDeleted && string.Equals(a.StoragePath, submission.FileUrl, StringComparison.OrdinalIgnoreCase)) ||
+            (submission.Attachments.Any() && submission.Attachments.All(a => a.IsDeleted));
+        if (isSoftDeleted)
+        {
+            return NotFound("Attachment not found or has been removed.");
         }
 
         if (submission.FileUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||

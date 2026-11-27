@@ -127,10 +127,17 @@ public class TeacherService : ITeacherService
                 .Distinct()
                 .CountAsync();
 
-            viewModel.PendingReviewsCount = await _context.AssignmentSubmissions
+            var latestPendingSubmissionsQuery = _context.AssignmentSubmissions
                 .AsNoTracking()
-                .Where(s => teacherCourseIds.Contains(s.Assignment.CourseItem.Chapter.CourseId) && s.Status == SubmissionStatus.Submitted)
-                .CountAsync();
+                .Where(s => teacherCourseIds.Contains(s.Assignment.CourseItem.Chapter.CourseId) &&
+                            !_context.AssignmentSubmissions.Any(newer =>
+                                newer.AssignmentId == s.AssignmentId &&
+                                newer.StudentId == s.StudentId &&
+                                (newer.SubmittedAt > s.SubmittedAt ||
+                                 (newer.SubmittedAt == s.SubmittedAt && newer.Id > s.Id))))
+                .Where(s => s.Status == SubmissionStatus.Submitted || s.Status == SubmissionStatus.Late);
+
+            viewModel.PendingReviewsCount = await latestPendingSubmissionsQuery.CountAsync();
 
             viewModel.ActiveQuizzesCount = await _context.Quizzes
                 .AsNoTracking()
@@ -138,9 +145,7 @@ public class TeacherService : ITeacherService
                 .CountAsync();
 
             // Attention Items (Pending assignment reviews)
-            var pendingSubmissionsGrouped = await _context.AssignmentSubmissions
-                .AsNoTracking()
-                .Where(s => teacherCourseIds.Contains(s.Assignment.CourseItem.Chapter.CourseId) && s.Status == SubmissionStatus.Submitted)
+            var pendingSubmissionsGrouped = await latestPendingSubmissionsQuery
                 .GroupBy(s => s.AssignmentId)
                 .Select(g => new
                 {
@@ -342,32 +347,33 @@ public class TeacherService : ITeacherService
             authorizedCourseIds = new List<int> { courseId.Value };
         }
 
-        var query = _context.Assignments
+        var assignments = await _context.Assignments
             .AsNoTracking()
-            .Where(a => authorizedCourseIds.Contains(a.CourseItem.Chapter.CourseId));
-
-        var assignments = await query
-            .Include(a => a.CourseItem)
-                .ThenInclude(ci => ci.Chapter)
-                    .ThenInclude(ch => ch.Course)
-            .Include(a => a.Submissions)
+            .Where(a => authorizedCourseIds.Contains(a.CourseItem.Chapter.CourseId))
             .OrderByDescending(a => a.DueDate)
+            .Select(a => new TeacherAssignmentItemViewModel
+            {
+                Id = a.Id,
+                CourseId = a.CourseItem.Chapter.CourseId,
+                CourseCode = a.CourseItem.Chapter.Course.Code,
+                CourseTitle = a.CourseItem.Chapter.Course.Title,
+                Title = a.CourseItem.Title,
+                Instruction = a.Instruction,
+                DueDate = a.DueDate,
+                MaxScore = a.MaxScore,
+                TotalSubmissions = a.Submissions.Count(),
+                PendingSubmissions = a.Submissions.Count(s =>
+                    (s.Status == SubmissionStatus.Submitted || s.Status == SubmissionStatus.Late) &&
+                    !_context.AssignmentSubmissions.Any(newer =>
+                        newer.AssignmentId == s.AssignmentId &&
+                        newer.StudentId == s.StudentId &&
+                        (newer.SubmittedAt > s.SubmittedAt ||
+                         (newer.SubmittedAt == s.SubmittedAt && newer.Id > s.Id)))),
+                GradedSubmissions = a.Submissions.Count(s => s.Status == SubmissionStatus.Graded)
+            })
             .ToListAsync();
 
-        return assignments.Select(a => new TeacherAssignmentItemViewModel
-        {
-            Id = a.Id,
-            CourseId = a.CourseItem.Chapter.CourseId,
-            CourseCode = a.CourseItem.Chapter.Course.Code,
-            CourseTitle = a.CourseItem.Chapter.Course.Title,
-            Title = a.CourseItem.Title,
-            Instruction = a.Instruction,
-            DueDate = a.DueDate,
-            MaxScore = a.MaxScore,
-            TotalSubmissions = a.Submissions.Count,
-            PendingSubmissions = a.Submissions.Count(s => s.Status == SubmissionStatus.Submitted),
-            GradedSubmissions = a.Submissions.Count(s => s.Status == SubmissionStatus.Graded)
-        });
+        return assignments;
     }
 
     public async Task<IEnumerable<TeacherSubmissionItemViewModel>> GetAssignmentSubmissionsAsync(int assignmentId, string teacherId)
@@ -523,10 +529,22 @@ public class TeacherService : ITeacherService
             authorizedCourseIds = new List<int> { courseId.Value };
         }
 
-        // 1. Graded Assignment Submissions
+        // 1. Latest Graded Assignment Submission per (AssignmentId, StudentId)
+        // Deterministic ordering: (GradedAt ?? SubmittedAt) DESC, SubmittedAt DESC, Id DESC
         var assignmentGrades = await _context.AssignmentSubmissions
             .AsNoTracking()
-            .Where(s => authorizedCourseIds.Contains(s.Assignment.CourseItem.Chapter.CourseId) && s.Status == SubmissionStatus.Graded && s.Score.HasValue)
+            .Where(s => authorizedCourseIds.Contains(s.Assignment.CourseItem.Chapter.CourseId) &&
+                        s.Status == SubmissionStatus.Graded &&
+                        s.Score.HasValue &&
+                        !_context.AssignmentSubmissions.Any(newer =>
+                            newer.AssignmentId == s.AssignmentId &&
+                            newer.StudentId == s.StudentId &&
+                            newer.Status == SubmissionStatus.Graded &&
+                            newer.Score.HasValue &&
+                            ((newer.GradedAt ?? newer.SubmittedAt) > (s.GradedAt ?? s.SubmittedAt) ||
+                             ((newer.GradedAt ?? newer.SubmittedAt) == (s.GradedAt ?? s.SubmittedAt) &&
+                              (newer.SubmittedAt > s.SubmittedAt ||
+                               (newer.SubmittedAt == s.SubmittedAt && newer.Id > s.Id))))))
             .Select(s => new TeacherGradeItemViewModel
             {
                 StudentId = s.StudentId,
@@ -537,16 +555,24 @@ public class TeacherService : ITeacherService
                 AssessmentTitle = s.Assignment.CourseItem.Title,
                 AssessmentType = "Assignment",
                 Score = s.Score!.Value,
-                MaxScore = s.Assignment.MaxScore,
-                IsPassed = s.Score!.Value >= (s.Assignment.MaxScore * 0.5),
+                MaxScore = s.Assignment.MaxScore > 0 ? s.Assignment.MaxScore : 100.0,
+                IsPassed = s.Score!.Value >= ((s.Assignment.MaxScore > 0 ? s.Assignment.MaxScore : 100.0) * 0.5),
                 Date = s.GradedAt ?? s.SubmittedAt
             })
             .ToListAsync();
 
-        // 2. Quiz Submissions
+        // 2. Highest-Scoring Quiz Submission per (QuizId, StudentId)
+        // Deterministic tie-breaker: Score DESC, SubmittedAt DESC, Id DESC
         var quizGrades = await _context.QuizSubmissions
             .AsNoTracking()
-            .Where(q => authorizedCourseIds.Contains(q.Quiz.CourseItem.Chapter.CourseId))
+            .Where(q => authorizedCourseIds.Contains(q.Quiz.CourseItem.Chapter.CourseId) &&
+                        !_context.QuizSubmissions.Any(other =>
+                            other.QuizId == q.QuizId &&
+                            other.StudentId == q.StudentId &&
+                            (other.Score > q.Score ||
+                             (other.Score == q.Score &&
+                              (other.SubmittedAt > q.SubmittedAt ||
+                               (other.SubmittedAt == q.SubmittedAt && other.Id > q.Id))))))
             .Select(q => new TeacherGradeItemViewModel
             {
                 StudentId = q.StudentId,
@@ -563,7 +589,11 @@ public class TeacherService : ITeacherService
             })
             .ToListAsync();
 
-        return assignmentGrades.Concat(quizGrades).OrderByDescending(g => g.Date);
+        return assignmentGrades
+            .Concat(quizGrades)
+            .OrderByDescending(g => g.Date)
+            .ThenBy(g => g.StudentName)
+            .ThenBy(g => g.AssessmentTitle);
     }
 
     public async Task<IEnumerable<TeacherQuizItemViewModel>> GetTeacherQuizzesAsync(string teacherId, int? courseId = null)

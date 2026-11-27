@@ -228,4 +228,39 @@ public class AssignmentStorageService : IAssignmentStorageService
             return null;
         }
     }
+
+    public Task<bool> DeleteAssignmentFileAsync(string storedPath)
+    {
+        if (string.IsNullOrWhiteSpace(storedPath))
+        {
+            return Task.FromResult(false);
+        }
+
+        var safeFileName = Path.GetFileName(storedPath);
+        var fullPath = Path.Combine(_storageFolder, safeFileName);
+
+        var canonicalPath = Path.GetFullPath(fullPath);
+        if (!canonicalPath.StartsWith(Path.GetFullPath(_storageFolder), StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogWarning("Path traversal attempt blocked in DeleteAssignmentFileAsync: {Path}", storedPath);
+            return Task.FromResult(false);
+        }
+
+        if (!File.Exists(fullPath))
+        {
+            return Task.FromResult(false);
+        }
+
+        try
+        {
+            File.Delete(fullPath);
+            _logger.LogInformation("Assignment file deleted during cleanup: {Path}", safeFileName);
+            return Task.FromResult(true);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error deleting assignment file during cleanup: {Path}", safeFileName);
+            return Task.FromResult(false);
+        }
+    }
 }

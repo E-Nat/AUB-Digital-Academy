@@ -85,6 +85,9 @@ public static class StudentLearningAssessmentTestRunner
 
         int passed = 0;
 
+        try
+        {
+
         // -------------------------------------------------------------
         // TEST 1: Course Learning Materials & Lesson Player
         // -------------------------------------------------------------
@@ -1113,8 +1116,242 @@ public static class StudentLearningAssessmentTestRunner
         passed++;
         Console.WriteLine($"[PASS] Test 26: Admin File Lifecycle: Soft-delete hid attachment '{testAttachment.OriginalFileName}', retained physical storage, and successfully restored with full audit tracking.");
 
+        // -------------------------------------------------------------
+        // TEST 27: Multi-File Submission Failure Cleanup
+        // -------------------------------------------------------------
+        var uploadDir = Path.Combine(environment.ContentRootPath, "App_Data", "Uploads", "Assignments");
+        var filesBeforeFailedUpload = Directory.Exists(uploadDir)
+            ? Directory.GetFiles(uploadDir).ToHashSet(StringComparer.OrdinalIgnoreCase)
+            : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        int attachmentsBeforeFailed = await context.AssignmentAttachments.CountAsync(a => a.SubmissionId == multiSub.Id);
+
+        using var validPdfStream27 = new MemoryStream(validPdf1Bytes);
+        var validPdf27 = new FormFile(validPdfStream27, 0, validPdf1Bytes.Length, "files", "valid_first.pdf")
+        {
+            Headers = new HeaderDictionary(),
+            ContentType = "application/pdf"
+        };
+        var fakeExeBytes = new byte[] { 0x4D, 0x5A, 0x90, 0x00, 0x03, 0x00, 0x00, 0x00 }; // 'MZ' header disguised as .pdf
+        using var invalidPdfStream27 = new MemoryStream(fakeExeBytes);
+        var invalidPdf27 = new FormFile(invalidPdfStream27, 0, fakeExeBytes.Length, "files", "malicious_second.pdf")
+        {
+            Headers = new HeaderDictionary(),
+            ContentType = "application/pdf"
+        };
+
+        var (failedMultiRes, failedMultiSub) = await curriculumService.SubmitAssignmentAsync(
+            cs301.Id,
+            multiAssignItem.Id,
+            studentUser.Id,
+            null,
+            null,
+            null,
+            new List<IFormFile> { validPdf27, invalidPdf27 });
+
+        if (failedMultiRes.IsSuccess || failedMultiSub != null)
+            throw new Exception("Multi-file submission with invalid second file should have failed.");
+
+        var filesAfterFailedUpload = Directory.Exists(uploadDir)
+            ? Directory.GetFiles(uploadDir).ToHashSet(StringComparer.OrdinalIgnoreCase)
+            : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        if (!filesAfterFailedUpload.SetEquals(filesBeforeFailedUpload))
+            throw new Exception("Orphaned files remained on disk or existing files were deleted after failed multi-file submission.");
+
+        int attachmentsAfterFailed = await context.AssignmentAttachments.CountAsync(a => a.SubmissionId == multiSub.Id);
+        if (attachmentsAfterFailed != attachmentsBeforeFailed || !File.Exists(physicalPath))
+            throw new Exception("Existing attachment records or files were altered by failed multi-file submission.");
+
+        // Deterministic failure injection: cleanup exception must not mask original validation failure
+        var throwingStorage = new ThrowingCleanupStorageService(storageService);
+        var throwingCurriculum = new AUBDigitalAcademy.Services.Implementations.CurriculumService(
+            context,
+            services.GetRequiredService<ILoggerFactory>().CreateLogger<AUBDigitalAcademy.Services.Implementations.CurriculumService>(),
+            throwingStorage);
+        using var validPdfStream27b = new MemoryStream(validPdf1Bytes);
+        using var invalidPdfStream27b = new MemoryStream(fakeExeBytes);
+        var (injectedRes, _) = await throwingCurriculum.SubmitAssignmentAsync(
+            cs301.Id,
+            multiAssignItem.Id,
+            studentUser.Id,
+            null,
+            null,
+            null,
+            new List<IFormFile>
+            {
+                new FormFile(validPdfStream27b, 0, validPdf1Bytes.Length, "files", "valid_inj.pdf") { Headers = new HeaderDictionary(), ContentType = "application/pdf" },
+                new FormFile(invalidPdfStream27b, 0, fakeExeBytes.Length, "files", "bad_inj.pdf") { Headers = new HeaderDictionary(), ContentType = "application/pdf" }
+            });
+        if (injectedRes.IsSuccess || string.IsNullOrWhiteSpace(injectedRes.Message) || injectedRes.Message.Contains("Simulated cleanup failure"))
+            throw new Exception($"Cleanup failure masked original error: {injectedRes.Message}");
+        // Clean up the single file written by throwingStorage so disk stays clean
+        foreach (var orphan in Directory.GetFiles(uploadDir).Where(f => !filesBeforeFailedUpload.Contains(f)))
+        {
+            File.Delete(orphan);
+        }
+
+        passed++;
+        Console.WriteLine("[PASS] Test 27: Multi-File Cleanup: Failed second file cleaned up newly uploaded file without touching existing files or masking original error.");
+
+        // -------------------------------------------------------------
+        // TEST 28: Soft-Delete Download Protection (All 4 Routes) + RestoreFile
+        // -------------------------------------------------------------
+        var enrollmentService = services.GetRequiredService<IEnrollmentService>();
+        var courseService = services.GetRequiredService<ICourseService>();
+        var loggerFactory = services.GetRequiredService<ILoggerFactory>();
+
+        AUBDigitalAcademy.Controllers.StudentController BuildStudentCtrl(User u, string role = "Student")
+        {
+            var ctrl = new AUBDigitalAcademy.Controllers.StudentController(
+                enrollmentService, courseService, curriculumService, storageService, userManager, context,
+                loggerFactory.CreateLogger<AUBDigitalAcademy.Controllers.StudentController>());
+            var claims = new List<System.Security.Claims.Claim>
+            {
+                new(System.Security.Claims.ClaimTypes.NameIdentifier, u.Id),
+                new(System.Security.Claims.ClaimTypes.Name, u.UserName!),
+                new(System.Security.Claims.ClaimTypes.Role, role)
+            };
+            ctrl.ControllerContext = new Microsoft.AspNetCore.Mvc.ControllerContext
+            {
+                HttpContext = new Microsoft.AspNetCore.Http.DefaultHttpContext
+                {
+                    User = new System.Security.Claims.ClaimsPrincipal(new System.Security.Claims.ClaimsIdentity(claims, "TestAuth"))
+                }
+            };
+            ctrl.TempData = new Microsoft.AspNetCore.Mvc.ViewFeatures.TempDataDictionary(ctrl.ControllerContext.HttpContext, new TestPhase4TempDataProvider());
+            return ctrl;
+        }
+
+        AUBDigitalAcademy.Controllers.TeacherController BuildTeacherCtrl(User u)
+        {
+            var ctrl = new AUBDigitalAcademy.Controllers.TeacherController(
+                teacherService, storageService, context, userManager,
+                loggerFactory.CreateLogger<AUBDigitalAcademy.Controllers.TeacherController>());
+            var claims = new List<System.Security.Claims.Claim>
+            {
+                new(System.Security.Claims.ClaimTypes.NameIdentifier, u.Id),
+                new(System.Security.Claims.ClaimTypes.Name, u.UserName!),
+                new(System.Security.Claims.ClaimTypes.Role, "Teacher")
+            };
+            ctrl.ControllerContext = new Microsoft.AspNetCore.Mvc.ControllerContext
+            {
+                HttpContext = new Microsoft.AspNetCore.Http.DefaultHttpContext
+                {
+                    User = new System.Security.Claims.ClaimsPrincipal(new System.Security.Claims.ClaimsIdentity(claims, "TestAuth"))
+                }
+            };
+            ctrl.TempData = new Microsoft.AspNetCore.Mvc.ViewFeatures.TempDataDictionary(ctrl.ControllerContext.HttpContext, new TestPhase4TempDataProvider());
+            return ctrl;
+        }
+
+        var adminCtrl28 = new AUBDigitalAcademy.Controllers.AdminController(context, userManager, storageService);
+        adminCtrl28.ControllerContext = new Microsoft.AspNetCore.Mvc.ControllerContext
+        {
+            HttpContext = new Microsoft.AspNetCore.Http.DefaultHttpContext
+            {
+                User = new System.Security.Claims.ClaimsPrincipal(new System.Security.Claims.ClaimsIdentity(new[]
+                {
+                    new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.NameIdentifier, adminUser.Id),
+                    new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.Name, adminUser.UserName!),
+                    new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.Role, "Admin")
+                }, "TestAuth"))
+            }
+        };
+        adminCtrl28.TempData = new Microsoft.AspNetCore.Mvc.ViewFeatures.TempDataDictionary(adminCtrl28.ControllerContext.HttpContext, new TestPhase4TempDataProvider());
+
+        var studentCtrl28 = BuildStudentCtrl(studentUser);
+        var unauthStudentCtrl28 = BuildStudentCtrl(taUser);
+        var teacherCtrl28 = BuildTeacherCtrl(teacherUser);
+        var unauthTeacherCtrl28 = BuildTeacherCtrl(studentUser);
+
+        // Active downloads succeed for authorized Student & Teacher
+        if (await studentCtrl28.DownloadMySubmissionFile(multiSub.Id) is not Microsoft.AspNetCore.Mvc.FileContentResult ||
+            await studentCtrl28.DownloadAttachment(testAttachment.Id) is not Microsoft.AspNetCore.Mvc.FileContentResult ||
+            await teacherCtrl28.DownloadSubmission(multiSub.Id) is not Microsoft.AspNetCore.Mvc.FileContentResult ||
+            await teacherCtrl28.DownloadAttachment(testAttachment.Id) is not Microsoft.AspNetCore.Mvc.FileContentResult)
+        {
+            throw new Exception("Active attachment/submission download failed for authorized Student or Teacher.");
+        }
+
+        // Unauthorized Student & Teacher denied
+        if (await unauthStudentCtrl28.DownloadMySubmissionFile(multiSub.Id) is not Microsoft.AspNetCore.Mvc.ForbidResult ||
+            await unauthStudentCtrl28.DownloadAttachment(testAttachment.Id) is not Microsoft.AspNetCore.Mvc.ForbidResult ||
+            await unauthTeacherCtrl28.DownloadSubmission(multiSub.Id) is not Microsoft.AspNetCore.Mvc.ForbidResult ||
+            await unauthTeacherCtrl28.DownloadAttachment(testAttachment.Id) is not Microsoft.AspNetCore.Mvc.ForbidResult)
+        {
+            throw new Exception("Unauthorized Student or Teacher was not denied download access.");
+        }
+
+        // Soft-delete via AdminController.SoftDeleteFile
+        await adminCtrl28.SoftDeleteFile(testAttachment.Id, "Batch 5 soft-delete download protection test");
+
+        // All 4 routes must reject soft-deleted attachment/submission download
+        var r1 = await studentCtrl28.DownloadMySubmissionFile(multiSub.Id);
+        var r2 = await studentCtrl28.DownloadAttachment(testAttachment.Id);
+        var r3 = await teacherCtrl28.DownloadSubmission(multiSub.Id);
+        var r4 = await teacherCtrl28.DownloadAttachment(testAttachment.Id);
+        if ((r1 is not Microsoft.AspNetCore.Mvc.NotFoundObjectResult && r1 is not Microsoft.AspNetCore.Mvc.NotFoundResult) ||
+            (r2 is not Microsoft.AspNetCore.Mvc.NotFoundObjectResult && r2 is not Microsoft.AspNetCore.Mvc.NotFoundResult) ||
+            (r3 is not Microsoft.AspNetCore.Mvc.NotFoundObjectResult && r3 is not Microsoft.AspNetCore.Mvc.NotFoundResult) ||
+            (r4 is not Microsoft.AspNetCore.Mvc.NotFoundObjectResult && r4 is not Microsoft.AspNetCore.Mvc.NotFoundResult))
+        {
+            throw new Exception($"Soft-deleted download was not rejected on all 4 routes: {r1.GetType().Name}, {r2.GetType().Name}, {r3.GetType().Name}, {r4.GetType().Name}");
+        }
+
+        // Physical file must still exist after rejected downloads
+        if (!File.Exists(physicalPath))
+            throw new Exception("Physical file was deleted when soft-deleted download was rejected.");
+
+        // Restore via AdminController.RestoreFile and verify downloads work again
+        await adminCtrl28.RestoreFile(testAttachment.Id);
+        if (await studentCtrl28.DownloadMySubmissionFile(multiSub.Id) is not Microsoft.AspNetCore.Mvc.FileContentResult ||
+            await teacherCtrl28.DownloadSubmission(multiSub.Id) is not Microsoft.AspNetCore.Mvc.FileContentResult)
+        {
+            throw new Exception("Restored attachment could not be downloaded by authorized Student/Teacher.");
+        }
+
+        passed++;
+        Console.WriteLine("[PASS] Test 28: Download Security: All 4 routes block soft-deleted files, preserve physical files, enforce ownership/authorization, and restore cleanly via RestoreFile.");
+
         Console.WriteLine("\n=================================================================");
-        Console.WriteLine($"🎉 PHASE 4 INTEGRATION SUITE COMPLETE: {passed}/26 TESTS PASSED (100% SUCCESS)");
+        Console.WriteLine($"🎉 PHASE 4 INTEGRATION SUITE COMPLETE: {passed}/28 TESTS PASSED (100% SUCCESS)");
         Console.WriteLine("=================================================================\n");
+        }
+        finally
+        {
+            // Guarantee CS301 TA baseline CanGrade = true expected by TestDatabaseInitializer even on test failure
+            var baselineTa = await context.CourseAssistants.FirstOrDefaultAsync(ca => ca.CourseId == cs301.Id && ca.AssistantId == taUser.Id);
+            if (baselineTa != null && !baselineTa.CanGrade)
+            {
+                baselineTa.CanGrade = true;
+                await context.SaveChangesAsync();
+            }
+        }
+    }
+
+    private sealed class ThrowingCleanupStorageService : IAssignmentStorageService
+    {
+        private readonly IAssignmentStorageService _inner;
+        public ThrowingCleanupStorageService(IAssignmentStorageService inner) => _inner = inner;
+
+        public Task<(bool Success, string? StoredPath, string? OriginalName, long? FileSize, string? ContentType, string? ErrorMessage)> SaveAssignmentFileAsync(
+            IFormFile file, string studentId, int assignmentId) => _inner.SaveAssignmentFileAsync(file, studentId, assignmentId);
+
+        public Task<(byte[]? FileBytes, string ContentType, string DownloadFileName)?> GetAssignmentFileAsync(
+            string storedPath, string? originalFileName) => _inner.GetAssignmentFileAsync(storedPath, originalFileName);
+
+        public Task<bool> DeleteAssignmentFileAsync(string storedPath) =>
+            throw new IOException("Simulated cleanup failure");
+    }
+
+    private sealed class TestPhase4TempDataProvider : Microsoft.AspNetCore.Mvc.ViewFeatures.ITempDataProvider
+    {
+        private readonly Dictionary<string, object> _data = new();
+        public IDictionary<string, object> LoadTempData(HttpContext context) => _data;
+        public void SaveTempData(HttpContext context, IDictionary<string, object> values)
+        {
+            _data.Clear();
+            foreach (var kv in values) _data[kv.Key] = kv.Value;
+        }
     }
 }

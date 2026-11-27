@@ -204,13 +204,13 @@ public class UserService : IUserService
         {
             var progressRecords = await _context.CourseProgresses
                 .AsNoTracking()
-                .Where(cp => cp.StudentId == user.Id && cp.IsCompleted)
+                .Where(cp => cp.StudentId == user.Id && cp.IsCompleted && cp.CourseItem.Type == ItemType.Lesson)
                 .ToListAsync();
 
             vm.EnrolledCourses = user.Enrollments.Select(e =>
             {
-                int totalItems = e.Course?.Chapters.Sum(ch => ch.CourseItems.Count) ?? 0;
-                var courseItemIds = e.Course?.Chapters.SelectMany(ch => ch.CourseItems.Select(ci => ci.Id)).ToHashSet() ?? new HashSet<int>();
+                int totalItems = e.Course?.Chapters.Sum(ch => ch.CourseItems.Count(ci => ci.Type == ItemType.Lesson)) ?? 0;
+                var courseItemIds = e.Course?.Chapters.SelectMany(ch => ch.CourseItems.Where(ci => ci.Type == ItemType.Lesson).Select(ci => ci.Id)).ToHashSet() ?? new HashSet<int>();
                 int completedItems = progressRecords.Count(cp => courseItemIds.Contains(cp.CourseItemId));
                 int progPct = totalItems > 0 ? (int)Math.Round((double)completedItems / totalItems * 100) : 0;
 

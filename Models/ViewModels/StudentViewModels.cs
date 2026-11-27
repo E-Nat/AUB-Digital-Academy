@@ -39,9 +39,9 @@ public class StudentCourseOverviewViewModel
     public DateTime EnrolledAt { get; set; }
     public List<StudentCourseModuleOverviewViewModel> Modules { get; set; } = new();
     public int TotalModules => Modules.Count;
-    public int TotalLessons => Modules.Sum(m => m.Lessons.Count);
-    public int CompletedLessons => Modules.Sum(m => m.Lessons.Count(l => l.IsCompleted));
-    public int ProgressPercentage => TotalLessons > 0 ? (int)Math.Round((double)CompletedLessons / TotalLessons * 100) : 0;
+    public int TotalLessons => Modules.Sum(m => m.TotalLessons);
+    public int CompletedLessons => Modules.Sum(m => m.CompletedLessons);
+    public int ProgressPercentage => TotalLessons > 0 ? Math.Min(100, (int)Math.Round((double)CompletedLessons / TotalLessons * 100)) : 0;
 
     /// <summary>
     /// ID of the first available lesson in curriculum order, used for the "Start Learning" action.
@@ -57,9 +57,9 @@ public class StudentCourseModuleOverviewViewModel
     public string Title { get; set; } = string.Empty;
     public int Position { get; set; }
     public List<StudentCourseLessonOverviewViewModel> Lessons { get; set; } = new();
-    public int TotalLessons => Lessons.Count;
-    public int CompletedLessons => Lessons.Count(l => l.IsCompleted);
-    public int ProgressPercentage => TotalLessons > 0 ? (int)Math.Round((double)CompletedLessons / TotalLessons * 100) : 0;
+    public int TotalLessons => Lessons.Count(l => l.Type == AUBDigitalAcademy.Models.Enums.ItemType.Lesson);
+    public int CompletedLessons => Lessons.Count(l => l.Type == AUBDigitalAcademy.Models.Enums.ItemType.Lesson && l.IsCompleted);
+    public int ProgressPercentage => TotalLessons > 0 ? Math.Min(100, (int)Math.Round((double)CompletedLessons / TotalLessons * 100)) : 0;
 }
 
 public class StudentCourseLessonOverviewViewModel

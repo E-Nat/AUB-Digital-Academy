@@ -79,6 +79,7 @@ public static class StudentProgressIntegrationTestRunner
         Course? course2 = null; // 1 lesson (Student A unenrolled)
         Course? course3 = null; // 0 lessons (Empty)
         Course? course4 = null; // 1 lesson (Student A enrolled)
+        Course? course5 = null; // Mixed items: 2 lessons, 1 book, 1 quiz (Student A enrolled)
 
         List<CourseItem> course1Items = new();
         CourseItem? course2Item = null;
@@ -555,6 +556,87 @@ public static class StudentProgressIntegrationTestRunner
             }
 
             // -------------------------------------------------------------
+            // TEST 14: Mixed CourseItem Types (Lessons + Book + Quiz)
+            // -------------------------------------------------------------
+            course5 = new Course
+            {
+                Code = $"CS-PRG5-{testRunId}",
+                Title = "Mixed Content Progress Course",
+                MajorId = major.Id,
+                SemesterId = semester.Id,
+                TeacherId = teacher.Id,
+                Status = CourseStatus.Published,
+                CreatedAt = DateTime.UtcNow
+            };
+            context.Courses.Add(course5);
+            await context.SaveChangesAsync();
+
+            var c5Chapter = new Chapter { CourseId = course5.Id, Title = "Module 1", Position = 1 };
+            context.Chapters.Add(c5Chapter);
+            await context.SaveChangesAsync();
+
+            var c5Lesson1Item = new CourseItem { ChapterId = c5Chapter.Id, Title = "Mixed Lesson 1", Position = 1, Type = ItemType.Lesson };
+            var c5Lesson2Item = new CourseItem { ChapterId = c5Chapter.Id, Title = "Mixed Lesson 2", Position = 2, Type = ItemType.Lesson };
+            var c5BookItem = new CourseItem { ChapterId = c5Chapter.Id, Title = "Mixed Book 1", Position = 3, Type = ItemType.Book };
+            var c5QuizItem = new CourseItem { ChapterId = c5Chapter.Id, Title = "Mixed Quiz 1", Position = 4, Type = ItemType.Quiz };
+            context.CourseItems.AddRange(c5Lesson1Item, c5Lesson2Item, c5BookItem, c5QuizItem);
+            await context.SaveChangesAsync();
+
+            context.Lessons.AddRange(
+                new Lesson { CourseItemId = c5Lesson1Item.Id, ContentHtml = "<p>L1</p>" },
+                new Lesson { CourseItemId = c5Lesson2Item.Id, ContentHtml = "<p>L2</p>" }
+            );
+            context.Books.Add(new Book { CourseItemId = c5BookItem.Id, FileUrl = "/files/guide.pdf", FileType = "PDF" });
+            context.Quizzes.Add(new Quiz { CourseItemId = c5QuizItem.Id, TimeLimitMinutes = 15, PassingScore = 50, MaxAttempts = 2, IsPublished = true });
+            await context.SaveChangesAsync();
+
+            await enrollmentService.EnrollStudentAsync(studentA.Id, course5.Id);
+
+            // 14a: Complete Book -> Book indicator is true, lesson progress stays 0/2 (0%)
+            var bookVm14 = await curriculumService.GetStudentBookAsync(course5.Id, c5BookItem.Id, studentA.Id);
+            var bookSidebarItem = bookVm14?.Modules.SelectMany(m => m.Lessons).FirstOrDefault(i => i.CourseItemId == c5BookItem.Id);
+            var progressAfterBook = await curriculumService.GetStudentCoursesProgressAsync(studentA.Id, new[] { course5.Id });
+            var (c5TotalAfterBook, c5DoneAfterBook) = progressAfterBook.GetValueOrDefault(course5.Id, (-1, -1));
+            var totalCompletedAfterBook = await curriculumService.GetStudentCompletedLessonsCountAsync(studentA.Id);
+
+            if (bookVm14 != null &&
+                bookSidebarItem != null && bookSidebarItem.IsCompleted &&
+                bookVm14.TotalLessonsCount == 2 && bookVm14.CompletedLessonsCount == 0 && bookVm14.CourseProgressPercentage == 0 &&
+                c5TotalAfterBook == 2 && c5DoneAfterBook == 0 && totalCompletedAfterBook == 5)
+            {
+                Pass("Mixed CourseItems (Book): Completing a Book preserves Book checkmark without incrementing lesson progress");
+            }
+            else
+            {
+                Fail("Test 14a: Mixed CourseItems (Book)", $"Expected 0/2 lessons (0%) and Book IsCompleted=true, got BookSidebar={bookSidebarItem?.IsCompleted}, Nav={bookVm14?.CompletedLessonsCount}/{bookVm14?.TotalLessonsCount}, Map={c5DoneAfterBook}/{c5TotalAfterBook}, TotalCompleted={totalCompletedAfterBook}.");
+            }
+
+            // 14b: Complete both Lessons -> progress is 2/2 (100%, never >100%) and Overview matches
+            await curriculumService.MarkLessonCompleteAsync(studentA.Id, course5.Id, c5Lesson1Item.Id);
+            await curriculumService.MarkLessonCompleteAsync(studentA.Id, course5.Id, c5Lesson2Item.Id);
+
+            var progressAfterLessons = await curriculumService.GetStudentCoursesProgressAsync(studentA.Id, new[] { course5.Id });
+            var (c5TotalAfterLessons, c5DoneAfterLessons) = progressAfterLessons.GetValueOrDefault(course5.Id, (-1, -1));
+            var totalCompletedAfterLessons = await curriculumService.GetStudentCompletedLessonsCountAsync(studentA.Id);
+
+            var ctrlA_14 = BuildController(studentA);
+            var overviewRes14 = await ctrlA_14.Course(course5.Id);
+            var overviewVm14 = (overviewRes14 as ViewResult)?.Model as StudentCourseOverviewViewModel;
+            var overviewBook14 = overviewVm14?.Modules.SelectMany(m => m.Lessons).FirstOrDefault(i => i.CourseItemId == c5BookItem.Id);
+
+            if (c5TotalAfterLessons == 2 && c5DoneAfterLessons == 2 &&
+                totalCompletedAfterLessons == 7 &&
+                overviewVm14 != null && overviewVm14.TotalLessons == 2 && overviewVm14.CompletedLessons == 2 && overviewVm14.ProgressPercentage == 100 &&
+                overviewBook14 != null && overviewBook14.IsCompleted)
+            {
+                Pass("Mixed CourseItems (Lessons + Overview): Lesson progress is 2/2 (100%), never exceeds 100%, and Book checkmark remains intact");
+            }
+            else
+            {
+                Fail("Test 14b: Mixed CourseItems (Lessons + Overview)", $"Expected 2/2 (100%) and TotalCompleted=7, got Map={c5DoneAfterLessons}/{c5TotalAfterLessons}, TotalCompleted={totalCompletedAfterLessons}, Overview={overviewVm14?.CompletedLessons}/{overviewVm14?.TotalLessons} ({overviewVm14?.ProgressPercentage}%), Book={overviewBook14?.IsCompleted}.");
+            }
+
+            // -------------------------------------------------------------
             // SUCCESS SUMMARY
             // -------------------------------------------------------------
             Console.WriteLine("\n=================================================================");
@@ -572,10 +654,16 @@ public static class StudentProgressIntegrationTestRunner
             // Cleanup test fixtures
             try
             {
-                var allCourseIds = new[] { course1?.Id ?? 0, course2?.Id ?? 0, course3?.Id ?? 0, course4?.Id ?? 0 }.Where(id => id > 0).ToList();
+                var allCourseIds = new[] { course1?.Id ?? 0, course2?.Id ?? 0, course3?.Id ?? 0, course4?.Id ?? 0, course5?.Id ?? 0 }.Where(id => id > 0).ToList();
 
                 var progresses = context.CourseProgresses.Where(cp => allCourseIds.Contains(cp.CourseItem.Chapter.CourseId));
                 context.CourseProgresses.RemoveRange(progresses);
+
+                var books = context.Books.Where(b => allCourseIds.Contains(b.CourseItem.Chapter.CourseId));
+                context.Books.RemoveRange(books);
+
+                var quizzes = context.Quizzes.Where(q => allCourseIds.Contains(q.CourseItem.Chapter.CourseId));
+                context.Quizzes.RemoveRange(quizzes);
 
                 var lessons = context.Lessons.Where(l => allCourseIds.Contains(l.CourseItem.Chapter.CourseId));
                 context.Lessons.RemoveRange(lessons);

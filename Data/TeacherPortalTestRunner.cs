@@ -338,20 +338,117 @@ public static class TeacherPortalTestRunner
                 failed++;
             }
 
-            // TEST 14: Cleanup Test Seed Data
-            context.AssignmentSubmissions.RemoveRange(context.AssignmentSubmissions.Where(s => s.StudentId == student1.Id));
-            context.Assignments.RemoveRange(context.Assignments.Where(a => a.CourseItemId == itemAssignment.Id));
+            // TEST 14: Pending Reviews KPI (Late + Superseded + Multi-Student)
+            var student2 = new User
+            {
+                UserName = $"student2_{timestamp}@aub.edu.kh",
+                Email = $"student2_{timestamp}@aub.edu.kh",
+                FullName = "Dana Student",
+                UniversityId = $"STU_2_{timestamp}",
+                EmailConfirmed = true,
+                IsActive = true
+            };
+            await userManager.CreateAsync(student2, "Student@123");
+            await userManager.AddToRoleAsync(student2, "Student");
+            context.Enrollments.Add(new Enrollment { StudentId = student2.Id, CourseId = courseA.Id, EnrolledAt = DateTime.UtcNow });
+
+            var itemAssign2 = new CourseItem { ChapterId = chapterA.Id, Title = "Assignment 2: KPI & Gradebook", Type = ItemType.Assignment, Position = 2 };
+            var itemQuiz1 = new CourseItem { ChapterId = chapterA.Id, Title = "Quiz 1: Complexity", Type = ItemType.Quiz, Position = 3 };
+            context.CourseItems.AddRange(itemAssign2, itemQuiz1);
+            await context.SaveChangesAsync();
+
+            var assign2 = new Assignment { CourseItemId = itemAssign2.Id, Instruction = "Analyze Big-O", MaxScore = 100.0, DueDate = DateTime.UtcNow.AddDays(3) };
+            var quiz1 = new Quiz { CourseItemId = itemQuiz1.Id, TimeLimitMinutes = 20, PassingScore = 50.0, MaxAttempts = 3, IsPublished = true };
+            context.Assignments.Add(assign2);
+            context.Quizzes.Add(quiz1);
+            await context.SaveChangesAsync();
+
+            var baseTime = DateTime.UtcNow.AddHours(-3);
+            // Student 1 on assign2: Attempt 1 Submitted (older), Attempt 2 Late (latest) -> counts as 1 pending review
+            var s1a1 = new AssignmentSubmission { AssignmentId = assign2.Id, StudentId = student1.Id, AttemptNumber = 1, IsLatest = false, Status = SubmissionStatus.Submitted, SubmittedAt = baseTime };
+            var s1a2 = new AssignmentSubmission { AssignmentId = assign2.Id, StudentId = student1.Id, AttemptNumber = 2, IsLatest = true, Status = SubmissionStatus.Late, SubmittedAt = baseTime.AddMinutes(30) };
+            // Student 2 on assign2: Attempt 1 Submitted (older), Attempt 2 Graded (latest) -> 0 pending for student2
+            var s2a1 = new AssignmentSubmission { AssignmentId = assign2.Id, StudentId = student2.Id, AttemptNumber = 1, IsLatest = false, Status = SubmissionStatus.Submitted, SubmittedAt = baseTime };
+            var s2a2 = new AssignmentSubmission { AssignmentId = assign2.Id, StudentId = student2.Id, AttemptNumber = 2, IsLatest = true, Status = SubmissionStatus.Graded, Score = 88.0, GradedAt = baseTime.AddMinutes(40), SubmittedAt = baseTime.AddMinutes(20) };
+            // Student 2 on assignment (Assignment 1): Attempt 1 Late (latest) -> 1 pending for student2 on Assignment 1
+            var s2Assign1 = new AssignmentSubmission { AssignmentId = assignment.Id, StudentId = student2.Id, AttemptNumber = 1, IsLatest = true, Status = SubmissionStatus.Late, SubmittedAt = baseTime.AddMinutes(10) };
+            context.AssignmentSubmissions.AddRange(s1a1, s1a2, s2a1, s2a2, s2Assign1);
+            await context.SaveChangesAsync();
+
+            var kpiDash = await teacherService.GetTeacherDashboardAsync(teacherA.Id);
+            var kpiAssigns = (await teacherService.GetTeacherAssignmentsAsync(teacherA.Id)).ToList();
+            var kpiA1 = kpiAssigns.FirstOrDefault(a => a.Id == assignment.Id);
+            var kpiA2 = kpiAssigns.FirstOrDefault(a => a.Id == assign2.Id);
+            // Expected: s1a2 (assign2, Late) + s2Assign1 (assignment, Late) = 2 total pending
+            if (kpiDash.PendingReviewsCount == 2 && kpiA1?.PendingSubmissions == 1 && kpiA2?.PendingSubmissions == 1)
+            {
+                Console.WriteLine("  [PASS] Test 14: Pending Reviews KPI counts latest Submitted/Late per student/assignment and excludes superseded & graded attempts");
+                passed++;
+            }
+            else
+            {
+                Console.WriteLine($"  [FAIL] Test 14: Pending Reviews KPI mismatch (Dash={kpiDash.PendingReviewsCount}, A1={kpiA1?.PendingSubmissions}, A2={kpiA2?.PendingSubmissions})");
+                failed++;
+            }
+
+            // TEST 15: Assignment Gradebook Accuracy (Latest Graded + Equal Timestamp Tie-Break + Ungraded Newer Attempt)
+            var equalGradeTime = DateTime.UtcNow.AddMinutes(-10);
+            // Student 1 on assign2: two older graded attempts with equal timestamps (70 vs 82 -> 82 wins by higher Id), plus an ungraded newer Attempt 5 (Late) -> 82 must remain in gradebook
+            var s1g1 = new AssignmentSubmission { AssignmentId = assign2.Id, StudentId = student1.Id, AttemptNumber = 3, IsLatest = false, Status = SubmissionStatus.Graded, Score = 70.0, GradedAt = equalGradeTime, SubmittedAt = equalGradeTime };
+            var s1g2 = new AssignmentSubmission { AssignmentId = assign2.Id, StudentId = student1.Id, AttemptNumber = 4, IsLatest = false, Status = SubmissionStatus.Graded, Score = 82.0, GradedAt = equalGradeTime, SubmittedAt = equalGradeTime };
+            var s1NewerUngraded = new AssignmentSubmission { AssignmentId = assign2.Id, StudentId = student1.Id, AttemptNumber = 5, IsLatest = true, Status = SubmissionStatus.Late, SubmittedAt = equalGradeTime.AddMinutes(5) };
+            context.AssignmentSubmissions.AddRange(s1g1, s1g2, s1NewerUngraded);
+            await context.SaveChangesAsync();
+
+            // TEST 16: Quiz Gradebook Accuracy (Highest Score + Deterministic Tie-Break + Separate Students)
+            var qTime = DateTime.UtcNow.AddMinutes(-20);
+            // Student 1: scores 60, 90 (tie), 90 (newer) -> 90 (1 row)
+            var q1s1_a1 = new QuizSubmission { QuizId = quiz1.Id, StudentId = student1.Id, Score = 60.0, IsPassed = true, SubmittedAt = qTime };
+            var q1s1_a2 = new QuizSubmission { QuizId = quiz1.Id, StudentId = student1.Id, Score = 90.0, IsPassed = true, SubmittedAt = qTime.AddMinutes(1) };
+            var q1s1_a3 = new QuizSubmission { QuizId = quiz1.Id, StudentId = student1.Id, Score = 90.0, IsPassed = true, SubmittedAt = qTime.AddMinutes(2) };
+            // Student 2: scores 75, 40 -> 75 (1 row)
+            var q1s2_a1 = new QuizSubmission { QuizId = quiz1.Id, StudentId = student2.Id, Score = 75.0, IsPassed = true, SubmittedAt = qTime };
+            var q1s2_a2 = new QuizSubmission { QuizId = quiz1.Id, StudentId = student2.Id, Score = 40.0, IsPassed = false, SubmittedAt = qTime.AddMinutes(5) };
+            context.QuizSubmissions.AddRange(q1s1_a1, q1s1_a2, q1s1_a3, q1s2_a1, q1s2_a2);
+            await context.SaveChangesAsync();
+
+            var fullGrades = (await teacherService.GetTeacherGradesAsync(teacherA.Id)).ToList();
+            var assign2S1Rows = fullGrades.Where(g => g.AssessmentType == "Assignment" && g.AssessmentTitle == itemAssign2.Title && g.StudentId == student1.Id).ToList();
+            var assign2S2Rows = fullGrades.Where(g => g.AssessmentType == "Assignment" && g.AssessmentTitle == itemAssign2.Title && g.StudentId == student2.Id).ToList();
+            var quiz1S1Rows = fullGrades.Where(g => g.AssessmentType == "Quiz" && g.AssessmentTitle == itemQuiz1.Title && g.StudentId == student1.Id).ToList();
+            var quiz1S2Rows = fullGrades.Where(g => g.AssessmentType == "Quiz" && g.AssessmentTitle == itemQuiz1.Title && g.StudentId == student2.Id).ToList();
+            var teacherBGradesCheck = (await teacherService.GetTeacherGradesAsync(teacherB.Id)).ToList();
+
+            bool assignGradeOk = assign2S1Rows.Count == 1 && assign2S1Rows[0].Score == 82.0 && assign2S2Rows.Count == 1 && assign2S2Rows[0].Score == 88.0;
+            bool quizGradeOk = quiz1S1Rows.Count == 1 && quiz1S1Rows[0].Score == 90.0 && quiz1S2Rows.Count == 1 && quiz1S2Rows[0].Score == 75.0;
+            if (assignGradeOk && quizGradeOk && !teacherBGradesCheck.Any())
+            {
+                Console.WriteLine("  [PASS] Test 15 & 16: Assignment Gradebook (latest graded, tie-broken, ungraded newer preserved) and Quiz Gradebook (highest score, 1 row/student/assessment) verified");
+                passed++;
+            }
+            else
+            {
+                Console.WriteLine($"  [FAIL] Test 15 & 16: Gradebook accuracy mismatch (AssignOk={assignGradeOk}, QuizOk={quizGradeOk}, TeacherBCount={teacherBGradesCheck.Count})");
+                failed++;
+            }
+
+            // TEST 17: Cleanup Test Seed Data
+            context.QuizSubmissions.RemoveRange(context.QuizSubmissions.Where(qs => qs.StudentId == student1.Id || qs.StudentId == student2.Id));
+            context.Quizzes.RemoveRange(context.Quizzes.Where(q => q.CourseItemId == itemQuiz1.Id));
+            context.AssignmentSubmissions.RemoveRange(context.AssignmentSubmissions.Where(s => s.StudentId == student1.Id || s.StudentId == student2.Id));
+            context.Assignments.RemoveRange(context.Assignments.Where(a => a.CourseItemId == itemAssignment.Id || a.CourseItemId == itemAssign2.Id));
             context.CourseItems.RemoveRange(context.CourseItems.Where(ci => ci.ChapterId == chapterA.Id));
             context.Chapters.RemoveRange(context.Chapters.Where(ch => ch.CourseId == courseA.Id));
-            context.Enrollments.RemoveRange(context.Enrollments.Where(e => e.StudentId == student1.Id));
+            context.Enrollments.RemoveRange(context.Enrollments.Where(e => e.StudentId == student1.Id || e.StudentId == student2.Id));
             context.Courses.RemoveRange(context.Courses.Where(c => c.TeacherId == teacherA.Id || c.TeacherId == teacherB.Id));
             await context.SaveChangesAsync();
 
+            await userManager.DeleteAsync(student2);
             await userManager.DeleteAsync(student1);
             await userManager.DeleteAsync(teacherA);
             await userManager.DeleteAsync(teacherB);
 
-            Console.WriteLine("  [PASS] Test 14: Clean Database Restoration: Test teacher accounts & course data cleaned up cleanly from SQL Server");
+            Console.WriteLine("  [PASS] Test 17: Clean Database Restoration: Test teacher accounts & course data cleaned up cleanly from SQL Server");
             passed++;
         }
         catch (Exception ex)
