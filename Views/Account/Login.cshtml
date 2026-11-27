@@ -168,11 +168,33 @@
         @* ── New Student Activation Link ───────────────────────────────────── *@
         <div class="text-center mb-3">
             <span class="text-secondary" style="font-size: 15px;">New student?</span>
-            <a href="/pages/authentication/activate-account.html" class="text-decoration-none fw-semibold ms-1" style="color: #0861E9; font-size: 15px;" id="activateAccountLink">
+            <a asp-controller="Account" asp-action="Register" class="text-decoration-none fw-semibold ms-1" style="color: #0861E9; font-size: 15px;" id="activateAccountLink">
                 Activate Your Account
             </a>
         </div>
     </form>
+
+    @if (googleConfigured)
+    {
+        <div class="d-flex align-items-center my-3">
+            <hr class="flex-grow-1 text-secondary opacity-25" />
+            <span class="px-3 text-secondary small">or continue with</span>
+            <hr class="flex-grow-1 text-secondary opacity-25" />
+        </div>
+
+        <form method="post" action="/Account/ExternalLogin" class="mb-3" id="googleExternalLoginForm">
+            @Html.AntiForgeryToken()
+            <input type="hidden" name="provider" value="Google" />
+            @if (!string.IsNullOrEmpty(ViewData["ReturnUrl"] as string))
+            {
+                <input type="hidden" name="returnUrl" value="@ViewData["ReturnUrl"]" />
+            }
+            <button type="submit" class="btn btn-outline-secondary w-100 d-flex align-items-center justify-content-center gap-2 py-2" id="googleSignInButton">
+                <i class="bi bi-google" aria-hidden="true"></i>
+                <span>Continue with Google</span>
+            </button>
+        </form>
+    }
 
     @* ── Helpdesk Footer ────────────────────────────────────────────────── *@
     <div class="text-center pt-3 text-secondary" style="font-size: 14.5px;">

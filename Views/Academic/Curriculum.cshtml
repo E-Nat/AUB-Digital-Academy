@@ -98,11 +98,16 @@
 }
 
 <div class="container-fluid p-0">
+    @{
+        var isAdminUser = User.IsInRole("Admin");
+        var coursesBackUrl = isAdminUser ? "/Academic/Course" : "/Teacher/Courses";
+        var courseRefUrl = isAdminUser ? "/Academic/Course" : $"/Teacher/CourseDetails/{Model.CourseId}";
+    }
     <!-- Breadcrumbs -->
     <nav aria-label="breadcrumb" class="mb-3">
         <ol class="breadcrumb small mb-0">
-            <li class="breadcrumb-item"><a href="/Academic/Course" class="text-decoration-none">Courses</a></li>
-            <li class="breadcrumb-item"><a href="/Academic/Course" class="text-decoration-none">@Model.CourseCode</a></li>
+            <li class="breadcrumb-item"><a href="@coursesBackUrl" class="text-decoration-none">Courses</a></li>
+            <li class="breadcrumb-item"><a href="@courseRefUrl" class="text-decoration-none">@Model.CourseCode</a></li>
             <li class="breadcrumb-item active" aria-current="page">Curriculum</li>
         </ol>
     </nav>
@@ -152,7 +157,7 @@
                 </p>
             </div>
             <div class="d-flex align-items-center gap-2">
-                <a href="/Academic/Course" class="btn btn-sm btn-outline-light d-inline-flex align-items-center gap-1 shadow-sm">
+                <a href="@coursesBackUrl" class="btn btn-sm btn-outline-light d-inline-flex align-items-center gap-1 shadow-sm">
                     <i class="bi bi-arrow-left"></i>
                     <span>Back to Courses</span>
                 </a>

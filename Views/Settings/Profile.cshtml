@@ -1,1 +1,254 @@
-<!-- Profile.cshtml -->
+@model AUBDigitalAcademy.Models.ViewModels.ProfileSecurityViewModel
+@{
+    ViewData["Title"] = "Profile & Account Security";
+}
+
+<div class="container py-4" style="max-width: 860px;">
+    <div class="mb-4">
+        <h2 class="fw-bold text-navy mb-1">
+            <i class="bi bi-person-badge me-2 text-primary" aria-hidden="true"></i>Profile &amp; Account Security
+        </h2>
+        <p class="text-secondary mb-0">
+            View your academic account summary and manage Telegram-protected sign-in methods.
+        </p>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(Model.StatusMessage))
+    {
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            <i class="bi bi-check-circle-fill me-2" aria-hidden="true"></i>@Model.StatusMessage
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(Model.ErrorMessage))
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            <i class="bi bi-exclamation-triangle-fill me-2" aria-hidden="true"></i>@Model.ErrorMessage
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+    }
+
+    <div class="card border-0 shadow-sm rounded-4 mb-4">
+        <div class="card-header bg-white border-bottom py-3 px-4">
+            <h5 class="fw-bold mb-0 text-navy">
+                <i class="bi bi-person-lines-fill me-2 text-primary" aria-hidden="true"></i>Account Overview
+            </h5>
+        </div>
+        <div class="card-body p-4">
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <div class="text-secondary small">Full Name</div>
+                    <div class="fw-semibold text-navy">@Model.FullName</div>
+                </div>
+                <div class="col-md-6">
+                    <div class="text-secondary small">University ID</div>
+                    <div class="fw-semibold text-navy">@(string.IsNullOrWhiteSpace(Model.UniversityId) ? "Not assigned" : Model.UniversityId)</div>
+                </div>
+                <div class="col-md-6">
+                    <div class="text-secondary small">Email</div>
+                    <div class="fw-semibold text-navy">@(string.IsNullOrWhiteSpace(Model.Email) ? "Not assigned" : Model.Email)</div>
+                </div>
+                <div class="col-md-6">
+                    <div class="text-secondary small">Role</div>
+                    <div class="fw-semibold text-navy">@Model.RoleSummary</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card border-0 shadow-sm rounded-4">
+        <div class="card-header bg-white border-bottom py-3 px-4 d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <h5 class="fw-bold mb-0 text-navy">
+                <i class="bi bi-shield-lock-fill me-2 text-primary" aria-hidden="true"></i>Sign-In &amp; Security Methods
+            </h5>
+        </div>
+        <div class="card-body p-4">
+            <div class="d-flex flex-wrap justify-content-between align-items-center pb-3 mb-3 border-bottom gap-2">
+                <div>
+                    <div class="fw-semibold text-navy">Telegram 2FA Protection</div>
+                    <div class="text-secondary small">Mandatory second factor for Google sign-in, Google account linking/unlinking, and password reset.</div>
+                </div>
+                @if (Model.IsTelegramVerified)
+                {
+                    <span class="badge bg-success-subtle text-success border border-success-subtle px-3 py-2 rounded-pill">
+                        <i class="bi bi-telegram me-1" aria-hidden="true"></i>Verified
+                    </span>
+                }
+                else
+                {
+                    <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle px-3 py-2 rounded-pill">
+                        Not Verified
+                    </span>
+                }
+            </div>
+
+            <div class="d-flex flex-wrap justify-content-between align-items-center pb-3 mb-4 border-bottom gap-2">
+                <div>
+                    <div class="fw-semibold text-navy">Local Password</div>
+                    <div class="text-secondary small">Required before unlinking Google so you never lose account access.</div>
+                </div>
+                <div class="d-flex align-items-center gap-2">
+                    @if (Model.HasUsableLocalPassword)
+                    {
+                        <span class="badge bg-success-subtle text-success border border-success-subtle px-3 py-2 rounded-pill">Set</span>
+                    }
+                    else
+                    {
+                        <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle px-3 py-2 rounded-pill">Not Set</span>
+                    }
+                    <a href="/Account/ForgotPassword" class="btn btn-sm btn-outline-primary rounded-pill px-3">
+                        Reset via Telegram
+                    </a>
+                </div>
+            </div>
+
+            <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
+                <div>
+                    <div class="fw-semibold text-navy">Google Account Sign-In</div>
+                    <div class="text-secondary small">
+                        Link your Google account to sign in quickly. Every Google sign-in still enforces Telegram 2FA.
+                    </div>
+                </div>
+                @if (Model.HasLinkedGoogle)
+                {
+                    <span class="badge bg-success-subtle text-success border border-success-subtle px-3 py-2 rounded-pill">
+                        <i class="bi bi-google me-1" aria-hidden="true"></i>Linked
+                    </span>
+                }
+                else
+                {
+                    <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle px-3 py-2 rounded-pill">
+                        Not Linked
+                    </span>
+                }
+            </div>
+
+            @if (!Model.IsTelegramVerified)
+            {
+                <div class="alert alert-warning mb-0">
+                    <i class="bi bi-info-circle-fill me-2" aria-hidden="true"></i>
+                    A verified personal Telegram account is required before you can link or unlink a Google account.
+                </div>
+            }
+            else if (Model.PendingActionStage == "link-otp" && !Model.HasLinkedGoogle)
+            {
+                <div class="p-3 bg-light rounded-3 border">
+                    <h6 class="fw-bold text-navy mb-2">Step 2: Enter Telegram Code to Continue to Google</h6>
+                    <p class="text-secondary small mb-3">
+                        Enter the 6-digit code sent to your verified Telegram account. Once verified, you will be redirected to Google to authorize linking.
+                    </p>
+                    <form method="post" action="/Settings/LinkGoogle" class="row g-2 align-items-end mb-2">
+                        @Html.AntiForgeryToken()
+                        <div class="col-sm-6">
+                            <label for="googleLinkOtpCode" class="form-label small fw-semibold">Telegram 6-Digit Code</label>
+                            <input type="text"
+                                   id="googleLinkOtpCode"
+                                   name="code"
+                                   inputmode="numeric"
+                                   pattern="\d{6}"
+                                   maxlength="6"
+                                   autocomplete="one-time-code"
+                                   class="form-control"
+                                   placeholder="123456"
+                                   required />
+                        </div>
+                        <div class="col-sm-6">
+                            <button type="submit" class="btn btn-primary w-100 rounded-pill">
+                                Verify OTP &amp; Continue to Google
+                            </button>
+                        </div>
+                    </form>
+                    <div class="d-flex gap-2 mt-2">
+                        <form method="post" action="/Settings/ResendGoogleStepUpCode">
+                            @Html.AntiForgeryToken()
+                            <button type="submit" class="btn btn-sm btn-outline-secondary rounded-pill">Resend Code</button>
+                        </form>
+                        <form method="post" action="/Settings/CancelGoogleSecurityAction">
+                            @Html.AntiForgeryToken()
+                            <button type="submit" class="btn btn-sm btn-outline-danger rounded-pill">Cancel</button>
+                        </form>
+                    </div>
+                </div>
+            }
+            else if (Model.PendingActionStage == "unlink-otp" && Model.HasLinkedGoogle && Model.HasUsableLocalPassword)
+            {
+                <div class="p-3 bg-light rounded-3 border border-danger-subtle">
+                    <h6 class="fw-bold text-danger mb-2">Confirm Google Account Unlinking</h6>
+                    <p class="text-secondary small mb-3">
+                        Enter the 6-digit code sent to your verified Telegram account to unlink Google Sign-In.
+                    </p>
+                    <form method="post" action="/Settings/UnlinkGoogle" class="row g-2 align-items-end mb-2">
+                        @Html.AntiForgeryToken()
+                        <div class="col-sm-6">
+                            <label for="googleUnlinkOtpCode" class="form-label small fw-semibold">Telegram 6-Digit Code</label>
+                            <input type="text"
+                                   id="googleUnlinkOtpCode"
+                                   name="code"
+                                   inputmode="numeric"
+                                   pattern="\d{6}"
+                                   maxlength="6"
+                                   autocomplete="one-time-code"
+                                   class="form-control"
+                                   placeholder="123456"
+                                   required />
+                        </div>
+                        <div class="col-sm-6">
+                            <button type="submit" class="btn btn-danger w-100 rounded-pill">
+                                Confirm Unlink Google Account
+                            </button>
+                        </div>
+                    </form>
+                    <div class="d-flex gap-2 mt-2">
+                        <form method="post" action="/Settings/ResendGoogleStepUpCode">
+                            @Html.AntiForgeryToken()
+                            <button type="submit" class="btn btn-sm btn-outline-secondary rounded-pill">Resend Code</button>
+                        </form>
+                        <form method="post" action="/Settings/CancelGoogleSecurityAction">
+                            @Html.AntiForgeryToken()
+                            <button type="submit" class="btn btn-sm btn-outline-secondary rounded-pill">Cancel</button>
+                        </form>
+                    </div>
+                </div>
+            }
+            else if (!Model.HasLinkedGoogle)
+            {
+                @if (Model.IsGoogleConfigured)
+                {
+                    <form method="post" action="/Settings/StartGoogleLink">
+                        @Html.AntiForgeryToken()
+                        <button type="submit" class="btn btn-outline-primary rounded-pill px-4">
+                            <i class="bi bi-google me-2" aria-hidden="true"></i>Send Telegram Code to Link Google
+                        </button>
+                    </form>
+                }
+                else
+                {
+                    <div class="alert alert-secondary mb-0">
+                        Google Sign-In is currently disabled because Google OAuth credentials are not configured in this environment.
+                    </div>
+                }
+            }
+            else
+            {
+                @if (!Model.HasUsableLocalPassword)
+                {
+                    <div class="alert alert-warning mb-0">
+                        <i class="bi bi-exclamation-circle-fill me-2" aria-hidden="true"></i>
+                        Your Google account cannot be unlinked because you do not currently have a local password.
+                        <a href="/Account/ForgotPassword" class="alert-link">Set a local password via Telegram reset</a> before unlinking.
+                    </div>
+                }
+                else
+                {
+                    <form method="post" action="/Settings/StartGoogleUnlink">
+                        @Html.AntiForgeryToken()
+                        <button type="submit" class="btn btn-outline-danger rounded-pill px-4">
+                            <i class="bi bi-link-45deg me-2" aria-hidden="true"></i>Send Telegram Code to Unlink Google
+                        </button>
+                    </form>
+                }
+            }
+        </div>
+    </div>
+</div>

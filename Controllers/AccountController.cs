@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using AUBDigitalAcademy.Data;
 using AUBDigitalAcademy.Models;
@@ -17,7 +18,9 @@ namespace AUBDigitalAcademy.Controllers;
 public class AccountController : Controller
 {
     private const string PendingVerificationCookieName = "AUB_PendingVerification";
+    private const string PendingPasswordResetCookieName = "AUB_PendingPasswordReset";
     private static readonly TimeSpan PendingVerificationLifetime = TimeSpan.FromMinutes(15);
+    private static readonly TimeSpan PendingPasswordResetLifetime = TimeSpan.FromMinutes(15);
     private static readonly ConcurrentDictionary<string, DateTimeOffset> RevokedPendingSessionNonces = new();
 
     private readonly SignInManager<User> _signInManager;
@@ -26,6 +29,7 @@ public class AccountController : Controller
     private readonly ITelegramService _telegramService;
     private readonly IAuthService _authService;
     private readonly ITimeLimitedDataProtector _protector;
+    private readonly ITimeLimitedDataProtector _passwordResetProtector;
     private readonly ILogger<AccountController> _logger;
 
     private sealed record PendingVerificationPayload(
@@ -33,6 +37,14 @@ public class AccountController : Controller
         bool RememberMe,
         string? ReturnUrl,
         string AuthMethod,
+        DateTimeOffset ExpiresAtUtc,
+        string SessionNonce);
+
+    private sealed record PendingPasswordResetPayload(
+        string UserId,
+        int RequestId,
+        bool IsEligible,
+        DateTimeOffset IssuedAtUtc,
         DateTimeOffset ExpiresAtUtc,
         string SessionNonce);
 
@@ -52,6 +64,9 @@ public class AccountController : Controller
         _authService = authService;
         _protector = dataProtectionProvider
             .CreateProtector("AUBDigitalAcademy.TelegramVerification")
+            .ToTimeLimitedDataProtector();
+        _passwordResetProtector = dataProtectionProvider
+            .CreateProtector("AUBDigitalAcademy.PasswordReset.v1")
             .ToTimeLimitedDataProtector();
         _logger = logger;
     }
@@ -586,69 +601,202 @@ public class AccountController : Controller
     }
 
     [HttpGet]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
     public IActionResult ForgotPassword()
     {
-        return View();
+        return View(new ForgotPasswordViewModel());
     }
 
     [HttpPost]
     [ValidateAntiForgeryToken]
+    [EnableRateLimiting("PasswordResetPolicy")]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
     public async Task<IActionResult> ForgotPassword(ForgotPasswordViewModel model)
     {
+        ClearPendingPasswordResetSession();
+        ClearPendingVerificationSession();
+
         if (!ModelState.IsValid)
         {
             return View(model);
         }
 
-        var normalizedInput = model.Email.Trim();
-        var user = await _userManager.FindByEmailAsync(normalizedInput)
-                   ?? await FindByUniversityIdAsync(normalizedInput);
+        var clientIp = HttpContext?.Connection.RemoteIpAddress?.ToString();
+        var initResult = await _authService.InitiatePasswordResetAsync(model.Email, clientIp);
 
-        if (user != null)
+        if (initResult.Status == PasswordResetInitStatus.RateLimited)
         {
-            _logger.LogInformation("Password reset requested for {Identifier}", normalizedInput);
+            if (Response != null)
+            {
+                Response.StatusCode = StatusCodes.Status429TooManyRequests;
+            }
+            ModelState.AddModelError(string.Empty, "Too many password reset requests. Please wait a minute and try again.");
+            return View(model);
         }
 
-        return View("ForgotPasswordConfirmation");
+        // Always issue an opaque protected reset session cookie and redirect uniformly
+        // so callers cannot distinguish nonexistent, inactive, locked, or unlinked accounts.
+        var isEligible = initResult.Status == PasswordResetInitStatus.Accepted &&
+                         initResult.IsEligible &&
+                         !string.IsNullOrWhiteSpace(initResult.UserId) &&
+                         initResult.RequestId.HasValue;
+
+        SetPendingPasswordResetSession(
+            isEligible ? initResult.UserId! : $"anon-{Convert.ToHexString(RandomNumberGenerator.GetBytes(16))}",
+            isEligible ? initResult.RequestId!.Value : 0,
+            isEligible,
+            initResult.CreatedAtUtc.HasValue
+                ? new DateTimeOffset(DateTime.SpecifyKind(initResult.CreatedAtUtc.Value, DateTimeKind.Utc))
+                : DateTimeOffset.UtcNow);
+
+        TempData["InfoMessage"] = "If an eligible account with a verified Telegram link exists, a single-use 6-digit reset code has been sent to Telegram.";
+        return RedirectToAction(nameof(ResetPassword));
     }
 
     [HttpGet]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
     public IActionResult ForgotPasswordConfirmation()
     {
         return View();
     }
-    
+
     [HttpGet]
-    public IActionResult ResetPassword(string? token = null, string? email = null)
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
+    public IActionResult ResetPassword()
     {
-        if (string.IsNullOrEmpty(token))
+        if (!TryGetPendingPasswordResetSession(out _))
         {
-            return BadRequest("A valid password reset token is required.");
+            ClearPendingPasswordResetSession();
+            TempData["ErrorMessage"] = "Please enter your Student ID or University Email to start a password reset.";
+            return RedirectToAction(nameof(ForgotPassword));
         }
 
-        var model = new ResetPasswordViewModel { Token = token, Email = email ?? string.Empty };
-        return View(model);
+        return View(new ResetPasswordViewModel());
     }
 
     [HttpPost]
     [ValidateAntiForgeryToken]
+    [EnableRateLimiting("PasswordResetPolicy")]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
     public async Task<IActionResult> ResetPassword(ResetPasswordViewModel model)
     {
+        if (!TryGetPendingPasswordResetSession(out var resetSession))
+        {
+            ClearPendingPasswordResetSession();
+            TempData["ErrorMessage"] = "Your password reset session has expired. Please start again.";
+            return RedirectToAction(nameof(ForgotPassword));
+        }
+
         if (!ModelState.IsValid)
         {
             return View(model);
         }
 
-        var user = await _userManager.FindByEmailAsync(model.Email);
-        if (user == null)
+        var result = await _authService.CompletePasswordResetAsync(
+            resetSession.UserId,
+            resetSession.RequestId,
+            resetSession.IsEligible,
+            model.Code,
+            model.NewPassword);
+
+        if (result.Status == PasswordResetCompleteStatus.PasswordPolicyFailed)
         {
-            return RedirectToAction(nameof(ResetPasswordConfirmation));
+            if (result.Errors != null)
+            {
+                foreach (var err in result.Errors)
+                {
+                    ModelState.AddModelError("NewPassword", err);
+                }
+            }
+            else
+            {
+                ModelState.AddModelError("NewPassword", "The new password does not meet security requirements.");
+            }
+            return View(model);
+        }
+
+        if (result.Status == PasswordResetCompleteStatus.TooManyAttempts)
+        {
+            ClearPendingPasswordResetSession();
+            TempData["ErrorMessage"] = "Maximum verification attempts reached or reset session expired. Please request a new reset code.";
+            return RedirectToAction(nameof(ForgotPassword));
+        }
+
+        if (result.Status != PasswordResetCompleteStatus.Succeeded)
+        {
+            ModelState.AddModelError("Code", "Invalid or expired verification code.");
+            return View(model);
+        }
+
+        // Clear and revoke all pending reset/verification cookies and sign out any active browser session
+        ClearPendingPasswordResetSession();
+        ClearPendingVerificationSession();
+        await SignOutExternalSchemeSafelyAsync();
+        if (HttpContext?.RequestServices?.GetService(typeof(IAuthenticationService)) != null)
+        {
+            await _signInManager.SignOutAsync();
         }
 
         return RedirectToAction(nameof(ResetPasswordConfirmation));
     }
 
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    [EnableRateLimiting("PasswordResetPolicy")]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
+    public async Task<IActionResult> ResendPasswordResetCode()
+    {
+        if (!TryGetPendingPasswordResetSession(out var resetSession))
+        {
+            ClearPendingPasswordResetSession();
+            TempData["ErrorMessage"] = "Your password reset session has expired. Please start again.";
+            return RedirectToAction(nameof(ForgotPassword));
+        }
+
+        var clientIp = HttpContext?.Connection.RemoteIpAddress?.ToString();
+        var resendResult = await _authService.ResendPasswordResetCodeAsync(
+            resetSession.UserId,
+            resetSession.IsEligible,
+            resetSession.IssuedAtUtc,
+            clientIp);
+
+        if (resendResult.Status == PasswordResetInitStatus.RateLimited)
+        {
+            TempData["ErrorMessage"] = "Please wait 60 seconds before requesting another password reset code.";
+            return RedirectToAction(nameof(ResetPassword));
+        }
+
+        var isEligible = resendResult.Status == PasswordResetInitStatus.Accepted &&
+                         resendResult.IsEligible &&
+                         !string.IsNullOrWhiteSpace(resendResult.UserId) &&
+                         resendResult.RequestId.HasValue;
+
+        SetPendingPasswordResetSession(
+            isEligible ? resendResult.UserId! : resetSession.UserId,
+            isEligible ? resendResult.RequestId!.Value : 0,
+            isEligible,
+            DateTimeOffset.UtcNow);
+
+        TempData["InfoMessage"] = "If an eligible account with a verified Telegram link exists, a new single-use 6-digit reset code has been sent to Telegram.";
+        return RedirectToAction(nameof(ResetPassword));
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> CancelPasswordReset()
+    {
+        if (TryGetPendingPasswordResetSession(out var resetSession) && resetSession.IsEligible)
+        {
+            await _authService.InvalidatePendingChallengesAsync(resetSession.UserId);
+        }
+
+        ClearPendingPasswordResetSession();
+        TempData["InfoMessage"] = "Password reset was cancelled.";
+        return RedirectToAction(nameof(Login));
+    }
+
     [HttpGet]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
     public IActionResult ResetPasswordConfirmation()
     {
         return View();
@@ -687,11 +835,12 @@ public class AccountController : Controller
         var safeReturnUrl = !string.IsNullOrEmpty(returnUrl) && Url.IsLocalUrl(returnUrl) ? returnUrl : null;
         var redirectUrl = Url.Action(nameof(ExternalLoginCallback), "Account", new { returnUrl = safeReturnUrl });
         var properties = _signInManager.ConfigureExternalAuthenticationProperties(matchedScheme.Name, redirectUrl);
-        properties.Items["AubExternalNonce"] = Convert.ToHexString(RandomNumberGenerator.GetBytes(16));
+        properties.Items["AubExternalNonce"] = $"login:{Convert.ToHexString(RandomNumberGenerator.GetBytes(16))}";
         return Challenge(properties, matchedScheme.Name);
     }
 
     [HttpGet]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
     public async Task<IActionResult> ExternalLoginCallback(string? returnUrl = null, string? remoteError = null)
     {
         try
@@ -891,6 +1040,95 @@ public class AccountController : Controller
         Response?.Cookies.Delete(PendingVerificationCookieName);
     }
 
+    private void SetPendingPasswordResetSession(
+        string userId,
+        int requestId,
+        bool isEligible,
+        DateTimeOffset issuedAtUtc)
+    {
+        if (TryGetPendingPasswordResetSessionPayloadUnsafe(out var priorPayload))
+        {
+            RevokePendingSessionNonce(priorPayload.SessionNonce, priorPayload.ExpiresAtUtc);
+        }
+
+        var expiresAt = DateTimeOffset.UtcNow.Add(PendingPasswordResetLifetime);
+        var sessionNonce = Convert.ToHexString(RandomNumberGenerator.GetBytes(16));
+        var payload = new PendingPasswordResetPayload(userId, requestId, isEligible, issuedAtUtc, expiresAt, sessionNonce);
+        var json = JsonSerializer.Serialize(payload);
+        var token = _passwordResetProtector.Protect(json, PendingPasswordResetLifetime);
+
+        Response.Cookies.Append(PendingPasswordResetCookieName, token, new CookieOptions
+        {
+            HttpOnly = true,
+            SameSite = SameSiteMode.Lax,
+            Expires = expiresAt,
+            Secure = Request?.IsHttps ?? false,
+            IsEssential = true
+        });
+    }
+
+    private bool TryGetPendingPasswordResetSessionPayloadUnsafe(out PendingPasswordResetPayload payload)
+    {
+        payload = default!;
+        if (Request == null ||
+            !Request.Cookies.TryGetValue(PendingPasswordResetCookieName, out var token) ||
+            string.IsNullOrWhiteSpace(token))
+        {
+            return false;
+        }
+
+        try
+        {
+            var json = _passwordResetProtector.Unprotect(token, out var protectorExpiration);
+            if (protectorExpiration <= DateTimeOffset.UtcNow)
+            {
+                return false;
+            }
+
+            var parsed = JsonSerializer.Deserialize<PendingPasswordResetPayload>(json);
+            if (parsed == null ||
+                string.IsNullOrWhiteSpace(parsed.UserId) ||
+                string.IsNullOrWhiteSpace(parsed.SessionNonce) ||
+                parsed.ExpiresAtUtc <= DateTimeOffset.UtcNow)
+            {
+                return false;
+            }
+
+            payload = parsed;
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private bool TryGetPendingPasswordResetSession(out PendingPasswordResetPayload payload)
+    {
+        if (!TryGetPendingPasswordResetSessionPayloadUnsafe(out payload))
+        {
+            return false;
+        }
+
+        if (IsPendingSessionNonceRevoked(payload.SessionNonce))
+        {
+            payload = default!;
+            return false;
+        }
+
+        return true;
+    }
+
+    private void ClearPendingPasswordResetSession()
+    {
+        if (TryGetPendingPasswordResetSessionPayloadUnsafe(out var existing))
+        {
+            RevokePendingSessionNonce(existing.SessionNonce, existing.ExpiresAtUtc);
+        }
+
+        Response?.Cookies.Delete(PendingPasswordResetCookieName);
+    }
+
     private static void RevokePendingSessionNonce(string nonce, DateTimeOffset expiresAtUtc)
     {
         if (string.IsNullOrWhiteSpace(nonce))
@@ -936,7 +1174,7 @@ public class AccountController : Controller
         if (User.IsInRole("Teacher") || User.IsInRole("Assistance")) return RedirectToAction("Dashboard", "Teacher");
         if (User.IsInRole("Student")) return RedirectToAction("Dashboard", "Student");
         
-        return RedirectToAction("Index", "Admin"); 
+        return RedirectToAction("Index", "Home"); 
     }
     
     private async Task<string> GetRoleRedirectUrlAsync(User user)
@@ -945,6 +1183,6 @@ public class AccountController : Controller
         if (roles.Contains("Admin")) return Url.Action("Index", "Admin") ?? "/Admin";
         if (roles.Contains("Teacher") || roles.Contains("Assistance")) return Url.Action("Dashboard", "Teacher") ?? "/Teacher/Dashboard";
         if (roles.Contains("Student")) return Url.Action("Dashboard", "Student") ?? "/Student/Dashboard";
-        return Url.Action("Index", "Admin") ?? "/Admin";
+        return Url.Action("Index", "Home") ?? "/Home/Index";
     }
 }

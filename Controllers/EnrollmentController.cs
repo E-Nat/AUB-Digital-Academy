@@ -154,7 +154,7 @@ public class EnrollmentController : Controller
     /// </summary>
     [HttpGet]
     [Authorize(Roles = "Student,Admin")]
-    public async Task<IActionResult> MyCourses()
+    public IActionResult MyCourses()
     {
         var currentUserId = _userManager.GetUserId(User);
         if (string.IsNullOrEmpty(currentUserId))
@@ -162,25 +162,7 @@ public class EnrollmentController : Controller
             return Challenge();
         }
 
-        var enrollments = await _enrollmentService.GetStudentEnrollmentsAsync(currentUserId);
-        
-        var viewModels = enrollments.Select(e => new StudentEnrollmentItemViewModel
-        {
-            EnrollmentId = e.Id,
-            CourseId = e.CourseId,
-            CourseCode = e.Course.Code,
-            CourseTitle = e.Course.Title,
-            Description = e.Course.Description,
-            Thumbnail = e.Course.Thumbnail,
-            Status = e.Course.Status,
-            TeacherName = e.Course.Teacher?.FullName ?? "Instructor",
-            MajorName = e.Course.Major?.Name ?? "General",
-            SemesterName = e.Course.Semester?.Name ?? "Current Term",
-            EnrolledAt = e.EnrolledAt
-        }).ToList();
-
-        ViewData["Title"] = "My Enrolled Courses";
-        return View(viewModels);
+        return RedirectToAction("Courses", "Student");
     }
 
     /// <summary>
@@ -195,7 +177,7 @@ public class EnrollmentController : Controller
         if (courseId <= 0)
         {
             TempData["ErrorMessage"] = "Invalid course selection.";
-            return RedirectToLocalOrFallback(returnUrl, nameof(MyCourses), null);
+            return RedirectToLocalOrFallback(returnUrl, "Courses", null, "Student");
         }
 
         var currentUserId = _userManager.GetUserId(User);
@@ -244,7 +226,7 @@ public class EnrollmentController : Controller
             return RedirectToLocalOrFallback(returnUrl, nameof(Index), new { studentId = targetStudentId });
         }
 
-        return RedirectToLocalOrFallback(returnUrl, nameof(MyCourses), null);
+        return RedirectToLocalOrFallback(returnUrl, "Courses", null, "Student");
     }
 
     /// <summary>
@@ -430,16 +412,18 @@ public class EnrollmentController : Controller
             return RedirectToLocalOrFallback(returnUrl, nameof(Index), new { studentId = targetStudentId });
         }
 
-        return RedirectToLocalOrFallback(returnUrl, nameof(MyCourses), null);
+        return RedirectToLocalOrFallback(returnUrl, "Courses", null, "Student");
     }
 
-    private IActionResult RedirectToLocalOrFallback(string? returnUrl, string fallbackAction, object? routeValues)
+    private IActionResult RedirectToLocalOrFallback(string? returnUrl, string fallbackAction, object? routeValues, string? fallbackController = null)
     {
         if (!string.IsNullOrEmpty(returnUrl) && Url.IsLocalUrl(returnUrl))
         {
             return Redirect(returnUrl);
         }
 
-        return RedirectToAction(fallbackAction, routeValues);
+        return string.IsNullOrEmpty(fallbackController)
+            ? RedirectToAction(fallbackAction, routeValues)
+            : RedirectToAction(fallbackAction, fallbackController, routeValues);
     }
 }

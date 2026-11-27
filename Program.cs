@@ -1,5 +1,7 @@
+using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using AUBDigitalAcademy.Data;
 using AUBDigitalAcademy.Models;
@@ -15,9 +17,37 @@ builder.Services.AddDataProtection()
     .PersistKeysToFileSystem(new DirectoryInfo(keysFolder))
     .SetApplicationName("AUBDigitalAcademy");
 
+bool isInitTestDbOnly = args.Contains("--init-test-db");
+bool isEnrollmentTestMode = isInitTestDbOnly ||
+                            args.Contains("--test-enrollment-ui") ||
+                            args.Contains("--test-enrollment-backend");
+
 // Add services to the container.
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
-    ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
+string connectionString;
+if (isEnrollmentTestMode)
+{
+    var testConnectionString = builder.Configuration.GetConnectionString("TestConnection");
+    if (string.IsNullOrWhiteSpace(testConnectionString))
+    {
+        testConnectionString = builder.Configuration["TEST_DB_CONNECTION"];
+    }
+
+    var guardResult = TestDatabaseGuard.EnsureSafeTestConnection(testConnectionString, builder.Environment);
+    if (!guardResult.IsValid)
+    {
+        Console.Error.WriteLine($"[TEST GUARD BLOCKED] {guardResult.DiagnosticMessage}");
+        Environment.ExitCode = 1;
+        return;
+    }
+
+    Console.WriteLine($"[TEST GUARD] {guardResult.DiagnosticMessage}");
+    connectionString = testConnectionString!;
+}
+else
+{
+    connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
+        ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
+}
 
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
 {
@@ -40,6 +70,47 @@ builder.Services.AddIdentity<User, IdentityRole>(options =>
 })
 .AddEntityFrameworkStores<ApplicationDbContext>()
 .AddDefaultTokenProviders();
+
+builder.Services.Configure<DataProtectionTokenProviderOptions>(options =>
+{
+    options.TokenLifespan = TimeSpan.FromMinutes(15);
+});
+
+builder.Services.Configure<SecurityStampValidatorOptions>(options =>
+{
+    options.ValidationInterval = TimeSpan.Zero;
+});
+
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy("PasswordResetPolicy", httpContext =>
+    {
+        var remoteIp = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        return RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: $"pwd-reset:{remoteIp}",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 10,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+                AutoReplenishment = true
+            });
+    });
+    options.AddPolicy("TelegramStepUpPolicy", httpContext =>
+    {
+        var remoteIp = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        return RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: $"tg-stepup:{remoteIp}",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 10,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+                AutoReplenishment = true
+            });
+    });
+});
 
 // Configure cookie authentication
 builder.Services.ConfigureApplicationCookie(options =>
@@ -79,7 +150,16 @@ if (!string.IsNullOrEmpty(googleClientId) && !string.IsNullOrEmpty(googleClientS
             options.SaveTokens = false;
             options.Events.OnRemoteFailure = context =>
             {
-                context.Response.Redirect("/Account/ExternalLoginCallback?remoteError=external_auth_failed");
+                var redirectUri = context.Properties?.RedirectUri;
+                var isGoogleLinkFlow =
+                    (!string.IsNullOrEmpty(redirectUri) &&
+                     redirectUri.Contains("/Settings/LinkGoogleCallback", StringComparison.OrdinalIgnoreCase)) ||
+                    (context.HttpContext.User.Identity?.IsAuthenticated == true &&
+                     context.Request.Cookies.ContainsKey("AUB_GoogleSecurityPending"));
+
+                context.Response.Redirect(isGoogleLinkFlow
+                    ? "/Settings/LinkGoogleCallback?remoteError=external_auth_failed"
+                    : "/Account/ExternalLoginCallback?remoteError=external_auth_failed");
                 context.HandleResponse();
                 return Task.CompletedTask;
             };
@@ -122,24 +202,48 @@ builder.Services.AddScoped<AUBDigitalAcademy.Services.Interfaces.IUserService, A
 builder.Services.AddScoped<AUBDigitalAcademy.Services.Interfaces.ITeacherService, AUBDigitalAcademy.Services.Implementations.TeacherService>();
 builder.Services.AddScoped<AUBDigitalAcademy.Services.Interfaces.IAssignmentStorageService, AUBDigitalAcademy.Services.Implementations.AssignmentStorageService>();
 builder.Services.AddScoped<AUBDigitalAcademy.Services.Interfaces.IAuthService, AUBDigitalAcademy.Services.Implementations.AuthService>();
-builder.Services.AddHostedService<AUBDigitalAcademy.Services.Implementations.TelegramPollingService>();
-
-var app = builder.Build();
-
-// Seed roles and default users
-using (var scope = app.Services.CreateScope())
+builder.Services.AddScoped<AUBDigitalAcademy.Services.Interfaces.IGoogleAuthService, AUBDigitalAcademy.Services.Implementations.GoogleAuthService>();
+if (!isEnrollmentTestMode)
 {
-    var services = scope.ServiceProvider;
-    try
+    builder.Services.AddHostedService<AUBDigitalAcademy.Services.Implementations.TelegramPollingService>();
+}
+
+await using var app = builder.Build();
+
+if (isEnrollmentTestMode)
+{
+    var initResult = await TestDatabaseInitializer.InitializeAsync(connectionString, app.Services);
+    if (!initResult.IsSuccess)
     {
-        bool isDevOrTest = app.Environment.IsDevelopment() ||
-                           args.Any(a => a.StartsWith("--test-", StringComparison.OrdinalIgnoreCase));
-        await SeedData.InitializeAsync(services, allowDevTaGrading: isDevOrTest);
+        Console.Error.WriteLine($"[TEST INIT FAILED] {initResult.DiagnosticMessage}");
+        Environment.ExitCode = 1;
+        return;
     }
-    catch (Exception ex)
+
+    Console.WriteLine($"[TEST INIT] {initResult.DiagnosticMessage}");
+    if (isInitTestDbOnly)
     {
-        var logger = services.GetRequiredService<ILogger<Program>>();
-        logger.LogError(ex, "An error occurred while seeding the database.");
+        Environment.ExitCode = 0;
+        return;
+    }
+}
+else
+{
+    // Seed roles and default users
+    using (var scope = app.Services.CreateScope())
+    {
+        var services = scope.ServiceProvider;
+        try
+        {
+            bool isDevOrTest = app.Environment.IsDevelopment() ||
+                               args.Any(a => a.StartsWith("--test-", StringComparison.OrdinalIgnoreCase));
+            await SeedData.InitializeAsync(services, allowDevTaGrading: isDevOrTest);
+        }
+        catch (Exception ex)
+        {
+            var logger = services.GetRequiredService<ILogger<Program>>();
+            logger.LogError(ex, "An error occurred while seeding the database.");
+        }
     }
 }
 
@@ -152,7 +256,13 @@ if (args.Contains("--test-course-integration"))
 
 if (args.Contains("--test-enrollment-ui"))
 {
-    await EnrollmentUiIntegrationTestRunner.RunTestsAsync(app.Services);
+    Environment.ExitCode = await EnrollmentUiIntegrationTestRunner.RunTestsAsync(app.Services);
+    return;
+}
+
+if (args.Contains("--test-enrollment-backend"))
+{
+    Environment.ExitCode = await EnrollmentBackendTestRunner.RunTestsAsync(app.Services);
     return;
 }
 
@@ -171,6 +281,18 @@ if (args.Contains("--test-user-management"))
 if (args.Contains("--test-teacher-portal"))
 {
     await TeacherPortalTestRunner.RunTestsAsync(app.Services);
+    return;
+}
+
+if (args.Contains("--test-navigation-phase1"))
+{
+    await NavigationPhase1TestRunner.RunTestsAsync(app.Services);
+    return;
+}
+
+if (args.Contains("--test-navigation-phase2"))
+{
+    await NavigationPhase2TestRunner.RunTestsAsync(app.Services);
     return;
 }
 
@@ -210,6 +332,12 @@ if (args.Contains("--test-registration-telegram-security"))
     return;
 }
 
+if (args.Contains("--test-password-reset-security"))
+{
+    await PasswordResetSecurityTestRunner.RunTestsAsync(app.Services);
+    return;
+}
+
 if (args.Contains("--test-telegram-log-redaction"))
 {
     await TelegramLogRedactionTestRunner.RunTestsAsync(app.Services);
@@ -225,6 +353,12 @@ if (args.Contains("--test-stored-xss"))
 if (args.Contains("--test-google-oauth-2fa"))
 {
     await GoogleOAuth2FaIntegrationTestRunner.RunTestsAsync(app.Services);
+    return;
+}
+
+if (args.Contains("--test-google-linking-security"))
+{
+    await GoogleAccountLinkingSecurityTestRunner.RunTestsAsync(app.Services);
     return;
 }
 
@@ -271,6 +405,51 @@ app.UseRouting();
 
 // CORS must be between UseRouting and UseAuthentication/UseAuthorization
 app.UseCors("AllowFrontend");
+app.UseRateLimiter();
+
+// Enforce server-side SecurityStamp validation for Bearer JWTs across all protected /api/* routes
+app.Use(async (context, next) =>
+{
+    if (context.Request.Path.StartsWithSegments("/api", StringComparison.OrdinalIgnoreCase))
+    {
+        var path = context.Request.Path.Value ?? string.Empty;
+        var isAnonymousAuthEndpoint =
+            path.Equals("/api/Auth/login", StringComparison.OrdinalIgnoreCase) ||
+            path.Equals("/api/Auth/verify-2fa", StringComparison.OrdinalIgnoreCase) ||
+            path.Equals("/api/Auth/forgot-password", StringComparison.OrdinalIgnoreCase);
+
+        var authHeader = context.Request.Headers.Authorization.FirstOrDefault();
+        if (!isAnonymousAuthEndpoint &&
+            !string.IsNullOrEmpty(authHeader) &&
+            authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+        {
+            var bearerToken = authHeader["Bearer ".Length..].Trim();
+            var authService = context.RequestServices.GetRequiredService<AUBDigitalAcademy.Services.Interfaces.IAuthService>();
+            var validated = await authService.ValidateApiBearerTokenAsync(bearerToken);
+            if (validated == null)
+            {
+                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                await context.Response.WriteAsJsonAsync(new { success = false, message = "Invalid or expired token." });
+                return;
+            }
+
+            var claims = new List<System.Security.Claims.Claim>
+            {
+                new(System.Security.Claims.ClaimTypes.NameIdentifier, validated.Value.User.Id),
+                new(System.Security.Claims.ClaimTypes.Name, validated.Value.User.UserName ?? validated.Value.User.Id)
+            };
+            foreach (var role in validated.Value.Roles)
+            {
+                claims.Add(new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.Role, role));
+            }
+
+            context.User = new System.Security.Claims.ClaimsPrincipal(
+                new System.Security.Claims.ClaimsIdentity(claims, "Bearer"));
+        }
+    }
+
+    await next();
+});
 
 app.UseAuthentication();
 app.UseAuthorization();
@@ -283,12 +462,6 @@ app.MapControllerRoute(
     name: "auth_alias",
     pattern: "Auth/{action=Login}/{id?}",
     defaults: new { controller = "Account" });
-
-// Area routing (must come before default route)
-app.MapControllerRoute(
-    name: "areas",
-    pattern: "{area:exists}/{controller=Dashboard}/{action=Index}/{id?}")
-    .WithStaticAssets();
 
 app.MapControllerRoute(
     name: "default",

@@ -7,12 +7,30 @@ namespace AUBDigitalAcademy.Data;
 
 public static class SeedData
 {
-    public static async Task InitializeAsync(IServiceProvider serviceProvider, bool? allowDevTaGrading = null)
+    public static async Task InitializeAsync(
+        IServiceProvider serviceProvider,
+        bool? allowDevTaGrading = null,
+        bool skipOrphanLessonRepair = false,
+        bool ensureBaselineForTestDb = false,
+        CancellationToken cancellationToken = default)
     {
         var roleManager = serviceProvider.GetRequiredService<RoleManager<IdentityRole>>();
         var userManager = serviceProvider.GetRequiredService<UserManager<User>>();
         var context = serviceProvider.GetRequiredService<ApplicationDbContext>();
         var logger = serviceProvider.GetRequiredService<ILogger<Program>>();
+
+        if (ensureBaselineForTestDb)
+        {
+            await EnsureBaselineSchemaAsync(context);
+            await context.Database.MigrateAsync(cancellationToken);
+            await InitializeDeterministicTestBaselineAsync(
+                roleManager,
+                userManager,
+                context,
+                skipOrphanLessonRepair,
+                cancellationToken);
+            return;
+        }
 
         // Check connectivity and schema health safely — never drop the database on a transient error.
         bool canConnect = false;
@@ -288,22 +306,25 @@ public static class SeedData
         }
 
         // 7b. Repair any orphaned CourseItems of Type Lesson that lack a Lesson row
-        var orphanLessonItems = await context.CourseItems
-            .Where(ci => ci.Type == AUBDigitalAcademy.Models.Enums.ItemType.Lesson && !context.Lessons.Any(l => l.CourseItemId == ci.Id))
-            .ToListAsync();
-
-        if (orphanLessonItems.Any())
+        if (!skipOrphanLessonRepair)
         {
-            foreach (var ci in orphanLessonItems)
+            var orphanLessonItems = await context.CourseItems
+                .Where(ci => ci.Type == AUBDigitalAcademy.Models.Enums.ItemType.Lesson && !context.Lessons.Any(l => l.CourseItemId == ci.Id))
+                .ToListAsync();
+
+            if (orphanLessonItems.Any())
             {
-                context.Lessons.Add(new Lesson
+                foreach (var ci in orphanLessonItems)
                 {
-                    CourseItemId = ci.Id,
-                    ContentHtml = $"<p>Welcome to {ci.Title}. Foundational academic concepts and practical frameworks.</p>",
-                    VideoUrl = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
-                });
+                    context.Lessons.Add(new Lesson
+                    {
+                        CourseItemId = ci.Id,
+                        ContentHtml = $"<p>Welcome to {ci.Title}. Foundational academic concepts and practical frameworks.</p>",
+                        VideoUrl = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+                    });
+                }
+                await context.SaveChangesAsync();
             }
-            await context.SaveChangesAsync();
         }
 
         // 8. Ensure Assistance User is assigned to CS301 with CanGrade = true ONLY on initial Development/Test setup
@@ -420,5 +441,441 @@ public static class SeedData
             END";
 
         await context.Database.ExecuteSqlRawAsync(checkSql);
+    }
+
+    private static async Task InitializeDeterministicTestBaselineAsync(
+        RoleManager<IdentityRole> roleManager,
+        UserManager<User> userManager,
+        ApplicationDbContext context,
+        bool skipOrphanLessonRepair,
+        CancellationToken cancellationToken)
+    {
+        // 1. Identity Roles
+        string[] roles = { "Admin", "Teacher", "Assistance", "Student" };
+        foreach (var roleName in roles)
+        {
+            var existingRoles = await context.Roles
+                .Where(r => r.Name == roleName)
+                .ToListAsync(cancellationToken);
+
+            if (existingRoles.Count > 1)
+            {
+                throw new InvalidOperationException($"Duplicate Identity role '{roleName}' detected.");
+            }
+
+            if (existingRoles.Count == 0)
+            {
+                var roleResult = await roleManager.CreateAsync(new IdentityRole(roleName));
+                if (!roleResult.Succeeded)
+                {
+                    throw new InvalidOperationException(
+                        $"Failed to create role '{roleName}': {string.Join("; ", roleResult.Errors.Select(e => e.Description))}");
+                }
+            }
+        }
+
+        // 2. Baseline Users (never overwrite existing passwords, stamps, roles, active flags, Telegram, or logins)
+        var baselineUserSpecs = new (string Email, string FullName, string UniversityId, string Password, string Role)[]
+        {
+            ("admin@aub.com", "System Administrator", "ADMIN001", "admin123", "Admin"),
+            ("teacher@aub.com", "John Smith", "TCH001", "teacher123", "Teacher"),
+            ("ta@aub.com", "Teaching Assistant", "TA001", "assistance123", "Assistance"),
+            ("student@aub.com", "Jane Doe", "STU001", "student123", "Student")
+        };
+
+        var baselineUsersByEmail = new Dictionary<string, User>(StringComparer.OrdinalIgnoreCase);
+        foreach (var spec in baselineUserSpecs)
+        {
+            var matches = await context.Users
+                .Where(u => u.Email == spec.Email || u.UniversityId == spec.UniversityId || u.UserName == spec.Email)
+                .ToListAsync(cancellationToken);
+
+            if (matches.Count > 1)
+            {
+                throw new InvalidOperationException(
+                    $"Conflicting or duplicate baseline user records found for '{spec.Email}' / '{spec.UniversityId}'.");
+            }
+
+            if (matches.Count == 1)
+            {
+                var existing = matches[0];
+                if (!string.Equals(existing.Email, spec.Email, StringComparison.OrdinalIgnoreCase) ||
+                    !string.Equals(existing.UserName, spec.Email, StringComparison.OrdinalIgnoreCase) ||
+                    !string.Equals(existing.UniversityId, spec.UniversityId, StringComparison.Ordinal) ||
+                    !existing.IsActive)
+                {
+                    throw new InvalidOperationException(
+                        $"Existing baseline user '{spec.Email}' conflicts with expected identity or active state.");
+                }
+
+                if (!await userManager.IsInRoleAsync(existing, spec.Role))
+                {
+                    throw new InvalidOperationException(
+                        $"Existing baseline user '{spec.Email}' is missing expected role '{spec.Role}'.");
+                }
+
+                baselineUsersByEmail[spec.Email] = existing;
+                continue;
+            }
+
+            var created = new User
+            {
+                UserName = spec.Email,
+                Email = spec.Email,
+                FullName = spec.FullName,
+                UniversityId = spec.UniversityId,
+                EmailConfirmed = true,
+                IsActive = true,
+                IsTelegramVerified = true
+            };
+
+            var createResult = await userManager.CreateAsync(created, spec.Password);
+            if (!createResult.Succeeded)
+            {
+                throw new InvalidOperationException(
+                    $"Failed to create baseline user '{spec.Email}': {string.Join("; ", createResult.Errors.Select(e => e.Description))}");
+            }
+
+            var addRoleResult = await userManager.AddToRoleAsync(created, spec.Role);
+            if (!addRoleResult.Succeeded)
+            {
+                throw new InvalidOperationException(
+                    $"Failed to assign role '{spec.Role}' to baseline user '{spec.Email}': {string.Join("; ", addRoleResult.Errors.Select(e => e.Description))}");
+            }
+
+            baselineUsersByEmail[spec.Email] = created;
+        }
+
+        var teacherUser = baselineUsersByEmail["teacher@aub.com"];
+        var assistanceUser = baselineUsersByEmail["ta@aub.com"];
+
+        // 3. Categories
+        string[] categoryNames = { "Computer Science & IT", "Business & Management" };
+        var categoriesByName = new Dictionary<string, Category>(StringComparer.Ordinal);
+        foreach (var categoryName in categoryNames)
+        {
+            var matches = await context.Categories
+                .Where(c => c.Name == categoryName)
+                .ToListAsync(cancellationToken);
+
+            if (matches.Count > 1)
+            {
+                throw new InvalidOperationException($"Duplicate category '{categoryName}' detected.");
+            }
+
+            if (matches.Count == 1)
+            {
+                categoriesByName[categoryName] = matches[0];
+                continue;
+            }
+
+            var category = new Category { Name = categoryName };
+            context.Categories.Add(category);
+            await context.SaveChangesAsync(cancellationToken);
+            categoriesByName[categoryName] = category;
+        }
+
+        // 4. Majors
+        var majorSpecs = new (string Name, string Code, string CategoryName)[]
+        {
+            ("Software Engineering", "SE", "Computer Science & IT"),
+            ("Computer Science", "CS", "Computer Science & IT"),
+            ("Data Science & AI", "DSAI", "Computer Science & IT"),
+            ("Business Administration", "BA", "Business & Management"),
+            ("Finance & Banking", "FB", "Business & Management"),
+            ("Digital Marketing", "DM", "Business & Management")
+        };
+
+        var majorsByCode = new Dictionary<string, Major>(StringComparer.Ordinal);
+        foreach (var (name, code, categoryName) in majorSpecs)
+        {
+            var expectedCategoryId = categoriesByName[categoryName].Id;
+            var matches = await context.Majors
+                .Where(m => m.Code == code)
+                .ToListAsync(cancellationToken);
+
+            if (matches.Count > 1)
+            {
+                throw new InvalidOperationException($"Duplicate major code '{code}' detected.");
+            }
+
+            if (matches.Count == 1)
+            {
+                if (matches[0].CategoryId != expectedCategoryId)
+                {
+                    throw new InvalidOperationException(
+                        $"Existing major '{code}' has conflicting CategoryId {matches[0].CategoryId} (expected {expectedCategoryId}).");
+                }
+
+                majorsByCode[code] = matches[0];
+                continue;
+            }
+
+            var major = new Major { Name = name, Code = code, CategoryId = expectedCategoryId };
+            context.Majors.Add(major);
+            await context.SaveChangesAsync(cancellationToken);
+            majorsByCode[code] = major;
+        }
+
+        // 5. Semesters
+        var semesterSpecs = new (string Name, string Code, DateTime StartDate, DateTime EndDate, bool IsCurrent)[]
+        {
+            ("Spring Semester 2026", "SP26", new DateTime(2026, 1, 15), new DateTime(2026, 5, 30), true),
+            ("Fall Semester 2025", "FA25", new DateTime(2025, 9, 1), new DateTime(2025, 12, 20), false)
+        };
+
+        var semestersByCode = new Dictionary<string, Semester>(StringComparer.Ordinal);
+        foreach (var (name, code, startDate, endDate, isCurrent) in semesterSpecs)
+        {
+            var matches = await context.Semesters
+                .Where(s => s.Code == code)
+                .ToListAsync(cancellationToken);
+
+            if (matches.Count > 1)
+            {
+                throw new InvalidOperationException($"Duplicate semester code '{code}' detected.");
+            }
+
+            if (matches.Count == 1)
+            {
+                var existing = matches[0];
+                if (existing.StartDate != startDate || existing.EndDate != endDate || existing.IsCurrent != isCurrent)
+                {
+                    throw new InvalidOperationException(
+                        $"Existing semester '{code}' has conflicting dates or IsCurrent flag.");
+                }
+
+                semestersByCode[code] = existing;
+                continue;
+            }
+
+            var semester = new Semester
+            {
+                Name = name,
+                Code = code,
+                StartDate = startDate,
+                EndDate = endDate,
+                IsCurrent = isCurrent
+            };
+            context.Semesters.Add(semester);
+            await context.SaveChangesAsync(cancellationToken);
+            semestersByCode[code] = semester;
+        }
+
+        // 6–9. Foundational Courses, Chapters, CourseItems, and Lessons
+        var sp26SemesterId = semestersByCode["SP26"].Id;
+        var courseSpecs = new (string Code, string Title, string Description, string MajorCode, string Thumbnail, int CreatedDaysAgo, int UpdatedDaysAgo)[]
+        {
+            ("CS301", "Full-Stack Web Engineering", "Modern enterprise web architecture, secure RESTful APIs, relational databases, and cloud application deployment.", "SE", "/images/course_webdev.jpg", 30, 5),
+            ("CS201", "Data Structures & Algorithms", "Fundamental data structures, computational complexity analysis, asymptotic efficiency, and algorithmic problem-solving in modern languages.", "CS", "/images/course_cybersecurity.jpg", 25, 4),
+            ("AI401", "Applied Machine Learning & AI", "Foundational supervised and unsupervised learning models, neural networks, predictive data analytics, and real-world evaluation.", "DSAI", "/images/course_datascience.jpg", 20, 3),
+            ("BA101", "Principles of Business Management", "Strategic organizational management, leadership frameworks, digital transformation, and business innovation in international markets.", "BA", "/images/course_uiux.jpg", 15, 2)
+        };
+
+        var itemSpecs = new (int Position, string Title)[]
+        {
+            (1, "Course Overview & Learning Objectives"),
+            (2, "Core Architecture & System Setup"),
+            (3, "Practical Implementation Workshop")
+        };
+
+        Course? cs301Course = null;
+        foreach (var spec in courseSpecs)
+        {
+            var expectedMajorId = majorsByCode[spec.MajorCode].Id;
+            var courseMatches = await context.Courses
+                .Where(c => c.Code == spec.Code)
+                .ToListAsync(cancellationToken);
+
+            if (courseMatches.Count > 1)
+            {
+                throw new InvalidOperationException($"Duplicate course code '{spec.Code}' detected.");
+            }
+
+            Course course;
+            if (courseMatches.Count == 1)
+            {
+                course = courseMatches[0];
+                if (course.MajorId != expectedMajorId ||
+                    course.SemesterId != sp26SemesterId ||
+                    !string.Equals(course.TeacherId, teacherUser.Id, StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException(
+                        $"Existing course '{spec.Code}' has conflicting MajorId, SemesterId, or TeacherId.");
+                }
+            }
+            else
+            {
+                course = new Course
+                {
+                    Code = spec.Code,
+                    Title = spec.Title,
+                    Description = spec.Description,
+                    Status = AUBDigitalAcademy.Models.Enums.CourseStatus.Published,
+                    MajorId = expectedMajorId,
+                    SemesterId = sp26SemesterId,
+                    TeacherId = teacherUser.Id,
+                    Thumbnail = spec.Thumbnail,
+                    CreatedAt = DateTime.UtcNow.AddDays(-spec.CreatedDaysAgo),
+                    UpdatedAt = DateTime.UtcNow.AddDays(-spec.UpdatedDaysAgo)
+                };
+                context.Courses.Add(course);
+                await context.SaveChangesAsync(cancellationToken);
+            }
+
+            if (spec.Code == "CS301")
+            {
+                cs301Course = course;
+            }
+
+            // Chapter at Position 1
+            const string chapterTitle = "Module 1: Foundations & Architecture";
+            var chapterMatches = await context.Chapters
+                .Where(ch => ch.CourseId == course.Id && ch.Position == 1)
+                .ToListAsync(cancellationToken);
+
+            if (chapterMatches.Count > 1)
+            {
+                throw new InvalidOperationException($"Duplicate baseline chapter at Position 1 for course '{spec.Code}'.");
+            }
+
+            Chapter chapter;
+            if (chapterMatches.Count == 1)
+            {
+                chapter = chapterMatches[0];
+                if (!string.Equals(chapter.Title, chapterTitle, StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException(
+                        $"Existing baseline chapter for course '{spec.Code}' has conflicting Title '{chapter.Title}'.");
+                }
+            }
+            else
+            {
+                chapter = new Chapter
+                {
+                    Title = chapterTitle,
+                    Position = 1,
+                    CourseId = course.Id
+                };
+                context.Chapters.Add(chapter);
+                await context.SaveChangesAsync(cancellationToken);
+            }
+
+            // CourseItems 1..3 and their 1:1 Lessons
+            foreach (var (position, itemTitle) in itemSpecs)
+            {
+                var itemMatches = await context.CourseItems
+                    .Where(ci => ci.ChapterId == chapter.Id && ci.Position == position)
+                    .ToListAsync(cancellationToken);
+
+                if (itemMatches.Count > 1)
+                {
+                    throw new InvalidOperationException(
+                        $"Duplicate CourseItem at Position {position} for course '{spec.Code}'.");
+                }
+
+                CourseItem item;
+                if (itemMatches.Count == 1)
+                {
+                    item = itemMatches[0];
+                    if (!string.Equals(item.Title, itemTitle, StringComparison.Ordinal) ||
+                        item.Type != AUBDigitalAcademy.Models.Enums.ItemType.Lesson)
+                    {
+                        throw new InvalidOperationException(
+                            $"Existing CourseItem at Position {position} for course '{spec.Code}' has conflicting Title or Type.");
+                    }
+                }
+                else
+                {
+                    item = new CourseItem
+                    {
+                        ChapterId = chapter.Id,
+                        Title = itemTitle,
+                        Position = position,
+                        Type = AUBDigitalAcademy.Models.Enums.ItemType.Lesson
+                    };
+                    context.CourseItems.Add(item);
+                    await context.SaveChangesAsync(cancellationToken);
+                }
+
+                var lessonMatches = await context.Lessons
+                    .Where(l => l.CourseItemId == item.Id)
+                    .ToListAsync(cancellationToken);
+
+                if (lessonMatches.Count > 1)
+                {
+                    throw new InvalidOperationException(
+                        $"Duplicate Lesson rows found for CourseItem {item.Id} in course '{spec.Code}'.");
+                }
+
+                if (lessonMatches.Count == 0)
+                {
+                    context.Lessons.Add(new Lesson
+                    {
+                        CourseItemId = item.Id,
+                        ContentHtml = $"<p>Welcome to {item.Title}. Foundational academic concepts and practical frameworks.</p>",
+                        VideoUrl = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+                    });
+                    await context.SaveChangesAsync(cancellationToken);
+                }
+            }
+        }
+
+        // Orphan Lesson repair is intentionally skipped in Enrollment Test Mode
+        if (!skipOrphanLessonRepair)
+        {
+            var orphanLessonItems = await context.CourseItems
+                .Where(ci => ci.Type == AUBDigitalAcademy.Models.Enums.ItemType.Lesson && !context.Lessons.Any(l => l.CourseItemId == ci.Id))
+                .ToListAsync(cancellationToken);
+
+            if (orphanLessonItems.Any())
+            {
+                foreach (var ci in orphanLessonItems)
+                {
+                    context.Lessons.Add(new Lesson
+                    {
+                        CourseItemId = ci.Id,
+                        ContentHtml = $"<p>Welcome to {ci.Title}. Foundational academic concepts and practical frameworks.</p>",
+                        VideoUrl = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+                    });
+                }
+                await context.SaveChangesAsync(cancellationToken);
+            }
+        }
+
+        // 10. CourseAssistant
+        if (cs301Course == null)
+        {
+            throw new InvalidOperationException("Baseline course 'CS301' is missing.");
+        }
+
+        var assistantMatches = await context.CourseAssistants
+            .Where(ca => ca.CourseId == cs301Course.Id && ca.AssistantId == assistanceUser.Id)
+            .ToListAsync(cancellationToken);
+
+        if (assistantMatches.Count > 1)
+        {
+            throw new InvalidOperationException("Duplicate CourseAssistant relationship detected for CS301 and ta@aub.com.");
+        }
+
+        if (assistantMatches.Count == 1)
+        {
+            if (!assistantMatches[0].CanGrade)
+            {
+                throw new InvalidOperationException(
+                    "Existing CourseAssistant relationship for CS301 and ta@aub.com has CanGrade = false.");
+            }
+        }
+        else
+        {
+            context.CourseAssistants.Add(new CourseAssistant
+            {
+                CourseId = cs301Course.Id,
+                AssistantId = assistanceUser.Id,
+                CanGrade = true,
+                AssignedAt = DateTime.UtcNow
+            });
+            await context.SaveChangesAsync(cancellationToken);
+        }
     }
 }

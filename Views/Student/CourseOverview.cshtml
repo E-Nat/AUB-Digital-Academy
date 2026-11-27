@@ -18,6 +18,15 @@
         </ol>
     </nav>
 
+    @if (TempData["WarningMessage"] != null)
+    {
+        <div class="alert alert-warning alert-dismissible fade show d-flex align-items-center gap-2 mb-3" role="alert">
+            <i class="bi bi-exclamation-triangle-fill flex-shrink-0"></i>
+            <div class="flex-grow-1">@TempData["WarningMessage"]</div>
+            <button type="button" class="btn-close shadow-none" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+    }
+
     <!-- Course Overview Header Banner -->
     <div class="card border-0 shadow-sm rounded-3 mb-4 overflow-hidden" style="background: linear-gradient(135deg, #003366 0%, #004080 100%); color: white;">
         <div class="card-body p-4">
@@ -46,9 +55,12 @@
                     </div>
                 </div>
                 <div class="d-flex align-items-center gap-2 flex-wrap">
-                    @if (Model.FirstCourseItemId.HasValue)
+                    @{
+                        var hasLessons = Model.Modules.Any(m => m.Lessons.Any(l => l.Type == AUBDigitalAcademy.Models.Enums.ItemType.Lesson));
+                    }
+                    @if (hasLessons)
                     {
-                        <a href="/Student/Course/@Model.CourseId/Lesson/@Model.FirstCourseItemId" class="btn btn-warning d-inline-flex align-items-center gap-2 shadow-sm fw-bold text-dark px-3 py-2">
+                        <a href="/Student/Course/@Model.CourseId/Learn" class="btn btn-warning d-inline-flex align-items-center gap-2 shadow-sm fw-bold text-dark px-3 py-2">
                             <i class="bi bi-play-fill fs-5"></i>
                             <span>@(Model.CompletedLessons > 0 ? "Continue Learning" : "Start Learning")</span>
                         </a>

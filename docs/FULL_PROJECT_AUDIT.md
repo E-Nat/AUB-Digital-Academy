@@ -11,7 +11,7 @@
 
 **Overall Health:** **Moderate / Solid Phase 1–4 Core, Critical Auth/Workflow/UI Gaps**
 
-AUB Digital Academy has a substantial **Phase 1–4 foundation**: 4-role RBAC (`Admin`, `Teacher`, `Assistance`, `Student`), ASP.NET Core Identity, Telegram 2FA bot integration (`@AUBLinkBot` + `TelegramPollingService`), course/chapter/item CRUD, student enrollment with safety guards, lesson/book/quiz/assignment players, secure file uploads outside `wwwroot` with magic-byte validation, faculty grading with TA `CanGrade` enforcement, and Admin soft-delete/restore for attachments. The project builds with **0 errors** and **139/139** tests pass across the **9 CLI integration test runners** wired into `Program.cs`.
+AUB Digital Academy has a substantial **Phase 1–4 foundation**: 4-role RBAC (`Admin`, `Teacher`, `Assistance`, `Student`), ASP.NET Core Identity, Telegram 2FA bot integration (`@AUBLinkBot` + `TelegramPollingService`), course/chapter/item CRUD, student enrollment with safety guards, lesson/book/quiz/assignment players, secure file uploads outside `wwwroot` with magic-byte validation, faculty grading with TA `CanGrade` enforcement, and Admin soft-delete/restore for attachments. The project builds with **0 errors** and **199/199** tests pass across the **11 CLI integration test runners** wired into `Program.cs`.
 
 However, live source inspection uncovered **multiple critical security vulnerabilities, broken workflows, dead UI links, and Phase 5–6 feature gaps** that were previously undocumented or mischaracterized:
 
@@ -23,9 +23,10 @@ However, live source inspection uncovered **multiple critical security vulnerabi
    - ~~`SeedData.EnsureSeedUserAsync` runs unconditionally on every startup and resets seeded accounts back to weak hardcoded passwords (`admin123`, `teacher123`, `assistance123`, `student123`).~~ *(Resolved 2026-11-27 in `TASK-P0-04`.)*
 
 2. **Broken Core Workflows & Logic Bugs (P1):**
-   - Self-service **Password Reset** (`AccountController.ForgotPassword` / `ResetPassword` POST) is a non-functional stub that never resets passwords or sends tokens.
+   - ~~Self-service **Password Reset** (`AccountController.ForgotPassword` / `ResetPassword` POST) is a non-functional stub that never resets passwords or sends tokens.~~ *(Resolved 2026-11-27 in `TASK-P1-03`.)*
    - ~~**Student Registration** (`AccountController.Register`) sends verification codes when `TelegramChatId` is null (falling back to global `Telegram:ChatId` or simulation logs) and redirects to `VerifyTelegram` instead of `LinkTelegram`.~~ *(Resolved 2026-11-27 in `TASK-P0-05`.)*
-   - **Broken Navigation Links (404 / 403):** Login "Activate Your Account" links to non-existent `/pages/authentication/activate-account.html`; `_Layout.cshtml` links to `/Profile` (empty `SettingsController`), `/Teacher/Submissions` (missing required `assignmentId`), `/Assistance/Dashboard` (for TA breadcrumbs), and redirects all roles' `Ctrl+K` global search to `/Admin/Users`; `TeacherService` generates `ManageUrl = "/Teacher/Courses/Details/{id}"` (404, actual route is `/Teacher/CourseDetails/{id}`); `Admin/Settings.cshtml` links to `/User/Profile` (404); Teachers have no UI link to `/Academic/Curriculum/{id}` from `Views/Teacher/CourseDetails.cshtml`.
+   - ~~User Profile & Google Linking/Unlinking (`/Profile`, `SettingsController`):~~ *(Resolved 2026-11-27 in `TASK-P1-02`.)* Implemented secure Google account linking and unlinking with mandatory Telegram step-up OTP (`GLK:`/`GUL:`), anti-takeover protections, `SecurityStamp` rotation, and complete `/Profile` UI. Fixed `/User/Profile` link in `Admin/Settings.cshtml`.
+   - **Broken Navigation Links (404 / 403):** Login "Activate Your Account" links to non-existent `/pages/authentication/activate-account.html`; `_Layout.cshtml` links to `/Teacher/Submissions` (missing required `assignmentId`), `/Assistance/Dashboard` (for TA breadcrumbs), and redirects all roles' `Ctrl+K` global search to `/Admin/Users`; `TeacherService` generates `ManageUrl = "/Teacher/Courses/Details/{id}"` (404, actual route is `/Teacher/CourseDetails/{id}`); Teachers have no UI link to `/Academic/Curriculum/{id}` from `Views/Teacher/CourseDetails.cshtml`.
    - **Progress & Grading Logic Bugs:** `GetStudentBookAsync` marks `Book` items complete in `CourseProgresses`, inflating lesson completion percentages (`>100%` clamped in `CurriculumService`); `GetStudentQuizPlayerAsync` and `SubmitQuizAsync` do not enforce `Quiz.IsPublished`; `TeacherService` excludes `SubmissionStatus.Late` from `PendingReviewsCount` and does not filter `IsLatest` in `GetTeacherGradesAsync`; quiz `TimeLimitMinutes` is client-side only.
 
 3. **Missing Features (Phase 5 & Deferred Admin/Academic Modules):**
@@ -163,20 +164,12 @@ However, live source inspection uncovered **multiple critical security vulnerabi
 
 ## 7. Testing & Code Quality Audit
 
-### 7.1 Build & Test Verification (Executed 2026-11-26)
-- **`dotnet build --no-restore`:** Succeeded (**0 Errors, 2 Warnings**):
-  - `NU1902` (Moderate) and `NU1903` (High) on NuGet package `System.Security.Cryptography.Pkcs` `9.0.4`.
+### 7.1 Build & Test Verification (Initial Audit 2026-11-26; P0 Security Re-Verified 2026-11-27)
+- **`dotnet build --no-restore` (`TASK-P0-06` verified 2026-11-27):** Succeeded (**0 Errors, 0 Warnings**). Prior `NU1902` (Moderate `GHSA-2fmv-rv2c-59x7`) and `NU1903` (High `GHSA-846f-f764-76mx`) advisories on transitive `System.Security.Cryptography.Pkcs` `9.0.4` (introduced by `Microsoft.EntityFrameworkCore.SqlServer` `10.0.5` -> `Microsoft.Data.SqlClient` `6.1.1`) were resolved by pinning `<PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.15" />` in [`AUBDigitalAcademy.csproj`](../AUBDigitalAcademy.csproj), and `dotnet list package --vulnerable --include-transitive` reports zero vulnerable packages.
 - **`dotnet test --no-build`:** No test projects found (no xUnit/NUnit/MSTest project exists).
-- **Wired CLI Integration Test Suites (`Program.cs` -> `Data/*TestRunner.cs`):** All 9 wired suites executed live against local SQL Server 2022 (`aub_sqlserver`) and **139/139 tests passed**:
-  - `--test-auth`: **12/12 PASSED**
-  - `--test-assistance-role`: **14/14 PASSED**
-  - `--test-teacher-portal`: **14/14 PASSED**
-  - `--test-user-management`: **14/14 PASSED**
-  - `--test-registration-telegram`: **14/14 PASSED**
-  - `--test-course-integration`: **16/16 PASSED**
-  - `--test-enrollment-ui`: **13/13 PASSED**
-  - `--test-quiz`: **16/16 PASSED**
-  - `--test-phase4`: **26/26 PASSED**
+- **Wired CLI Integration Test Suites (`Program.cs` -> `Data/*TestRunner.cs`):**
+  - **Executed after `TASK-P1-03` (2026-11-27) — 157/157 tests passed:** `--test-password-reset-security` (**19/19**), `--test-google-oauth-2fa` (**14/14**), `--test-api-auth` (**12/12**), `--test-auth` (**12/12**), `--test-registration-telegram` (**14/14**), `--test-registration-telegram-security` (**24/24**), `--test-telegram-log-redaction` (**10/10** via `--no-launch-profile`), `--test-stored-xss` (**10/10**), `--test-course-integration` (**16/16**), `--test-phase4` (**26/26**).
+  - **Additional baseline suites verified 2026-11-26 (unchanged modules):** `--test-assistance-role` (**14/14**), `--test-teacher-portal` (**14/14**), `--test-user-management` (**14/14**), `--test-enrollment-ui` (**13/13**), `--test-quiz` (**16/16**).
 
 ### 7.2 Testing Gaps & Debt
 1. **10 Unwired Test Runners in `Data/`:** `CourseCreationTestRunner`, `CourseDeleteTestRunner`, `CurriculumEndToEndIntegrationTestRunner`, `EnrollmentBackendTestRunner`, `LessonCrudTestRunner`, `ModuleCrudTestRunner`, `ModuleUiIntegrationTestRunner`, `StudentFlowIntegrationTestRunner`, `StudentPlayerIntegrationTestRunner`, and `StudentProgressIntegrationTestRunner` are compiled into `Program` assembly but not invoked by `Program.cs`.

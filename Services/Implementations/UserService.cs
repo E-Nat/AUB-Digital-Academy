@@ -456,7 +456,7 @@ public class UserService : IUserService
         user.UpdatedAt = DateTime.UtcNow;
         await _userManager.UpdateAsync(user);
 
-        _logger.LogInformation("Admin {CurrentUserId} reset password for user {TargetUserId} ({Email})", currentUserId, user.Id, user.Email);
+        _logger.LogInformation("Admin {CurrentUserId} reset password for user {TargetUserId}.", currentUserId, user.Id);
         return UserOperationResult.SuccessResult($"Password for '{user.FullName}' has been successfully reset.");
     }
 

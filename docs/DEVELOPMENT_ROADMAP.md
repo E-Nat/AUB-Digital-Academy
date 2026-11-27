@@ -82,15 +82,17 @@
   - Telegram linking challenges are single-use, concurrency-safe, private-chat only, cannot overwrite existing `TelegramChatId`s or reuse another user's Telegram account, and fail closed on Telegram API failure. *(Verified)*
 - **Required tests:** `--test-registration-telegram-security` (24/24 passed), `--test-google-oauth-2fa` (14/14 passed), `--test-api-auth` (12/12 passed), `--test-auth` (12/12 passed), `--test-registration-telegram` (14/14 passed), `--test-telegram-log-redaction` (10/10 passed via `--no-launch-profile`), `--test-stored-xss` (10/10 passed), `--test-course-integration` (16/16 passed), `--test-phase4` (26/26 passed). *(Executed on 2026-11-27; 138/138 passed.)*
 
-### `TASK-P0-06`: Upgrade NuGet `System.Security.Cryptography.Pkcs` to Resolve NU1902/NU1903
-- **Description:** Identify the transitive dependency pulling `System.Security.Cryptography.Pkcs` `9.0.4` and update packages or add a safe direct version constraint to eliminate `NU1902` (moderate) and `NU1903` (high) security advisories.
-- **Why it is needed:** `dotnet build` reports two known security vulnerability warnings (`GHSA-2fmv-rv2c-59x7`, `GHSA-846f-f764-76mx`).
+### `TASK-P0-06`: Upgrade NuGet `System.Security.Cryptography.Pkcs` to Resolve NU1902/NU1903 — **[COMPLETED 2026-11-27]**
+- **Description:** Traced `System.Security.Cryptography.Pkcs` `9.0.4` through `Microsoft.EntityFrameworkCore.SqlServer` `10.0.5` -> `Microsoft.Data.SqlClient` `6.1.1` and added a minimal explicit `<PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.15" />` in `AUBDigitalAcademy.csproj` (`net10.0`, zero extra transitive dependencies, satisfying `>= 9.0.4`) without upgrading EF Core, ASP.NET Core Identity, `Microsoft.Data.SqlClient`, or suppressing any NuGet audit warnings.
+- **Why it is needed:** `dotnet build` previously reported two known DoS vulnerability warnings (`NU1902` Moderate `GHSA-2fmv-rv2c-59x7` and `NU1903` High `GHSA-846f-f764-76mx` on `9.0.4`, affecting `[9.0.0, 9.0.20]` and `[10.0.0, 10.0.12]`).
 - **Affected files:** `AUBDigitalAcademy.csproj`
 - **Dependencies:** None
 - **Priority:** P0
 - **Estimated complexity:** S
-- **Acceptance criteria:** `dotnet build` completes with 0 errors and 0 `NU1902`/`NU1903` warnings.
-- **Required tests:** `dotnet build` and `dotnet list package --vulnerable`.
+- **Acceptance criteria:**
+  - `dotnet restore` resolves `System.Security.Cryptography.Pkcs` `10.0.15` with no downgrades or dependency conflicts and no changes to EF Core/Identity/AspNetCore/`Microsoft.Data.SqlClient` versions. *(Verified)*
+  - `dotnet list package --vulnerable --include-transitive` reports zero vulnerable packages and `dotnet build --no-restore` completes with 0 errors and 0 warnings. *(Verified)*
+- **Required tests:** `dotnet restore`, `dotnet list package --vulnerable --include-transitive` (0 vulnerabilities), `dotnet build --no-restore` (0 errors, 0 warnings), and all 9 regression suites (`--test-google-oauth-2fa` 14/14, `--test-api-auth` 12/12, `--test-auth` 12/12, `--test-registration-telegram` 14/14, `--test-registration-telegram-security` 24/24, `--test-telegram-log-redaction` 10/10, `--test-stored-xss` 10/10, `--test-course-integration` 16/16, `--test-phase4` 26/26 — 138/138 passed on 2026-11-27).
 
 ---
 
@@ -112,25 +114,33 @@
 - **Acceptance criteria:** Every sidebar item, breadcrumb, card button, and auth action link resolves to HTTP 200 for its intended role.
 - **Required tests:** Automated HTTP route smoke test across all 4 roles verifying 200 OK (and 403 where restricted).
 
-### `TASK-P1-02`: Implement `SettingsController` (Profile & Change Password)
-- **Description:** Implement `Profile` (GET/POST) and `ChangePassword` (GET/POST) in `Controllers/SettingsController.cs` (supporting `/Profile`, `/Settings/Profile`, `/Settings/ChangePassword`) and build the corresponding Razor views (`Views/Settings/Profile.cshtml`, `Views/Settings/ChangePassword.cshtml`). Fix `Views/Admin/Settings.cshtml:26` `/User/Profile` link.
-- **Why it is needed:** `/Profile` is linked in `_Layout.cshtml` for Teachers, TAs, and Students, and `/User/Profile` is linked in `Admin/Settings.cshtml`, all currently returning 404.
-- **Affected files:** `Controllers/SettingsController.cs`, `Views/Settings/Profile.cshtml`, `Views/Settings/ChangePassword.cshtml`, `Views/Admin/Settings.cshtml`, `Models/ViewModels/`
-- **Dependencies:** None
+### `TASK-P1-02`: Implement Secure Google Account Linking, Unlinking & Profile Security — **[COMPLETED 2026-11-27]**
+- **Description:** Implemented secure self-service Google account linking and unlinking in `Controllers/SettingsController.cs` (`/Profile`, `/Settings`, `/Settings/Profile`, `/Settings/StartGoogleLink`, `/Settings/LinkGoogle`, `/Settings/LinkGoogleCallback`, `/Settings/StartGoogleUnlink`, `/Settings/UnlinkGoogle`, `/Settings/CancelGoogleSecurityAction`, `/Settings/ResendGoogleStepUpCode`) backed by `IGoogleAuthService` / `GoogleAuthService` and `ITelegramService.SendGoogleSecurityOtpAsync`. Enforced mandatory Telegram OTP step-up verification for BOTH linking (`GLK:`) and unlinking (`GUL:`) delivered strictly to verified `TelegramChatId` (fail-closed on missing bot token or API failure; no simulation mode or fallback chat). Built defense against OAuth replay and account takeover: purpose-bound `AubExternalNonce` (`link:` vs `login:`, isolated in single-use memory cache with 5-minute expiry), `XsrfId` binding to authenticated `UserId`, single Google account per user, rejection of `ProviderKey` collisions without disclosing identity, rejection of unlinking when no local password is set, immediate `SecurityStamp` rotation on link/unlink, safe cookie re-issuance, and `SaveTokens = false`. Built complete `/Profile` UI in `Views/Settings/Profile.cshtml` with `ProfileSecurityViewModel` exposing status flags without sensitive tokens/keys/IDs, and fixed `Admin/Settings.cshtml` `/User/Profile` link to `/Profile`.
+- **Why it is needed:** Authenticated users had no secure way to link or unlink Google logins, `/Profile` returned 404, Google linking lacked step-up Telegram 2FA verification, unlinking could lock users out of their accounts if no password existed, and external OAuth callbacks lacked purpose-bound nonce isolation.
+- **Affected files:** `Controllers/SettingsController.cs`, `Services/Interfaces/IGoogleAuthService.cs`, `Services/Implementations/GoogleAuthService.cs`, `Services/Interfaces/ITelegramService.cs`, `Services/Implementations/TelegramService.cs`, `Services/Interfaces/IAuthService.cs`, `Services/Implementations/AuthService.cs`, `Models/ViewModels/ProfileSecurityViewModel.cs`, `Views/Settings/Profile.cshtml`, `Views/Admin/Settings.cshtml`, `Views/Account/Login.cshtml`, `Program.cs`, `Data/GoogleAccountLinkingSecurityTestRunner.cs`
+- **Dependencies:** `TASK-P0-04`, `TASK-P0-05`
 - **Priority:** P1
 - **Estimated complexity:** M
-- **Acceptance criteria:** Authenticated users in any role can view/update allowed profile fields (e.g., `FullName`, Telegram link status) and change their password with current-password verification.
-- **Required tests:** Integration tests for profile update, invalid current password rejection, and valid password change.
+- **Acceptance criteria:**
+  - Linking and unlinking both require step-up Telegram OTP verification to the user's verified personal `TelegramChatId`. *(Verified)*
+  - Nonces are purpose-bound and single-use; OAuth state is tied to `UserId` via `XsrfId`. *(Verified)*
+  - No auto-linking by email; `ProviderKey` collisions and multiple Google accounts are rejected. *(Verified)*
+  - Unlinking is blocked if the user has no local password; unlinking only removes Google login. *(Verified)*
+  - `SecurityStamp` is rotated on link/unlink and all tokens/keys remain unexposed in UI and responses. *(Verified)*
+- **Required tests:** `--test-google-linking-security` (42/42 passed), plus full regression suites (199/199 total passed on 2026-11-27).
 
-### `TASK-P1-03`: Implement Self-Service Password Reset via Telegram 2FA
-- **Description:** Implement `AccountController.ForgotPassword` and `ResetPassword` (POST) using ASP.NET Identity reset tokens + verified Telegram 2FA code delivery (since SMTP is unconfigured and Telegram is the verified 2FA channel), or wire SMTP when configured. Ensure `IsLockedOutAsync` / `IsActive` checks and single-use code rules apply.
-- **Why it is needed:** Currently `AccountController.ResetPassword` POST is an empty stub that redirects to confirmation without changing the password.
-- **Affected files:** `Controllers/AccountController.cs`, `Views/Account/ForgotPassword.cshtml`, `Views/Account/ResetPassword.cshtml`, `Models/ViewModels/ResetPasswordViewModel.cs`
+### `TASK-P1-03`: Implement Self-Service Password Reset via Telegram 2FA — **[COMPLETED 2026-11-27]**
+- **Description:** Replaced `AccountController.ForgotPassword` / `ResetPassword` stubs and removed the discarded token / `emailConfigured` enumeration branch from `Api/AuthController.ForgotPassword`. Implemented purpose-isolated Telegram OTP password recovery (`RST:` prefix in `AuthService`, separate `AUB_PendingPasswordReset` TimeLimitedDataProtector cookie with revocable `SessionNonce`, `ITelegramService.SendPasswordResetCodeAsync`, 10-minute OTP expiry, 5-attempt limit, atomic consumption, 60s cross-identifier cooldown, and server-side `UserManager.GeneratePasswordResetTokenAsync` + `ResetPasswordAsync` only after OTP verification). Configured 15-minute `DataProtectionTokenProviderOptions.TokenLifespan`, `SecurityStampValidatorOptions.ValidationInterval = TimeSpan.Zero`, `sstamp` JWT SecurityStamp validation across all protected `/api/*` endpoints, `PasswordResetPolicy` rate limiting (`429`), `[ResponseCache(NoStore = true)]`, and redacted logging.
+- **Why it is needed:** Previously `AccountController.ResetPassword` POST was a no-op stub that redirected to confirmation without changing the password, `Api/AuthController.ForgotPassword` leaked account/email existence when SMTP was set, and old cookies/JWTs remained valid after password resets.
+- **Affected files:** `Program.cs`, `Services/Interfaces/ITelegramService.cs`, `Services/Implementations/TelegramService.cs`, `Services/Interfaces/IAuthService.cs`, `Services/Implementations/AuthService.cs`, `Services/Implementations/UserService.cs`, `Controllers/AccountController.cs`, `Controllers/Api/AuthController.cs`, `Models/ViewModels/ForgotPasswordViewModel.cs`, `Models/ViewModels/ResetPasswordViewModel.cs`, `Views/Account/ForgotPassword.cshtml`, `Views/Account/ForgotPasswordConfirmation.cshtml`, `Views/Account/ResetPassword.cshtml`, `Data/PasswordResetSecurityTestRunner.cs`
 - **Dependencies:** `TASK-P0-05`
 - **Priority:** P1
 - **Estimated complexity:** M
-- **Acceptance criteria:** Only users with a verified `TelegramChatId` (or configured SMTP email) can complete a password reset, and the new password works on subsequent login.
-- **Required tests:** End-to-end password reset integration test (happy path + expired/invalid code rejection).
+- **Acceptance criteria:**
+  - Only active, non-locked users with a verified personal `TelegramChatId` receive reset OTPs and can complete password resets; responses and cookies are enumeration-resistant. *(Verified)*
+  - Old Identity cookies and old JWTs across all protected API routes are invalidated immediately upon password reset (`SecurityStamp` rotation). *(Verified)*
+  - Login OTPs and Password Reset OTPs are strictly isolated and cannot be cross-reused. *(Verified)*
+- **Required tests:** `--test-password-reset-security` (19/19 passed), plus full 9-suite regression (`138/138` passed; **157/157** total passed on 2026-11-27).
 
 ### `TASK-P1-04`: Fix Progress Calculation Inflation, Draft Quiz Exposure & Teacher Grading/KPI Bugs
 - **Description:**

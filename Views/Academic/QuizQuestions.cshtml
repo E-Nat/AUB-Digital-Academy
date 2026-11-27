@@ -5,10 +5,13 @@
 }
 
 <div class="container-fluid py-4">
+    @{
+        var coursesBackUrl = User.IsInRole("Admin") ? "/Academic/Course" : "/Teacher/Courses";
+    }
     <!-- Breadcrumbs -->
     <nav aria-label="breadcrumb" class="mb-3">
         <ol class="breadcrumb mb-0 small">
-            <li class="breadcrumb-item"><a href="/Academic/Course" class="text-decoration-none">Courses</a></li>
+            <li class="breadcrumb-item"><a href="@coursesBackUrl" class="text-decoration-none">Courses</a></li>
             <li class="breadcrumb-item"><a href="/Academic/Curriculum/@Model.CourseId" class="text-decoration-none">@Model.CourseTitle</a></li>
             <li class="breadcrumb-item active" aria-current="page">Quiz Questions</li>
         </ol>

@@ -11,6 +11,20 @@ public interface ITelegramService
     Task<bool> SendVerificationCodeAsync(string universityId, string studentName, string verificationCode, string? customChatId = null);
 
     /// <summary>
+    /// Dispatches a single-use password reset verification code strictly to the user's linked Telegram chat.
+    /// Never falls back to a global chat destination.
+    /// </summary>
+    Task<bool> SendPasswordResetCodeAsync(string universityId, string fullName, string verificationCode, string customChatId)
+        => SendVerificationCodeAsync(universityId, fullName, verificationCode, customChatId);
+
+    /// <summary>
+    /// Dispatches a single-use Telegram step-up OTP strictly to the user's verified personal Telegram chat
+    /// for Google account linking/unlinking. Never falls back to a shared chat or simulation logging.
+    /// </summary>
+    Task<bool> SendGoogleSecurityOtpAsync(string universityId, string fullName, string verificationCode, string operationLabel, string customChatId)
+        => SendVerificationCodeAsync(universityId, fullName, verificationCode, customChatId);
+
+    /// <summary>
     /// Tests connectivity with the Telegram Bot API using the configured bot token.
     /// Returns true if the bot token is valid and Telegram API responds with HTTP 200 (getMe).
     /// Never logs or exposes the token.

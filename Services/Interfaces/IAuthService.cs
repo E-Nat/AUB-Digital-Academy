@@ -77,6 +77,32 @@ public sealed record JwtTokenResult(
     string Token,
     DateTime ExpiresAt);
 
+public enum PasswordResetInitStatus
+{
+    Accepted,
+    DeliveryFailed,
+    RateLimited
+}
+
+public sealed record PasswordResetInitResult(
+    PasswordResetInitStatus Status,
+    bool IsEligible = false,
+    string? UserId = null,
+    int? RequestId = null,
+    DateTime? CreatedAtUtc = null);
+
+public enum PasswordResetCompleteStatus
+{
+    Succeeded,
+    InvalidOrExpiredCode,
+    TooManyAttempts,
+    PasswordPolicyFailed
+}
+
+public sealed record PasswordResetCompleteResult(
+    PasswordResetCompleteStatus Status,
+    IReadOnlyList<string>? Errors = null);
+
 public interface IAuthService
 {
     Task<User?> FindByLoginIdAsync(string loginId);
@@ -89,7 +115,12 @@ public interface IAuthService
     Task<ApiTwoFactorChallengeResult> CreateApiTwoFactorChallengeAsync(User user);
     Task<TwoFactorVerifyResult> VerifyApiTwoFactorAsync(string verificationId, string code);
     Task<TwoFactorVerifyResult> VerifyWebTwoFactorAsync(string userId, string code);
+    Task<PasswordResetInitResult> InitiatePasswordResetAsync(string loginId, string? clientIp = null);
+    Task<PasswordResetInitResult> ResendPasswordResetCodeAsync(string userId, bool isEligible, DateTimeOffset sessionIssuedAtUtc, string? clientIp = null, int cooldownSeconds = 60);
+    Task<PasswordResetCompleteResult> CompletePasswordResetAsync(string userId, int requestId, bool isEligible, string code, string newPassword);
+    bool TryConsumeExternalLoginNonce(ExternalLoginInfo? info, string expectedPurpose, string? expectedNonce = null);
     bool HasValidJwtConfiguration();
     JwtTokenResult? GenerateJwtToken(User user, string role);
     Dictionary<string, string>? ValidateJwtToken(string token);
+    Task<(User User, IReadOnlyList<string> Roles)?> ValidateApiBearerTokenAsync(string token);
 }

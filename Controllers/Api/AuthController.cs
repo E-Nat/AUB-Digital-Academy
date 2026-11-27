@@ -2,6 +2,7 @@ using AUBDigitalAcademy.Models;
 using AUBDigitalAcademy.Services.Interfaces;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 
 namespace AUBDigitalAcademy.Controllers.Api;
@@ -255,6 +256,8 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("forgot-password")]
+    [EnableRateLimiting("PasswordResetPolicy")]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
     public async Task<IActionResult> ForgotPassword([FromBody] ApiForgotPasswordRequest request)
     {
         if (request == null || string.IsNullOrWhiteSpace(request.LoginId))
@@ -262,38 +265,25 @@ public class AuthController : ControllerBase
             return BadRequest(new { success = false, message = "Please enter your student ID or university email." });
         }
 
-        var normalizedId = request.LoginId.Trim();
+        var clientIp = HttpContext?.Connection.RemoteIpAddress?.ToString();
+        var initResult = await _authService.InitiatePasswordResetAsync(request.LoginId, clientIp);
 
-        // Anti-enumeration: look up user without revealing whether account exists in client response
-        var user = await _userManager.FindByEmailAsync(normalizedId)
-                   ?? await _userManager.Users.FirstOrDefaultAsync(u => u.UniversityId == normalizedId || u.UserName == normalizedId);
-
-        if (user != null)
+        if (initResult.Status == PasswordResetInitStatus.RateLimited)
         {
-            _logger.LogInformation("Password recovery requested for student {UserId} ({UniversityId})", user.Id, user.UniversityId);
-        }
-
-        // Check if institutional automated SMTP email delivery is configured in appsettings
-        var smtpHost = _configuration["Smtp:Host"];
-        var isEmailConfigured = !string.IsNullOrEmpty(smtpHost);
-
-        if (isEmailConfigured && user != null && !string.IsNullOrEmpty(user.Email))
-        {
-            _ = await _userManager.GeneratePasswordResetTokenAsync(user);
-            return Ok(new
+            return StatusCode(StatusCodes.Status429TooManyRequests, new
             {
-                success = true,
-                emailConfigured = true,
-                message = "If an account matching those details exists, recovery instructions have been sent to your registered university email."
+                success = false,
+                status = "RateLimited",
+                message = "Too many password reset requests. Please wait a minute and try again."
             });
         }
 
-        // Transparent institutional reporting: Email delivery service is not configured
+        // Anti-enumeration: identical status code, payload structure, and message regardless of
+        // whether the account exists, has an email, is active, is locked, or has Telegram linked.
         return Ok(new
         {
             success = true,
-            emailConfigured = false,
-            message = "Automated email recovery is currently unconfigured in this server environment. To regain access, please contact the ACLEDA University IT Helpdesk (helpdesk@acleda-university.edu.kh) or the Academic Registrar with your Student ID."
+            message = "If an eligible account matching those details exists and has a verified Telegram link, a single-use reset code has been dispatched to Telegram. Please complete your reset on the Web portal (/Account/ForgotPassword) or contact the ACLEDA University IT Helpdesk (helpdesk@acleda-university.edu.kh)."
         });
     }
 
@@ -308,20 +298,14 @@ public class AuthController : ControllerBase
         }
 
         var token = authHeader.Substring("Bearer ".Length).Trim();
-        var claims = _authService.ValidateJwtToken(token);
-        if (claims == null || !claims.TryGetValue("sub", out var userId))
+        var validated = await _authService.ValidateApiBearerTokenAsync(token);
+        if (validated == null)
         {
             return Unauthorized(new { success = false, message = "Invalid or expired token." });
         }
 
-        var user = await _userManager.FindByIdAsync(userId);
-        if (user == null || !user.IsActive || await _userManager.IsLockedOutAsync(user))
-        {
-            return Unauthorized(new { success = false, message = "User not found or unavailable." });
-        }
-
-        var roles = await _userManager.GetRolesAsync(user);
-        var roleUpper = (roles.FirstOrDefault() ?? "Student").ToUpperInvariant();
+        var user = validated.Value.User;
+        var roleUpper = (validated.Value.Roles.FirstOrDefault() ?? "Student").ToUpperInvariant();
 
         return Ok(new
         {

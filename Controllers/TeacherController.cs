@@ -71,6 +71,8 @@ public class TeacherController : Controller
     }
 
     [HttpGet]
+    [Route("Teacher/CourseDetails/{id:int?}")]
+    [Route("Teacher/Courses/Details/{id:int}")]
     public async Task<IActionResult> CourseDetails(int id)
     {
         ViewData["Title"] = "Course Details";

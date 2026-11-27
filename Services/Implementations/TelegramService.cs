@@ -188,6 +188,146 @@ public class TelegramService : ITelegramService
         }
     }
 
+    public async Task<bool> SendPasswordResetCodeAsync(string universityId, string fullName, string verificationCode, string customChatId)
+    {
+        if (string.IsNullOrWhiteSpace(customChatId) || !long.TryParse(customChatId.Trim(), out var parsedChatId) || parsedChatId <= 0)
+        {
+            _logger.LogWarning("Telegram password reset code delivery rejected: invalid or missing personal ChatId.");
+            return false;
+        }
+
+        var botToken = GetBotToken();
+        var maskedChatId = TelegramLogSanitizer.MaskChatId(parsedChatId);
+
+        if (string.IsNullOrWhiteSpace(botToken))
+        {
+            if (_hostEnvironment == null || _hostEnvironment.IsDevelopment())
+            {
+                _logger.LogInformation("Telegram service: Simulation mode active for password reset (ChatId {MaskedChatId}). OTP value suppressed from logs.", maskedChatId);
+            }
+            else
+            {
+                _logger.LogWarning("Telegram service: Bot token not configured in {EnvironmentName} environment for password reset. OTP value suppressed from logs.", _hostEnvironment.EnvironmentName);
+            }
+            return true;
+        }
+
+        var message = $"🔐 <b>AUB Digital Academy — Password Reset Verification</b>\n\n" +
+                      $"👤 Account: <b>{WebUtility.HtmlEncode(fullName)}</b>\n" +
+                      $"🆔 ID: <code>{WebUtility.HtmlEncode(universityId)}</code>\n\n" +
+                      $"🔑 Reset Code: <b><code>{verificationCode}</code></b>\n\n" +
+                      $"⏳ <i>This password reset code expires in 10 minutes and is valid for a single use.</i>\n" +
+                      $"⚠️ <i>If you did not request a password reset, ignore this message and never share this code.</i>";
+
+        try
+        {
+            var url = $"https://api.telegram.org/bot{botToken}/sendMessage";
+            var formValues = new Dictionary<string, string>
+            {
+                { "chat_id", parsedChatId.ToString() },
+                { "text", message },
+                { "parse_mode", "HTML" }
+            };
+
+            using var content = new FormUrlEncodedContent(formValues);
+            var response = await _httpClient.PostAsync(url, content);
+
+            if (response.IsSuccessStatusCode)
+            {
+                _logger.LogInformation("Telegram password reset code delivered successfully to ChatId {MaskedChatId}.", maskedChatId);
+                return true;
+            }
+
+            var errorDetails = await response.Content.ReadAsStringAsync();
+            var safeErrorDetails = TelegramLogSanitizer.SanitizeMessage(errorDetails, botToken);
+            _logger.LogWarning(
+                "Telegram API {Operation} returned non-success HTTP status {StatusCode} for password reset (ChatId {MaskedChatId}): {ErrorDetails}",
+                "sendMessage",
+                (int)response.StatusCode,
+                maskedChatId,
+                safeErrorDetails);
+            return false;
+        }
+        catch (Exception ex)
+        {
+            var safeEx = TelegramLogSanitizer.SanitizeException(ex, botToken);
+            _logger.LogError(
+                safeEx,
+                "Failed to deliver Telegram password reset code to ChatId {MaskedChatId} (Operation={Operation}, StatusCode={StatusCode}).",
+                maskedChatId,
+                "sendMessage",
+                (ex as HttpRequestException)?.StatusCode is { } sc ? (int?)sc : null);
+            return false;
+        }
+    }
+
+    public async Task<bool> SendGoogleSecurityOtpAsync(string universityId, string fullName, string verificationCode, string operationLabel, string customChatId)
+    {
+        if (string.IsNullOrWhiteSpace(customChatId) || !long.TryParse(customChatId.Trim(), out var parsedChatId) || parsedChatId <= 0)
+        {
+            _logger.LogWarning("Telegram Google security OTP rejected: missing or invalid personal ChatId.");
+            return false;
+        }
+
+        // Strict fail-closed requirement: never fall back to a shared/default chat or simulation logging.
+        var botToken = GetBotToken();
+        var maskedChatId = TelegramLogSanitizer.MaskChatId(parsedChatId);
+        if (string.IsNullOrWhiteSpace(botToken))
+        {
+            _logger.LogWarning("Telegram Google security OTP failed closed: bot token is not configured (ChatId {MaskedChatId}).", maskedChatId);
+            return false;
+        }
+
+        var message = $"🛡️ <b>AUB Digital Academy — Google Security Verification</b>\n\n" +
+                      $"👤 Account: <b>{WebUtility.HtmlEncode(fullName)}</b>\n" +
+                      $"🆔 ID: <code>{WebUtility.HtmlEncode(universityId)}</code>\n" +
+                      $"⚙️ Action: <b>{WebUtility.HtmlEncode(operationLabel)}</b>\n\n" +
+                      $"🔑 Step-Up Code: <b><code>{verificationCode}</code></b>\n\n" +
+                      $"⏳ <i>This security code expires in 10 minutes and is valid for a single use.</i>\n" +
+                      $"⚠️ <i>If you did not initiate this request, do not share this code and review your account security.</i>";
+
+        try
+        {
+            var url = $"https://api.telegram.org/bot{botToken}/sendMessage";
+            var formValues = new Dictionary<string, string>
+            {
+                { "chat_id", parsedChatId.ToString() },
+                { "text", message },
+                { "parse_mode", "HTML" }
+            };
+
+            using var content = new FormUrlEncodedContent(formValues);
+            var response = await _httpClient.PostAsync(url, content);
+
+            if (response.IsSuccessStatusCode)
+            {
+                _logger.LogInformation("Telegram Google security OTP delivered successfully to ChatId {MaskedChatId}.", maskedChatId);
+                return true;
+            }
+
+            var errorDetails = await response.Content.ReadAsStringAsync();
+            var safeErrorDetails = TelegramLogSanitizer.SanitizeMessage(errorDetails, botToken);
+            _logger.LogWarning(
+                "Telegram API {Operation} returned non-success HTTP status {StatusCode} for Google security OTP (ChatId {MaskedChatId}): {ErrorDetails}",
+                "sendMessage",
+                (int)response.StatusCode,
+                maskedChatId,
+                safeErrorDetails);
+            return false;
+        }
+        catch (Exception ex)
+        {
+            var safeEx = TelegramLogSanitizer.SanitizeException(ex, botToken);
+            _logger.LogError(
+                safeEx,
+                "Failed to deliver Telegram Google security OTP to ChatId {MaskedChatId} (Operation={Operation}, StatusCode={StatusCode}).",
+                maskedChatId,
+                "sendMessage",
+                (ex as HttpRequestException)?.StatusCode is { } sc ? (int?)sc : null);
+            return false;
+        }
+    }
+
     public async Task<bool> SendMessageAsync(long chatId, string text, string parseMode = "HTML", CancellationToken cancellationToken = default)
     {
         var botToken = GetBotToken();

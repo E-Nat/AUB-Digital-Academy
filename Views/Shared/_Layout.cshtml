@@ -111,7 +111,7 @@
                                 <div class="nav-icon-tile"><i class="bi bi-journal-bookmark-fill"></i></div>
                                 <span class="nav-label">My Courses</span>
                             </a>
-                            <a href="/Teacher/Submissions" class="nav-link-item @(IsActiveRoute("Submissions", "/Teacher/Submissions") ? "active" : "")" title="Submissions" data-bs-toggle="tooltip" data-bs-placement="right">
+                            <a href="/Teacher/Assignments" class="nav-link-item @(IsActiveRoute("Assignments", "/Teacher/Assignments") || IsActiveRoute("Submissions", "/Teacher/Submissions") ? "active" : "")" title="Submissions" data-bs-toggle="tooltip" data-bs-placement="right">
                                 <div class="nav-icon-tile"><i class="bi bi-file-earmark-check-fill"></i></div>
                                 <span class="nav-label">Submissions</span>
                             </a>
@@ -196,18 +196,21 @@
                     </button>
                     <nav aria-label="breadcrumb" class="ms-1 d-none d-lg-block">
                         <ol class="breadcrumb mb-0">
-                            <li class="breadcrumb-item"><a href="/@userRole/Dashboard" class="text-decoration-none">@userRole</a></li>
+                            <li class="breadcrumb-item"><a href="/@dashboardArea/Dashboard" class="text-decoration-none">@userRole</a></li>
                             <li class="breadcrumb-item active" aria-current="page">@ViewData["Title"]</li>
                         </ol>
                     </nav>
                 </div>
 
-                <!-- Global Search Input with Ctrl+K shortcut -->
-                <div class="topbar-search-wrap d-none d-md-flex align-items-center">
-                    <i class="bi bi-search text-muted me-2"></i>
-                    <input type="text" class="topbar-search-input" id="globalSearchInput" placeholder="Search courses, users, enrollments..." aria-label="Search records" />
-                    <kbd class="topbar-search-kbd">Ctrl K</kbd>
-                </div>
+                @if (User.IsInRole("Admin"))
+                {
+                    <!-- Global Search Input with Ctrl+K shortcut -->
+                    <div class="topbar-search-wrap d-none d-md-flex align-items-center">
+                        <i class="bi bi-search text-muted me-2"></i>
+                        <input type="text" class="topbar-search-input" id="globalSearchInput" placeholder="Search courses, users, enrollments..." aria-label="Search records" />
+                        <kbd class="topbar-search-kbd">Ctrl K</kbd>
+                    </div>
+                }
 
                 <div class="d-flex align-items-center gap-2.5">
                     <!-- Theme Toggle (Light / Dark Mode with LocalStorage Persistence) -->
