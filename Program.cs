@@ -208,6 +208,7 @@ builder.Services.AddScoped<AUBDigitalAcademy.Services.Interfaces.IEnrollmentServ
 builder.Services.AddScoped<AUBDigitalAcademy.Services.Interfaces.IUserService, AUBDigitalAcademy.Services.Implementations.UserService>();
 builder.Services.AddScoped<AUBDigitalAcademy.Services.Interfaces.ITeacherService, AUBDigitalAcademy.Services.Implementations.TeacherService>();
 builder.Services.AddScoped<AUBDigitalAcademy.Services.Interfaces.IAssignmentStorageService, AUBDigitalAcademy.Services.Implementations.AssignmentStorageService>();
+builder.Services.AddScoped<AUBDigitalAcademy.Services.Interfaces.IVideoStorageService, AUBDigitalAcademy.Services.Implementations.VideoStorageService>();
 builder.Services.AddScoped<AUBDigitalAcademy.Services.Interfaces.IAuthService, AUBDigitalAcademy.Services.Implementations.AuthService>();
 builder.Services.AddScoped<AUBDigitalAcademy.Services.Interfaces.IGoogleAuthService, AUBDigitalAcademy.Services.Implementations.GoogleAuthService>();
 if (!isEnrollmentTestMode)

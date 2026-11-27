@@ -25,6 +25,7 @@ public class StudentController : Controller
     private readonly ILogger<StudentController> _logger;
     private readonly IHtmlSanitizationService _htmlSanitizer;
     private readonly IMemoryCache? _memoryCache;
+    private readonly IVideoStorageService? _videoStorageService;
 
     public StudentController(
         IEnrollmentService enrollmentService,
@@ -71,7 +72,8 @@ public class StudentController : Controller
         ApplicationDbContext context,
         ILogger<StudentController> logger,
         IHtmlSanitizationService? htmlSanitizer = null,
-        IMemoryCache? memoryCache = null)
+        IMemoryCache? memoryCache = null,
+        IVideoStorageService? videoStorageService = null)
     {
         _enrollmentService = enrollmentService;
         _courseService = courseService;
@@ -82,6 +84,7 @@ public class StudentController : Controller
         _logger = logger;
         _htmlSanitizer = htmlSanitizer ?? new AUBDigitalAcademy.Services.Implementations.HtmlSanitizationService();
         _memoryCache = memoryCache;
+        _videoStorageService = videoStorageService;
     }
 
     /// <summary>
@@ -493,6 +496,48 @@ public class StudentController : Controller
         ViewData["ActivePage"] = "Courses";
 
         return View("Lesson", playerModel);
+    }
+
+    [HttpGet]
+    [Authorize(Roles = "Student,Teacher,Assistance,Admin")]
+    [Route("Student/Video/{fileName}")]
+    public async Task<IActionResult> StreamLessonVideo(string fileName)
+    {
+        if (_videoStorageService == null || string.IsNullOrWhiteSpace(fileName))
+        {
+            return NotFound();
+        }
+
+        var safeFileName = Path.GetFileName(fileName);
+        var expectedUrl = $"/Student/Video/{safeFileName}";
+
+        var lessonCourseId = await _context.Lessons
+            .AsNoTracking()
+            .Where(l => l.VideoUrl == expectedUrl)
+            .Select(l => (int?)l.CourseItem.Chapter.CourseId)
+            .FirstOrDefaultAsync();
+
+        if (!lessonCourseId.HasValue)
+        {
+            return NotFound();
+        }
+
+        var currentUserId = _userManager.GetUserId(User);
+        if (string.IsNullOrEmpty(currentUserId)) return Challenge();
+
+        if (!User.IsInRole("Admin"))
+        {
+            int cId = lessonCourseId.Value;
+            bool authorized = await _enrollmentService.IsStudentEnrolledAsync(currentUserId, cId) ||
+                              await _context.Courses.AsNoTracking().AnyAsync(c => c.Id == cId && c.TeacherId == currentUserId) ||
+                              await _context.CourseAssistants.AsNoTracking().AnyAsync(ca => ca.CourseId == cId && ca.AssistantId == currentUserId);
+            if (!authorized) return Forbid();
+        }
+
+        var videoInfo = _videoStorageService.GetVideoPhysicalPath(safeFileName);
+        if (videoInfo == null) return NotFound();
+
+        return PhysicalFile(videoInfo.Value.FullPath, videoInfo.Value.ContentType, enableRangeProcessing: true);
     }
 
     /// <summary>

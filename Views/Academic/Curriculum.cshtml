@@ -730,7 +730,7 @@
                 </div>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
-            <form asp-controller="Academic" asp-action="CreateLesson" method="post" id="createLessonForm">
+            <form asp-controller="Academic" asp-action="CreateLesson" method="post" enctype="multipart/form-data" id="createLessonForm">
                 @Html.AntiForgeryToken()
                 <input type="hidden" id="createLessonChapterId" name="ChapterId" value="" />
                 <input type="hidden" id="createLessonCourseId" name="CourseId" value="@Model.CourseId" />
@@ -744,10 +744,10 @@
 
                     <div class="row g-3 mb-3">
                         <div class="col-md-8">
-                            <label for="createLessonVideoUrl" class="form-label fw-bold small text-dark">Video URL <span class="text-muted fw-normal">(Optional)</span></label>
+                            <label for="createLessonVideoFile" class="form-label fw-bold small text-dark">Upload Video <span class="text-muted fw-normal">(Optional, MP4/WebM/OGG up to 200 MB)</span></label>
                             <div class="input-group">
-                                <span class="input-group-text bg-light text-muted"><i class="bi bi-youtube"></i></span>
-                                <input type="url" class="form-control" id="createLessonVideoUrl" name="VideoUrl" placeholder="https://www.youtube.com/watch?v=..." maxlength="500" />
+                                <span class="input-group-text bg-light text-muted"><i class="bi bi-camera-video"></i></span>
+                                <input type="file" class="form-control" id="createLessonVideoFile" name="VideoFile" accept=".mp4,.webm,.ogg,video/mp4,video/webm,video/ogg" />
                             </div>
                             <span class="text-danger small" id="createLessonVideoUrlError"></span>
                         </div>
@@ -794,12 +794,13 @@
                 </div>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
-            <form asp-controller="Academic" asp-action="EditLesson" method="post" id="editLessonForm">
+            <form asp-controller="Academic" asp-action="EditLesson" method="post" enctype="multipart/form-data" id="editLessonForm">
                 @Html.AntiForgeryToken()
                 <input type="hidden" id="editLessonCourseItemId" name="CourseItemId" value="" />
                 <input type="hidden" id="editLessonLessonId" name="LessonId" value="" />
                 <input type="hidden" id="editLessonChapterId" name="ChapterId" value="" />
                 <input type="hidden" id="editLessonCourseId" name="CourseId" value="@Model.CourseId" />
+                <input type="hidden" id="editLessonVideoUrl" name="VideoUrl" value="" />
 
                 <div class="modal-body p-4">
                     <div class="mb-3">
@@ -810,10 +811,17 @@
 
                     <div class="row g-3 mb-3">
                         <div class="col-md-8">
-                            <label for="editLessonVideoUrl" class="form-label fw-bold small text-dark">Video URL <span class="text-muted fw-normal">(Optional)</span></label>
+                            <label for="editLessonVideoFile" class="form-label fw-bold small text-dark">Upload Replacement Video <span class="text-muted fw-normal">(Optional, MP4/WebM/OGG)</span></label>
                             <div class="input-group">
-                                <span class="input-group-text bg-light text-muted"><i class="bi bi-youtube"></i></span>
-                                <input type="url" class="form-control" id="editLessonVideoUrl" name="VideoUrl" placeholder="https://www.youtube.com/watch?v=..." maxlength="500" />
+                                <span class="input-group-text bg-light text-muted"><i class="bi bi-camera-video"></i></span>
+                                <input type="file" class="form-control" id="editLessonVideoFile" name="VideoFile" accept=".mp4,.webm,.ogg,video/mp4,video/webm,video/ogg" />
+                            </div>
+                            <div class="d-flex align-items-center justify-content-between mt-1">
+                                <small class="text-muted" id="editLessonCurrentVideoStatus">No video uploaded.</small>
+                                <div class="form-check mb-0" id="editLessonRemoveVideoWrap" style="display:none;">
+                                    <input class="form-check-input" type="checkbox" id="editLessonRemoveVideo" name="RemoveVideo" value="true" />
+                                    <label class="form-check-label small text-danger" for="editLessonRemoveVideo">Remove video</label>
+                                </div>
                             </div>
                             <span class="text-danger small" id="editLessonVideoUrlError"></span>
                         </div>
@@ -1781,7 +1789,7 @@
                     document.getElementById('createLessonPosition').value = nextPosition;
                     document.getElementById('createLessonPosition').placeholder = nextPosition;
                     document.getElementById('createLessonTitle').value = '';
-                    document.getElementById('createLessonVideoUrl').value = '';
+                    document.getElementById('createLessonVideoFile').value = '';
                     document.getElementById('createLessonContentHtml').value = '';
                     document.getElementById('createLessonTitleError').textContent = '';
                     document.getElementById('createLessonVideoUrlError').textContent = '';
@@ -1807,6 +1815,10 @@
                     document.getElementById('editLessonModuleTitleBadge').textContent = this.getAttribute('data-chaptertitle') || '';
                     document.getElementById('editLessonTitle').value = title;
                     document.getElementById('editLessonVideoUrl').value = videoUrl;
+                    document.getElementById('editLessonVideoFile').value = '';
+                    document.getElementById('editLessonRemoveVideo').checked = false;
+                    document.getElementById('editLessonCurrentVideoStatus').textContent = videoUrl ? 'Current video attached.' : 'No video uploaded.';
+                    document.getElementById('editLessonRemoveVideoWrap').style.display = videoUrl ? 'block' : 'none';
                     document.getElementById('editLessonPosition').value = position;
                     document.getElementById('editLessonContentHtml').value = contentHtml;
                     document.getElementById('editLessonTitleError').textContent = '';
@@ -1819,7 +1831,10 @@
                             if (data.success && data.lesson) {
                                 document.getElementById('editLessonTitle').value = data.lesson.title;
                                 document.getElementById('editLessonPosition').value = data.lesson.position;
-                                document.getElementById('editLessonVideoUrl').value = data.lesson.videoUrl || '';
+                                const vUrl = data.lesson.videoUrl || '';
+                                document.getElementById('editLessonVideoUrl').value = vUrl;
+                                document.getElementById('editLessonCurrentVideoStatus').textContent = vUrl ? 'Current video attached.' : 'No video uploaded.';
+                                document.getElementById('editLessonRemoveVideoWrap').style.display = vUrl ? 'block' : 'none';
                                 document.getElementById('editLessonContentHtml').value = data.lesson.contentHtml || '';
                                 document.getElementById('editLessonLessonId').value = data.lesson.lessonId || 0;
                             }

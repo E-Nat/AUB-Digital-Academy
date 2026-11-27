@@ -21,6 +21,7 @@ public class AcademicController : Controller
     private readonly ILogger<AcademicController> _logger;
     private readonly ICurriculumService _curriculumService;
     private readonly IHtmlSanitizationService _htmlSanitizer;
+    private readonly IVideoStorageService? _videoStorageService;
 
     public AcademicController(
         ICourseService courseService,
@@ -28,7 +29,8 @@ public class AcademicController : Controller
         UserManager<User> userManager,
         ILogger<AcademicController> logger,
         ICurriculumService? curriculumService = null,
-        IHtmlSanitizationService? htmlSanitizer = null)
+        IHtmlSanitizationService? htmlSanitizer = null,
+        IVideoStorageService? videoStorageService = null)
     {
         _courseService = courseService;
         _context = context;
@@ -36,6 +38,7 @@ public class AcademicController : Controller
         _logger = logger;
         _htmlSanitizer = htmlSanitizer ?? new AUBDigitalAcademy.Services.Implementations.HtmlSanitizationService();
         _curriculumService = curriculumService ?? new AUBDigitalAcademy.Services.Implementations.CurriculumService(context, new LoggerFactory().CreateLogger<AUBDigitalAcademy.Services.Implementations.CurriculumService>(), null, _htmlSanitizer);
+        _videoStorageService = videoStorageService;
     }
 
     private string? GetCurrentUserId()
@@ -1080,6 +1083,8 @@ public class AcademicController : Controller
 
     [HttpPost]
     [ValidateAntiForgeryToken]
+    [RequestSizeLimit(209_715_200)]
+    [RequestFormLimits(MultipartBodyLengthLimit = 209_715_200)]
     public async Task<IActionResult> CreateLesson(LessonCreateViewModel model)
     {
         bool isAjax = Request.Headers["X-Requested-With"] == "XMLHttpRequest";
@@ -1109,7 +1114,34 @@ public class AcademicController : Controller
             return ForbiddenResult();
         }
 
+        string? uploadedVideoUrl = null;
+        if (model.VideoFile != null && model.VideoFile.Length > 0)
+        {
+            if (_videoStorageService == null)
+            {
+                const string err = "Video storage service is unavailable.";
+                if (isAjax) return Json(new { success = false, message = err });
+                TempData["ErrorMessage"] = err;
+                return RedirectToAction(nameof(Curriculum), new { id = model.CourseId });
+            }
+
+            var saveVideo = await _videoStorageService.SaveVideoFileAsync(model.VideoFile);
+            if (!saveVideo.Success)
+            {
+                if (isAjax) return Json(new { success = false, message = saveVideo.ErrorMessage });
+                TempData["ErrorMessage"] = saveVideo.ErrorMessage;
+                return RedirectToAction(nameof(Curriculum), new { id = model.CourseId });
+            }
+
+            uploadedVideoUrl = saveVideo.VideoUrl;
+            model.VideoUrl = uploadedVideoUrl;
+        }
+
         var result = await _curriculumService.CreateLessonAsync(model);
+        if (!result.IsSuccess && uploadedVideoUrl != null && _videoStorageService != null)
+        {
+            await _videoStorageService.DeleteVideoFileAsync(uploadedVideoUrl);
+        }
 
         if (result.IsSuccess)
         {
@@ -1141,6 +1173,8 @@ public class AcademicController : Controller
 
     [HttpPost]
     [ValidateAntiForgeryToken]
+    [RequestSizeLimit(209_715_200)]
+    [RequestFormLimits(MultipartBodyLengthLimit = 209_715_200)]
     public async Task<IActionResult> EditLesson(LessonEditViewModel model)
     {
         bool isAjax = Request.Headers["X-Requested-With"] == "XMLHttpRequest";
@@ -1171,7 +1205,49 @@ public class AcademicController : Controller
             return ForbiddenResult();
         }
 
+        var existingLesson = await _curriculumService.GetLessonAsync(targetLessonId);
+        string? oldVideoUrl = existingLesson?.VideoUrl;
+        string? newlyUploadedVideoUrl = null;
+
+        if (model.VideoFile != null && model.VideoFile.Length > 0)
+        {
+            if (_videoStorageService == null)
+            {
+                const string err = "Video storage service is unavailable.";
+                if (isAjax) return Json(new { success = false, message = err });
+                TempData["ErrorMessage"] = err;
+                return RedirectToAction(nameof(Curriculum), new { id = model.CourseId });
+            }
+
+            var saveVideo = await _videoStorageService.SaveVideoFileAsync(model.VideoFile);
+            if (!saveVideo.Success)
+            {
+                if (isAjax) return Json(new { success = false, message = saveVideo.ErrorMessage });
+                TempData["ErrorMessage"] = saveVideo.ErrorMessage;
+                return RedirectToAction(nameof(Curriculum), new { id = model.CourseId });
+            }
+
+            newlyUploadedVideoUrl = saveVideo.VideoUrl;
+            model.VideoUrl = newlyUploadedVideoUrl;
+        }
+        else if (model.RemoveVideo)
+        {
+            model.VideoUrl = null;
+        }
+
         var result = await _curriculumService.UpdateLessonAsync(model);
+        if (result.IsSuccess)
+        {
+            if (_videoStorageService != null && !string.IsNullOrWhiteSpace(oldVideoUrl) &&
+                (newlyUploadedVideoUrl != null || model.RemoveVideo))
+            {
+                await _videoStorageService.DeleteVideoFileAsync(oldVideoUrl);
+            }
+        }
+        else if (newlyUploadedVideoUrl != null && _videoStorageService != null)
+        {
+            await _videoStorageService.DeleteVideoFileAsync(newlyUploadedVideoUrl);
+        }
 
         if (result.IsSuccess)
         {

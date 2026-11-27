@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using Microsoft.AspNetCore.Http;
 
 namespace AUBDigitalAcademy.Models.ViewModels;
 
@@ -22,6 +23,11 @@ public class LessonEditViewModel
     [Display(Name = "Video URL")]
     [StringLength(500, ErrorMessage = "Video URL cannot exceed 500 characters.")]
     public string? VideoUrl { get; set; }
+
+    [Display(Name = "Upload Replacement Video")]
+    public IFormFile? VideoFile { get; set; }
+
+    public bool RemoveVideo { get; set; }
 
     [Display(Name = "Lesson Content (HTML / Text)")]
     public string? ContentHtml { get; set; }
