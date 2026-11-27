@@ -126,6 +126,29 @@ public class AcademicController : Controller
 
     [Authorize(Roles = "Admin")]
     [HttpGet]
+    public async Task<IActionResult> Index()
+    {
+        ViewData["Title"] = "Academic Structure";
+        ViewData["ActivePage"] = "Academic";
+
+        var totalCourses = await _context.Courses.CountAsync();
+        var totalChapters = await _context.Chapters.CountAsync();
+        var totalCategories = await _context.Categories.CountAsync();
+        var totalMajors = await _context.Majors.CountAsync();
+        var currentSemester = await _context.Semesters.AsNoTracking().FirstOrDefaultAsync(s => s.IsCurrent);
+
+        ViewBag.TotalCourses = totalCourses;
+        ViewBag.TotalChapters = totalChapters;
+        ViewBag.TotalCategories = totalCategories;
+        ViewBag.TotalMajors = totalMajors;
+        ViewBag.CurrentSemesterName = currentSemester?.Name ?? "No Active Semester";
+        ViewBag.CurrentSemesterCode = currentSemester?.Code ?? "N/A";
+
+        return View();
+    }
+
+    [Authorize(Roles = "Admin")]
+    [HttpGet]
     public async Task<IActionResult> Course()
     {
         ViewData["Title"] = "Course Management";

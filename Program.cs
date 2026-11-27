@@ -258,6 +258,12 @@ app.MapControllerRoute(
     pattern: "Auth/{action=Login}/{id?}",
     defaults: new { controller = "Account" });
 
+// Profile compatibility route alias (maps /Profile to SettingsController.Profile)
+app.MapControllerRoute(
+    name: "profile_alias",
+    pattern: "Profile",
+    defaults: new { controller = "Settings", action = "Profile" });
+
 // Area routing (must come before default route)
 app.MapControllerRoute(
     name: "areas",

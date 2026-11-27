@@ -1,0 +1,65 @@
+@{
+    ViewData["Title"] = "Exams & Quizzes";
+    ViewData["ActivePage"] = "Exams";
+}
+
+<div class="container-fluid py-4 px-4">
+    <!-- Breadcrumbs & Header -->
+    <div class="d-flex flex-column flex-md-row align-items-start align-items-md-center justify-content-between gap-3 mb-4">
+        <div>
+            <nav aria-label="breadcrumb" class="mb-1">
+                <ol class="breadcrumb mb-0 small">
+                    <li class="breadcrumb-item"><a href="/Admin/Dashboard" class="text-decoration-none">Dashboard</a></li>
+                    <li class="breadcrumb-item active" aria-current="page">Exams &amp; Quizzes</li>
+                </ol>
+            </nav>
+            <h1 class="fw-bold text-dark fs-3 mb-1">
+                <i class="bi bi-patch-question-fill text-primary me-2"></i>Exams &amp; Quizzes
+            </h1>
+            <p class="text-muted text-sm mb-0">Institutional assessment instruments, quiz banks, and examination milestones.</p>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+            <a href="/Academic/Course" class="btn btn-primary rounded-pill px-3 py-2 text-sm">
+                <i class="bi bi-journal-text me-1"></i> Course Curriculum
+            </a>
+        </div>
+    </div>
+
+    <!-- Overview Card -->
+    <div class="card border-0 shadow-sm rounded-4 p-5 bg-white text-center mb-4">
+        <div class="py-3">
+            <div class="rounded-circle d-inline-flex align-items-center justify-content-center bg-primary bg-opacity-10 text-primary mb-3" style="width: 72px; height: 72px;">
+                <i class="bi bi-patch-question fs-2"></i>
+            </div>
+            <h4 class="fw-bold text-dark mb-2">Curriculum-Integrated Assessment Engine</h4>
+            <p class="text-muted text-sm mx-auto mb-4" style="max-width: 580px;">
+                Quizzes and examination questions in AUB Digital Academy are authored and administered directly within individual course curriculum chapters using the interactive Quiz Questions Builder.
+            </p>
+
+            <div class="d-flex justify-content-center gap-3 mb-4">
+                <div class="card border rounded-3 p-3 bg-light text-center" style="min-width: 140px;">
+                    <div class="fs-4 fw-bold text-primary">@ViewBag.TotalQuizzes</div>
+                    <div class="text-muted text-xs text-uppercase fw-semibold">Active Quizzes</div>
+                </div>
+                <div class="card border rounded-3 p-3 bg-light text-center" style="min-width: 140px;">
+                    <div class="fs-4 fw-bold text-dark">@ViewBag.TotalQuestions</div>
+                    <div class="text-muted text-xs text-uppercase fw-semibold">Authored Questions</div>
+                </div>
+            </div>
+
+            <div class="alert alert-info border-0 rounded-3 text-start mx-auto mb-4 p-3 d-flex align-items-start gap-2" style="max-width: 620px;">
+                <i class="bi bi-info-circle-fill text-info fs-5 flex-shrink-0 mt-0.5"></i>
+                <div class="text-sm">
+                    <strong>Operational Notice:</strong> To manage questions or view attempts for a specific quiz, navigate to the respective course in <strong>Course Management</strong> and open its curriculum module, or use the dedicated <strong>Quiz Questions Builder</strong>. A master academy-wide quiz catalog across all courses is scheduled for the Assessment module.
+                </div>
+            </div>
+
+            <div class="d-flex justify-content-center gap-2">
+                <a href="/Academic/Course" class="btn btn-primary rounded-pill px-4">
+                    <i class="bi bi-journal-text me-1"></i> Browse Courses &amp; Quizzes
+                </a>
+                <a href="/Admin/Dashboard" class="btn btn-light border rounded-pill px-4">Return to Dashboard</a>
+            </div>
+        </div>
+    </div>
+</div>

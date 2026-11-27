@@ -414,13 +414,28 @@ public class AdminController : Controller
     [HttpGet]
     public IActionResult Academic()
     {
-        return RedirectToAction("Course", "Academic");
+        return RedirectToAction("Index", "Academic");
     }
 
     [HttpGet]
-    public IActionResult Exams()
+    public async Task<IActionResult> Exams()
     {
-        return RedirectToAction("Course", "Academic");
+        ViewData["Title"] = "Exams & Quizzes";
+        ViewData["ActivePage"] = "Exams";
+
+        int totalQuizzes = 0;
+        int totalQuestions = 0;
+
+        if (_context != null)
+        {
+            totalQuizzes = await _context.Quizzes.CountAsync();
+            totalQuestions = await _context.Questions.CountAsync();
+        }
+
+        ViewBag.TotalQuizzes = totalQuizzes;
+        ViewBag.TotalQuestions = totalQuestions;
+
+        return View();
     }
 
     [HttpGet]

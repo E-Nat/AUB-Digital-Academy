@@ -55,6 +55,7 @@
 
     // Pre-calculate group active / expanded states
     var isAcademicGroupActive = IsGroupExpanded(
+        "/academic", "/admin/academic",
         "/academic/category", "/academic/categories",
         "/academic/major", "/academic/majors",
         "/academic/semester", "/academic/semesters",
@@ -68,6 +69,7 @@
     );
 
     var isAssessmentGroupActive = IsGroupExpanded(
+        "/admin/exams",
         "/academic/quizzes", "/academic/quizquestions",
         "/academic/assignments", "/academic/assignment",
         "/admin/grading"
@@ -185,23 +187,12 @@
             <div class="collapse @(isAssessmentGroupActive ? "show" : "")" id="navGroupAssessment">
                 <div class="admin-nav-sub-list">
                     @{
-                        var isQuizActive = IsRouteActive("/Academic/QuizQuestions");
+                        var isQuizActive = IsRouteActive("/Academic/QuizQuestions", new[] { "/Admin/Exams" });
                     }
-                    @if (isQuizActive)
-                    {
-                        <a href="javascript:void(0)" class="admin-nav-sub-item active" title="Quizzes & Questions (Active Quiz Questions)">
-                            <i class="bi bi-patch-question sub-nav-icon" aria-hidden="true"></i>
-                            <span class="admin-nav-sub-label">Quizzes &amp; Questions</span>
-                        </a>
-                    }
-                    else
-                    {
-                        <div class="admin-nav-sub-item is-disabled" title="Questions editor active per-course; master catalog pending (Step 3)" data-bs-toggle="tooltip" data-bs-placement="right">
-                            <i class="bi bi-patch-question sub-nav-icon" aria-hidden="true"></i>
-                            <span class="admin-nav-sub-label">Quizzes &amp; Questions</span>
-                            <span class="admin-nav-status-badge">Soon</span>
-                        </div>
-                    }
+                    <a href="/Admin/Exams" class="admin-nav-sub-item @(isQuizActive ? "active" : "")" title="Quizzes & Questions">
+                        <i class="bi bi-patch-question sub-nav-icon" aria-hidden="true"></i>
+                        <span class="admin-nav-sub-label">Quizzes &amp; Questions</span>
+                    </a>
                     <div class="admin-nav-sub-item is-disabled" title="Pending Implementation (Step 3)" data-bs-toggle="tooltip" data-bs-placement="right">
                         <i class="bi bi-file-earmark-text sub-nav-icon" aria-hidden="true"></i>
                         <span class="admin-nav-sub-label">Assignments</span>
