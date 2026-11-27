@@ -131,7 +131,10 @@
                                     <th>Student</th>
                                     <th>University ID</th>
                                     <th>Email</th>
+                                    <th>Video Progress</th>
+                                    <th>Last Activity</th>
                                     <th>Enrolled Date</th>
+                                    <th class="text-end">Details</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -141,7 +144,30 @@
                                         <td class="fw-semibold">@st.FullName</td>
                                         <td><code>@(st.UniversityId ?? "N/A")</code></td>
                                         <td>@st.Email</td>
+                                        <td>
+                                            @if (st.TotalVideoLessons > 0)
+                                            {
+                                                <span class="badge @(st.VideoProgressPercentage == 100 ? "bg-success-subtle text-success" : "bg-primary-subtle text-primary") rounded-pill">
+                                                    @st.CompletedVideoLessons / @st.TotalVideoLessons (@st.VideoProgressPercentage%)
+                                                </span>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-muted">No videos</span>
+                                            }
+                                        </td>
+                                        <td class="text-muted">@(st.LastActivityAt.HasValue ? st.LastActivityAt.Value.ToString("MMM dd, HH:mm") : "—")</td>
                                         <td>@st.EnrolledAt.ToString("MMM dd, yyyy")</td>
+                                        <td class="text-end">
+                                            @if (st.TotalVideoLessons > 0)
+                                            {
+                                                <button type="button" class="btn btn-sm btn-outline-primary view-video-progress-btn"
+                                                        data-courseid="@Model.Id" data-studentid="@st.StudentId" data-studentname="@st.FullName"
+                                                        data-bs-toggle="modal" data-bs-target="#studentVideoProgressModal">
+                                                    <i class="bi bi-play-circle"></i>
+                                                </button>
+                                            }
+                                        </td>
                                     </tr>
                                 }
                             </tbody>
@@ -159,3 +185,63 @@
         </div>
     </div>
 </div>
+
+<!-- Student Video Progress Drilldown Modal -->
+<div class="modal fade" id="studentVideoProgressModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title fw-bold">Video Progress — <span id="drilldownStudentName"></span></h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Lesson</th>
+                                <th>Watched</th>
+                                <th>Status</th>
+                                <th>Last Activity</th>
+                            </tr>
+                        </thead>
+                        <tbody id="drilldownVideoRows"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script>
+        document.querySelectorAll('.view-video-progress-btn').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const courseId = btn.dataset.courseid;
+                const studentId = btn.dataset.studentid;
+                document.getElementById('drilldownStudentName').textContent = btn.dataset.studentname || 'Student';
+                const tbody = document.getElementById('drilldownVideoRows');
+                tbody.replaceChildren();
+
+                const res = await fetch(`/Teacher/Course/${courseId}/StudentVideoProgress?studentId=${encodeURIComponent(studentId)}`);
+                if (!res.ok) return;
+                const data = await res.json();
+                if (!data.success || !data.lessons) return;
+
+                data.lessons.forEach(item => {
+                    const tr = document.createElement('tr');
+                    const tdTitle = document.createElement('td');
+                    tdTitle.textContent = item.lessonTitle;
+                    const tdPct = document.createElement('td');
+                    tdPct.textContent = `${item.watchedPercentage}% (${Math.round(item.qualifyingWatchedSeconds)}s / ${Math.round(item.videoDurationSeconds)}s)`;
+                    const tdStatus = document.createElement('td');
+                    tdStatus.textContent = item.isCompleted ? 'Completed' : 'In Progress';
+                    const tdAt = document.createElement('td');
+                    tdAt.textContent = item.lastActivityAt ? new Date(item.lastActivityAt).toLocaleString() : '—';
+                    tr.append(tdTitle, tdPct, tdStatus, tdAt);
+                    tbody.appendChild(tr);
+                });
+            });
+        });
+    </script>
+}

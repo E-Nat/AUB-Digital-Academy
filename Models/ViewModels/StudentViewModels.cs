@@ -13,6 +13,7 @@ public class StudentDashboardViewModel
     public string? Avatar { get; set; }
     public int EnrolledCoursesCount => EnrolledCourses.Count;
     public int CompletedLessonsCount { get; set; }
+    public string CurrentTermName { get; set; } = "Current Term";
     public List<StudentEnrollmentItemViewModel> EnrolledCourses { get; set; } = new();
 }
 

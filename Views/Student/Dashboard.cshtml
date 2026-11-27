@@ -67,7 +67,7 @@
                 </div>
                 <div>
                     <div class="small text-muted text-uppercase fw-bold">Current Term</div>
-                    <div class="fs-6 fw-bold text-dark text-truncate" style="max-width: 140px;" title="Spring Semester 2026">Spring 2026</div>
+                    <div class="fs-6 fw-bold text-dark text-truncate" style="max-width: 140px;" title="@Model.CurrentTermName">@Model.CurrentTermName</div>
                 </div>
             </div>
         </div>
@@ -141,6 +141,10 @@
                             </div>
                             <div class="small text-muted mt-1" style="font-size: 0.75rem;">
                                 @course.CompletedLessons of @course.TotalLessons lessons completed
+                                @if (course.TotalVideoLessons > 0)
+                                {
+                                    <span> &bull; Video: @course.CompletedVideoLessons/@course.TotalVideoLessons (@course.VideoProgressPercentage%)</span>
+                                }
                             </div>
                         </div>
                     </div>

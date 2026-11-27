@@ -121,6 +121,41 @@ public static class VideoWatchTrackingTestRunner
             var textComplete = await curriculumService.MarkLessonCompleteAsync(student.Id, course.Id, textItem.Id);
             if (textComplete.IsSuccess) Pass("Test 06: Text-only lesson completes without video requirement");
             else Fail($"Test 06: Text-only lesson completion failed: {textComplete.Message}");
+
+            // 7. Student & Faculty Video Progress Dashboards + Scope Isolation (TASK-P2-04)
+            var teacherService = sp.GetRequiredService<ITeacherService>();
+            var ta = await userManager.FindByEmailAsync("ta@aub.com");
+            var admin = await userManager.FindByEmailAsync("admin@aub.com");
+
+            var stuVideoMap = await curriculumService.GetStudentCoursesVideoProgressAsync(student.Id, new[] { course.Id });
+            var (vTotal, vDone, vLastAt) = stuVideoMap.GetValueOrDefault(course.Id, (0, 0, null));
+            if (vTotal == 1 && vDone == 1 && vLastAt.HasValue)
+                Pass("Test 07: Student Dashboard video progress counts Completed video lessons / Total video lessons (1/1)");
+            else
+                Fail($"Test 07: Student video progress mismatch ({vDone}/{vTotal}, LastAt={vLastAt})");
+
+            var teacherDetails = await teacherService.GetTeacherCourseDetailsAsync(course.Id, teacher.Id);
+            var rosterEntry = teacherDetails?.EnrolledStudents.FirstOrDefault(s => s.StudentId == student.Id);
+            var teacherDrilldown = await teacherService.GetStudentCourseVideoProgressAsync(course.Id, student.Id, teacher.Id);
+            var taUnassignedDrilldown = ta != null
+                ? await teacherService.GetStudentCourseVideoProgressAsync(course.Id, student.Id, ta.Id)
+                : null;
+            var otherStudentDrilldown = await teacherService.GetStudentCourseVideoProgressAsync(course.Id, student.Id, student.Id);
+            var adminDrilldown = admin != null
+                ? await teacherService.GetStudentCourseVideoProgressAsync(course.Id, student.Id, admin.Id, isAdmin: true)
+                : null;
+
+            if (rosterEntry != null && rosterEntry.CompletedVideoLessons == 1 && rosterEntry.TotalVideoLessons == 1 &&
+                rosterEntry.VideoProgressPercentage == 100 && rosterEntry.LastActivityAt.HasValue &&
+                teacherDrilldown != null && teacherDrilldown.Count == 1 && teacherDrilldown[0].IsCompleted &&
+                taUnassignedDrilldown == null && otherStudentDrilldown == null && adminDrilldown != null)
+            {
+                Pass("Test 08: Faculty Roster & Lesson Drilldown accurate and strictly scoped (Teacher/Admin allowed, unassigned TA/other user blocked)");
+            }
+            else
+            {
+                Fail("Test 08: Faculty Roster or Drilldown scope isolation failed");
+            }
         }
         finally
         {

@@ -7,6 +7,7 @@ public interface ITeacherService
     Task<TeacherDashboardViewModel> GetTeacherDashboardAsync(string teacherId);
     Task<IEnumerable<TeacherCourseItemViewModel>> GetTeacherCoursesAsync(string teacherId);
     Task<TeacherCourseDetailsViewModel?> GetTeacherCourseDetailsAsync(int courseId, string teacherId);
+    Task<List<StudentLessonVideoDetailViewModel>?> GetStudentCourseVideoProgressAsync(int courseId, string studentId, string requesterId, bool isAdmin = false);
     Task<IEnumerable<TeacherAssignmentItemViewModel>> GetTeacherAssignmentsAsync(string teacherId, int? courseId = null);
     Task<IEnumerable<TeacherSubmissionItemViewModel>> GetAssignmentSubmissionsAsync(int assignmentId, string teacherId);
     Task<TeacherGradingResult> GradeSubmissionAsync(int submissionId, double score, string? feedback, string teacherId);

@@ -34,6 +34,10 @@ public class StudentEnrollmentItemViewModel
     public int TotalLessons { get; set; }
     public int CompletedLessons { get; set; }
     public int ProgressPercentage => TotalLessons > 0 ? (int)Math.Round((double)CompletedLessons / TotalLessons * 100) : 0;
+    public int TotalVideoLessons { get; set; }
+    public int CompletedVideoLessons { get; set; }
+    public int VideoProgressPercentage => TotalVideoLessons > 0 ? Math.Min(100, (int)Math.Round((double)CompletedVideoLessons / TotalVideoLessons * 100)) : 0;
+    public DateTime? LastVideoActivityAt { get; set; }
     public bool HasLearningActivity { get; set; }
 }
 

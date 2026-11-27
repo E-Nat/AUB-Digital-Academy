@@ -92,6 +92,23 @@ public class TeacherController : Controller
     }
 
     [HttpGet]
+    [Route("Teacher/Course/{courseId:int}/StudentVideoProgress")]
+    public async Task<IActionResult> StudentVideoProgress(int courseId, string studentId)
+    {
+        var teacherId = await GetCurrentTeacherIdAsync();
+        if (string.IsNullOrEmpty(teacherId)) return Challenge();
+
+        var isAdmin = User.IsInRole("Admin");
+        var details = await _teacherService.GetStudentCourseVideoProgressAsync(courseId, studentId, teacherId, isAdmin);
+        if (details == null)
+        {
+            return Forbid();
+        }
+
+        return Json(new { success = true, lessons = details });
+    }
+
+    [HttpGet]
     public async Task<IActionResult> Assignments(int? courseId = null)
     {
         ViewData["Title"] = "Assignments";

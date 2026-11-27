@@ -281,6 +281,7 @@ public class TeacherService : ITeacherService
             .Include(c => c.Semester)
             .Include(c => c.Chapters)
                 .ThenInclude(ch => ch.CourseItems)
+                    .ThenInclude(ci => ci.Lesson)
             .Include(c => c.Enrollments)
                 .ThenInclude(e => e.Student)
             .FirstOrDefaultAsync();
@@ -288,6 +289,24 @@ public class TeacherService : ITeacherService
         if (course == null) return null;
 
         var allItems = course.Chapters.SelectMany(ch => ch.CourseItems).ToList();
+        var videoLessonIds = allItems
+            .Where(i => i.Type == ItemType.Lesson && i.Lesson != null && !string.IsNullOrWhiteSpace(i.Lesson.VideoUrl))
+            .Select(i => i.Id)
+            .ToList();
+        int totalVideoLessons = videoLessonIds.Count;
+
+        var videoStatsByStudent = await _context.VideoLessonProgresses
+            .AsNoTracking()
+            .Where(v => videoLessonIds.Contains(v.CourseItemId))
+            .GroupBy(v => v.StudentId)
+            .Select(g => new
+            {
+                StudentId = g.Key,
+                CompletedCount = g.Count(v => v.IsCompleted),
+                LastActivityAt = g.Max(v => (DateTime?)v.LastActivityAt)
+            })
+            .ToDictionaryAsync(x => x.StudentId, x => (x.CompletedCount, x.LastActivityAt));
+
         bool isPrimary = course.TeacherId == teacherId;
         bool canGrade = await CanGradeCourseAsync(courseId, teacherId);
 
@@ -304,6 +323,7 @@ public class TeacherService : ITeacherService
             ChapterCount = course.Chapters.Count,
             AssignmentCount = allItems.Count(i => i.Type == ItemType.Assignment),
             QuizCount = allItems.Count(i => i.Type == ItemType.Quiz),
+            TotalVideoLessonsCount = totalVideoLessons,
             RoleLabel = isPrimary ? "Instructor" : "Teaching Assistant",
             CanGrade = canGrade,
             Chapters = course.Chapters.OrderBy(ch => ch.Position).Select(ch => new TeacherChapterViewModel
@@ -319,18 +339,79 @@ public class TeacherService : ITeacherService
                     Type = i.Type
                 }).ToList()
             }).ToList(),
-            EnrolledStudents = course.Enrollments.OrderByDescending(e => e.EnrolledAt).Select(e => new TeacherStudentRosterViewModel
+            EnrolledStudents = course.Enrollments.OrderByDescending(e => e.EnrolledAt).Select(e =>
             {
-                StudentId = e.StudentId,
-                FullName = e.Student?.FullName ?? e.Student?.UserName ?? "Student",
-                Email = e.Student?.Email ?? "",
-                UniversityId = e.Student?.UniversityId,
-                Avatar = e.Student?.Avatar ?? "",
-                EnrolledAt = e.EnrolledAt
+                var (completedVideos, lastAt) = videoStatsByStudent.GetValueOrDefault(e.StudentId, (0, null));
+                return new TeacherStudentRosterViewModel
+                {
+                    StudentId = e.StudentId,
+                    FullName = e.Student?.FullName ?? e.Student?.UserName ?? "Student",
+                    Email = e.Student?.Email ?? "",
+                    UniversityId = e.Student?.UniversityId,
+                    Avatar = e.Student?.Avatar ?? "",
+                    EnrolledAt = e.EnrolledAt,
+                    CompletedVideoLessons = completedVideos,
+                    TotalVideoLessons = totalVideoLessons,
+                    LastActivityAt = lastAt
+                };
             }).ToList()
         };
 
         return viewModel;
+    }
+
+    public async Task<List<StudentLessonVideoDetailViewModel>?> GetStudentCourseVideoProgressAsync(
+        int courseId, string studentId, string requesterId, bool isAdmin = false)
+    {
+        if (courseId <= 0 || string.IsNullOrWhiteSpace(studentId) || string.IsNullOrWhiteSpace(requesterId))
+        {
+            return null;
+        }
+
+        if (!isAdmin && !await HasAccessToCourseAsync(courseId, requesterId))
+        {
+            return null;
+        }
+
+        bool isEnrolled = await _context.Enrollments
+            .AsNoTracking()
+            .AnyAsync(e => e.CourseId == courseId && e.StudentId == studentId);
+        if (!isEnrolled) return null;
+
+        var videoLessons = await _context.CourseItems
+            .AsNoTracking()
+            .Where(ci => ci.Chapter.CourseId == courseId &&
+                         ci.Type == ItemType.Lesson &&
+                         ci.Lesson != null &&
+                         !string.IsNullOrWhiteSpace(ci.Lesson.VideoUrl))
+            .OrderBy(ci => ci.Chapter.Position)
+            .ThenBy(ci => ci.Position)
+            .Select(ci => new { ci.Id, ci.Title })
+            .ToListAsync();
+
+        var itemIds = videoLessons.Select(v => v.Id).ToList();
+        var progressMap = await _context.VideoLessonProgresses
+            .AsNoTracking()
+            .Where(v => v.StudentId == studentId && itemIds.Contains(v.CourseItemId))
+            .ToDictionaryAsync(v => v.CourseItemId);
+
+        return videoLessons.Select(vl =>
+        {
+            progressMap.TryGetValue(vl.Id, out var p);
+            int pct = p != null && p.VideoDurationSeconds > 0
+                ? Math.Min(100, (int)Math.Round((p.QualifyingWatchedSeconds / p.VideoDurationSeconds) * 100.0))
+                : (p?.IsCompleted == true ? 100 : 0);
+            return new StudentLessonVideoDetailViewModel
+            {
+                CourseItemId = vl.Id,
+                LessonTitle = vl.Title,
+                QualifyingWatchedSeconds = p?.QualifyingWatchedSeconds ?? 0,
+                VideoDurationSeconds = p?.VideoDurationSeconds ?? 0,
+                WatchedPercentage = p?.IsCompleted == true ? Math.Max(90, pct) : pct,
+                IsCompleted = p?.IsCompleted ?? false,
+                LastActivityAt = p?.LastActivityAt
+            };
+        }).ToList();
     }
 
     public async Task<IEnumerable<TeacherAssignmentItemViewModel>> GetTeacherAssignmentsAsync(string teacherId, int? courseId = null)

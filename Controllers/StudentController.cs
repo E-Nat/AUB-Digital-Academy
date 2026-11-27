@@ -114,11 +114,14 @@ public class StudentController : Controller
         var enrollments = await _enrollmentService.GetStudentEnrollmentsAsync(currentUserId);
         var courseIds = enrollments.Select(e => e.CourseId).ToList();
         var progressMap = await _curriculumService.GetStudentCoursesProgressAsync(currentUserId, courseIds);
+        var videoProgressMap = await _curriculumService.GetStudentCoursesVideoProgressAsync(currentUserId, courseIds);
         var totalCompletedLessons = await _curriculumService.GetStudentCompletedLessonsCountAsync(currentUserId);
+        var currentSemester = await _context.Semesters.AsNoTracking().FirstOrDefaultAsync(s => s.IsCurrent);
 
         var enrolledList = enrollments.Select(e =>
         {
             var (total, completed) = progressMap.GetValueOrDefault(e.CourseId, (0, 0));
+            var (totalVideos, completedVideos, lastVideoAt) = videoProgressMap.GetValueOrDefault(e.CourseId, (0, 0, null));
             return new StudentEnrollmentItemViewModel
             {
                 EnrollmentId = e.Id,
@@ -134,7 +137,10 @@ public class StudentController : Controller
                 EnrolledAt = e.EnrolledAt,
                 TotalLessons = total,
                 CompletedLessons = completed,
-                HasLearningActivity = completed > 0
+                TotalVideoLessons = totalVideos,
+                CompletedVideoLessons = completedVideos,
+                LastVideoActivityAt = lastVideoAt,
+                HasLearningActivity = completed > 0 || completedVideos > 0
             };
         }).ToList();
 
@@ -146,6 +152,7 @@ public class StudentController : Controller
             StudentEmail = student.Email ?? string.Empty,
             Avatar = student.Avatar,
             CompletedLessonsCount = totalCompletedLessons,
+            CurrentTermName = currentSemester?.Name ?? "Current Term",
             EnrolledCourses = enrolledList
         };
 

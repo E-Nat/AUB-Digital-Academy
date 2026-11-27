@@ -1146,6 +1146,53 @@ public class CurriculumService : ICurriculumService
         return result;
     }
 
+    public async Task<Dictionary<int, (int TotalVideoLessons, int CompletedVideoLessons, DateTime? LastActivityAt)>> GetStudentCoursesVideoProgressAsync(
+        string studentId, IEnumerable<int> courseIds)
+    {
+        var result = new Dictionary<int, (int TotalVideoLessons, int CompletedVideoLessons, DateTime? LastActivityAt)>();
+        var idList = courseIds.Where(id => id > 0).Distinct().ToList();
+        if (idList.Count == 0) return result;
+
+        var totalVideoMap = await _context.CourseItems
+            .AsNoTracking()
+            .Where(ci => ci.Type == ItemType.Lesson &&
+                         ci.Lesson != null &&
+                         !string.IsNullOrWhiteSpace(ci.Lesson.VideoUrl) &&
+                         idList.Contains(ci.Chapter.CourseId))
+            .GroupBy(ci => ci.Chapter.CourseId)
+            .Select(g => new { CourseId = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.CourseId, x => x.Count);
+
+        Dictionary<int, (int CompletedCount, DateTime? LastActivityAt)> studentVideoMap = new();
+        if (!string.IsNullOrWhiteSpace(studentId))
+        {
+            studentVideoMap = await _context.VideoLessonProgresses
+                .AsNoTracking()
+                .Where(v => v.StudentId == studentId &&
+                            v.CourseItem.Type == ItemType.Lesson &&
+                            v.CourseItem.Lesson != null &&
+                            !string.IsNullOrWhiteSpace(v.CourseItem.Lesson.VideoUrl) &&
+                            idList.Contains(v.CourseItem.Chapter.CourseId))
+                .GroupBy(v => v.CourseItem.Chapter.CourseId)
+                .Select(g => new
+                {
+                    CourseId = g.Key,
+                    CompletedCount = g.Count(v => v.IsCompleted),
+                    LastActivityAt = g.Max(v => (DateTime?)v.LastActivityAt)
+                })
+                .ToDictionaryAsync(x => x.CourseId, x => (x.CompletedCount, x.LastActivityAt));
+        }
+
+        foreach (var cId in idList)
+        {
+            var total = totalVideoMap.GetValueOrDefault(cId, 0);
+            var (completed, lastAt) = studentVideoMap.GetValueOrDefault(cId, (0, null));
+            result[cId] = (total, completed, lastAt);
+        }
+
+        return result;
+    }
+
     // =========================================================================
     // STEP 4.3 QUIZ MANAGEMENT & STUDENT QUIZ PLAYER
     // =========================================================================

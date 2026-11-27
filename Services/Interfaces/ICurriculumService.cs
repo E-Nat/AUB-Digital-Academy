@@ -143,6 +143,8 @@ public interface ICurriculumService
     /// </summary>
     Task<Dictionary<int, (int TotalLessons, int CompletedLessons)>> GetStudentCoursesProgressAsync(string studentId, IEnumerable<int> courseIds);
 
+    Task<Dictionary<int, (int TotalVideoLessons, int CompletedVideoLessons, DateTime? LastActivityAt)>> GetStudentCoursesVideoProgressAsync(string studentId, IEnumerable<int> courseIds);
+
     // ==========================================
     // STEP 4.3 QUIZ MANAGEMENT & EVALUATION
     // ==========================================

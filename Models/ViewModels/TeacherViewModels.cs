@@ -83,6 +83,7 @@ public class TeacherCourseDetailsViewModel
     public int ChapterCount { get; set; }
     public int AssignmentCount { get; set; }
     public int QuizCount { get; set; }
+    public int TotalVideoLessonsCount { get; set; }
     public string RoleLabel { get; set; } = "Instructor";
     public bool CanGrade { get; set; } = true;
 
@@ -115,6 +116,21 @@ public class TeacherStudentRosterViewModel
     public string? UniversityId { get; set; }
     public string Avatar { get; set; } = string.Empty;
     public DateTime EnrolledAt { get; set; }
+    public int CompletedVideoLessons { get; set; }
+    public int TotalVideoLessons { get; set; }
+    public int VideoProgressPercentage => TotalVideoLessons > 0 ? Math.Min(100, (int)Math.Round((double)CompletedVideoLessons / TotalVideoLessons * 100)) : 0;
+    public DateTime? LastActivityAt { get; set; }
+}
+
+public class StudentLessonVideoDetailViewModel
+{
+    public int CourseItemId { get; set; }
+    public string LessonTitle { get; set; } = string.Empty;
+    public double QualifyingWatchedSeconds { get; set; }
+    public double VideoDurationSeconds { get; set; }
+    public int WatchedPercentage { get; set; }
+    public bool IsCompleted { get; set; }
+    public DateTime? LastActivityAt { get; set; }
 }
 
 public class TeacherAssignmentItemViewModel
