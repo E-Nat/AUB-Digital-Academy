@@ -115,6 +115,14 @@
                                 <div class="nav-icon-tile"><i class="bi bi-file-earmark-check-fill"></i></div>
                                 <span class="nav-label">Submissions</span>
                             </a>
+                            <a href="/Teacher/Quizzes" class="nav-link-item @(IsActiveRoute("Quizzes", "/Teacher/Quizzes") ? "active" : "")" title="Quizzes" data-bs-toggle="tooltip" data-bs-placement="right">
+                                <div class="nav-icon-tile"><i class="bi bi-patch-question-fill"></i></div>
+                                <span class="nav-label">Quizzes</span>
+                            </a>
+                            <a href="/Teacher/Books" class="nav-link-item @(IsActiveRoute("Books", "/Teacher/Books") ? "active" : "")" title="Books" data-bs-toggle="tooltip" data-bs-placement="right">
+                                <div class="nav-icon-tile"><i class="bi bi-book-fill"></i></div>
+                                <span class="nav-label">Books</span>
+                            </a>
                             <a href="/Teacher/Grades" class="nav-link-item @(IsActiveRoute("Grades", $"/{userRole}/Grades") || IsActiveRoute("Grades", "/Teacher/Grades") ? "active" : "")" title="Grades" data-bs-toggle="tooltip" data-bs-placement="right">
                                 <div class="nav-icon-tile"><i class="bi bi-clipboard-data-fill"></i></div>
                                 <span class="nav-label">Grades</span>

@@ -24,7 +24,9 @@ bool isEnrollmentTestMode = isInitTestDbOnly ||
                             args.Contains("--test-student-progress") ||
                             args.Contains("--test-quiz") ||
                             args.Contains("--test-teacher-portal") ||
-                            args.Contains("--test-phase4");
+                            args.Contains("--test-phase4") ||
+                            args.Contains("--test-navigation-phase1") ||
+                            args.Contains("--test-navigation-phase2");
 
 // Add services to the container.
 string connectionString;

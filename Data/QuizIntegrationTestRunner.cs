@@ -777,6 +777,85 @@ public static class QuizIntegrationTestRunner
             }
 
             Pass("Admin Preview Bypass: Admin previews Lesson, Book, Assignment, and Draft Quiz without enrollment and without DB mutations; unenrolled Student B remains denied");
+
+            // -------------------------------------------------------------
+            // TEST 19: Edit Question & Server-Side Quiz Time Limit
+            // -------------------------------------------------------------
+            var updateQRes = await curriculumService.UpdateQuestionAsync(new QuestionViewModel
+            {
+                Id = draftQuestionId,
+                QuizId = draftQuizEntity.Id,
+                Text = "Updated Draft Question?",
+                Points = 15.0,
+                Order = 1,
+                Type = QuestionType.MultipleChoice,
+                Options = new List<QuestionOptionViewModel>
+                {
+                    new() { Text = "Updated A", IsCorrect = false },
+                    new() { Text = "Updated B", IsCorrect = true }
+                }
+            });
+            var updatedQ = await curriculumService.GetQuestionByIdAsync(draftQuestionId);
+            if (!updateQRes.IsSuccess || updatedQ == null || updatedQ.Text != "Updated Draft Question?" || updatedQ.Points != 15.0 ||
+                !updatedQ.Options.Any(o => o.Text == "Updated B" && o.IsCorrect))
+            {
+                Fail("Edit Question", "UpdateQuestionAsync / GetQuestionByIdAsync failed to update question text, points, or correct option.");
+                return;
+            }
+
+            // Server-side quiz timer: remaining seconds persists across refreshes & expired attempts are rejected
+            var timedQuizRes = await curriculumService.CreateQuizAsync(new QuizCreateViewModel
+            {
+                CourseId = course1.Id,
+                ChapterId = module1.Id,
+                Title = "Timed Quiz",
+                TimeLimitMinutes = 10,
+                PassingScore = 50.0,
+                MaxAttempts = 2,
+                IsPublished = true
+            });
+            int timedQuizItemId = timedQuizRes.EntityId!.Value;
+            var memoryCache = scope.ServiceProvider.GetRequiredService<Microsoft.Extensions.Caching.Memory.IMemoryCache>();
+            var timedCtrl = new StudentController(
+                enrollmentService,
+                courseService,
+                curriculumService,
+                null!,
+                userManager,
+                context,
+                studentLogger,
+                null,
+                memoryCache);
+            timedCtrl.ControllerContext = studentACtrl.ControllerContext;
+            timedCtrl.TempData = new TempDataDictionary(timedCtrl.HttpContext, new DummyTempDataProvider());
+
+            var firstLoad = (await timedCtrl.Quiz(course1.Id, timedQuizItemId) as ViewResult)?.Model as StudentQuizPlayerViewModel;
+            if (firstLoad == null || !firstLoad.RemainingSeconds.HasValue || firstLoad.RemainingSeconds.Value <= 0)
+            {
+                Fail("Server-Side Quiz Timer (Start)", "Expected RemainingSeconds > 0 on first quiz load.");
+                return;
+            }
+
+            // Simulate elapsed time beyond 10m + 30s grace in server cache
+            var timerKey = $"quiz-timer:{studentA.Id}:{timedQuizItemId}:{firstLoad.CurrentAttemptNumber}";
+            Microsoft.Extensions.Caching.Memory.CacheExtensions.Set(
+                memoryCache,
+                timerKey,
+                DateTime.UtcNow.AddMinutes(-12));
+
+            var refreshLoad = (await timedCtrl.Quiz(course1.Id, timedQuizItemId) as ViewResult)?.Model as StudentQuizPlayerViewModel;
+            var expiredSubmit = await timedCtrl.SubmitQuiz(course1.Id, timedQuizItemId, new Dictionary<int, int>());
+            var timedQuizEntity = await context.Quizzes.FirstAsync(q => q.CourseItemId == timedQuizItemId);
+            int timedSubCount = await context.QuizSubmissions.CountAsync(qs => qs.QuizId == timedQuizEntity.Id);
+
+            if (refreshLoad == null || refreshLoad.RemainingSeconds != 0 ||
+                expiredSubmit is not RedirectToActionResult || timedSubCount != 0)
+            {
+                Fail("Server-Side Quiz Timer (Expiration)", $"Expected RemainingSeconds=0 on refresh and 0 submissions on expired submit, got Rem={refreshLoad?.RemainingSeconds}, SubCount={timedSubCount}.");
+                return;
+            }
+
+            Pass("Edit Question & Server-Side Quiz Timer: Question update verified, browser refresh preserves remaining time, and expired submission is rejected");
         }
         finally
         {

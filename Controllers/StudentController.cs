@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using AUBDigitalAcademy.Data;
 using AUBDigitalAcademy.Models;
@@ -23,6 +24,7 @@ public class StudentController : Controller
     private readonly ApplicationDbContext _context;
     private readonly ILogger<StudentController> _logger;
     private readonly IHtmlSanitizationService _htmlSanitizer;
+    private readonly IMemoryCache? _memoryCache;
 
     public StudentController(
         IEnrollmentService enrollmentService,
@@ -68,7 +70,8 @@ public class StudentController : Controller
         UserManager<User> userManager,
         ApplicationDbContext context,
         ILogger<StudentController> logger,
-        IHtmlSanitizationService? htmlSanitizer = null)
+        IHtmlSanitizationService? htmlSanitizer = null,
+        IMemoryCache? memoryCache = null)
     {
         _enrollmentService = enrollmentService;
         _courseService = courseService;
@@ -78,6 +81,7 @@ public class StudentController : Controller
         _context = context;
         _logger = logger;
         _htmlSanitizer = htmlSanitizer ?? new AUBDigitalAcademy.Services.Implementations.HtmlSanitizationService();
+        _memoryCache = memoryCache;
     }
 
     /// <summary>
@@ -627,6 +631,19 @@ public class StudentController : Controller
             return NotFound("Quiz not found in this course.");
         }
 
+        // Server-side quiz attempt timer: persist StartedAtUtc across browser refreshes
+        if (!isAdmin && playerModel.CanAttempt && playerModel.TimeLimitMinutes > 0 && _memoryCache != null)
+        {
+            var timerKey = $"quiz-timer:{currentUserId}:{courseItemId}:{playerModel.CurrentAttemptNumber}";
+            var startedAtUtc = _memoryCache.GetOrCreate(timerKey, entry =>
+            {
+                entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(playerModel.TimeLimitMinutes + 5);
+                return DateTime.UtcNow;
+            });
+            var remaining = (int)Math.Floor((startedAtUtc.AddMinutes(playerModel.TimeLimitMinutes) - DateTime.UtcNow).TotalSeconds);
+            playerModel.RemainingSeconds = Math.Max(0, remaining);
+        }
+
         ViewData["Title"] = $"{playerModel.QuizTitle} - {playerModel.CourseTitle}";
         ViewData["ActivePage"] = "Courses";
 
@@ -666,6 +683,34 @@ public class StudentController : Controller
             return Forbid();
         }
 
+        // Server-side quiz timer enforcement (30-second grace period for auto-submit latency)
+        string? activeTimerKey = null;
+        if (!isAdmin && _memoryCache != null)
+        {
+            var quizItem = await _context.CourseItems
+                .AsNoTracking()
+                .Include(ci => ci.Quiz)
+                .FirstOrDefaultAsync(ci => ci.Id == courseItemId && ci.Type == ItemType.Quiz);
+            if (quizItem?.Quiz != null && quizItem.Quiz.TimeLimitMinutes > 0)
+            {
+                var attemptCount = await _context.QuizSubmissions
+                    .CountAsync(qs => qs.QuizId == quizItem.Quiz.Id && qs.StudentId == currentUserId);
+                activeTimerKey = $"quiz-timer:{currentUserId}:{courseItemId}:{attemptCount + 1}";
+                if (_memoryCache.TryGetValue(activeTimerKey, out DateTime startedAtUtc))
+                {
+                    var deadline = startedAtUtc.AddMinutes(quizItem.Quiz.TimeLimitMinutes).AddSeconds(30);
+                    if (DateTime.UtcNow > deadline)
+                    {
+                        _memoryCache.Remove(activeTimerKey);
+                        _logger.LogWarning("SubmitQuiz expired: Student '{StudentId}', CourseItem {ItemId}, StartedAt {StartedAt}.",
+                            currentUserId, courseItemId, startedAtUtc);
+                        TempData["ErrorMessage"] = "Quiz time limit has expired. Your submission was rejected.";
+                        return RedirectToAction(nameof(Quiz), new { courseId, courseItemId });
+                    }
+                }
+            }
+        }
+
         var (result, outcome) = await _curriculumService.SubmitQuizAsync(currentUserId, courseId, courseItemId, answers ?? new());
         if (!result.IsSuccess)
         {
@@ -681,6 +726,11 @@ public class StudentController : Controller
                 return NotFound(result.Message);
             }
             return BadRequest(result.Message);
+        }
+
+        if (activeTimerKey != null && _memoryCache != null)
+        {
+            _memoryCache.Remove(activeTimerKey);
         }
 
         TempData["SuccessMessage"] = result.Message;

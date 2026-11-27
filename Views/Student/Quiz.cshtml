@@ -359,7 +359,7 @@
             }
 
             if (timeLimitMinutes > 0) {
-                var totalSeconds = timeLimitMinutes * 60;
+                var totalSeconds = @(Model.RemainingSeconds ?? (Model.TimeLimitMinutes * 60));
                 var timerDisplay = document.getElementById('quizTimeRemaining');
                 var timerBadge = document.getElementById('quizTimerBadge');
                 var warned = false;

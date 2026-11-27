@@ -181,6 +181,7 @@ public class StudentQuizPlayerViewModel
     public string QuizTitle { get; set; } = string.Empty;
     public int QuizPosition { get; set; }
     public int TimeLimitMinutes { get; set; } = 30;
+    public int? RemainingSeconds { get; set; }
     public int MaxAttempts { get; set; } = 3;
     public double PassingScore { get; set; } = 60.0;
     public bool IsPublished { get; set; }

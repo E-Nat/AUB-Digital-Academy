@@ -20,7 +20,13 @@
                 <h1 class="teacher-title fs-3 mb-1">@Model.Title</h1>
                 <p class="teacher-subtitle">@Model.MajorName • @Model.SemesterName</p>
             </div>
-            <div class="d-flex gap-2">
+            <div class="d-flex flex-wrap gap-2">
+                @if (User.IsInRole("Admin") || User.IsInRole("Teacher"))
+                {
+                    <a href="/Academic/Curriculum/@Model.Id" class="btn btn-outline-secondary rounded-pill px-3 py-2 text-xs font-semibold">
+                        <i class="bi bi-diagram-3 me-1"></i> Manage Curriculum
+                    </a>
+                }
                 <a href="/Teacher/Assignments?courseId=@Model.Id" class="btn btn-outline-primary rounded-pill px-3 py-2 text-xs font-semibold">
                     <i class="bi bi-file-earmark-text me-1"></i> Course Assignments
                 </a>
