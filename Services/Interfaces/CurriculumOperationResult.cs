@@ -7,7 +7,9 @@ public enum CurriculumOperationStatus
     ValidationError,
     BlockedByStudentData,
     Failed,
-    Forbidden
+    Forbidden,
+    Conflict,
+    Expired
 }
 
 public class CurriculumOperationResult
@@ -86,6 +88,22 @@ public class CurriculumOperationResult
         new()
         {
             Status = CurriculumOperationStatus.Failed,
+            Message = message
+        };
+
+    public static CurriculumOperationResult Conflict(string message, int? id = null) =>
+        new()
+        {
+            Status = CurriculumOperationStatus.Conflict,
+            EntityId = id,
+            Message = message
+        };
+
+    public static CurriculumOperationResult Expired(string message, int? id = null) =>
+        new()
+        {
+            Status = CurriculumOperationStatus.Expired,
+            EntityId = id,
             Message = message
         };
 }

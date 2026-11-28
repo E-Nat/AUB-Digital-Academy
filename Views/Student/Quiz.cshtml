@@ -44,11 +44,23 @@
                         <span class="badge bg-warning text-dark border border-warning"><i class="bi bi-patch-question me-1"></i>Quiz</span>
                         <span class="badge bg-light text-white bg-opacity-25"><i class="bi bi-clock me-1"></i>@Model.TimeLimitMinutes mins</span>
                         <span class="badge bg-light text-white bg-opacity-25"><i class="bi bi-award me-1"></i>Passing Score: @Model.PassingScore%</span>
-                        <span class="badge bg-light text-white bg-opacity-25"><i class="bi bi-arrow-repeat me-1"></i>Attempt @(Model.AttemptCount >= Model.MaxAttempts ? Model.AttemptCount : Model.CurrentAttemptNumber) of @Model.MaxAttempts</span>
+                        @{
+                            int displayAttemptNum = Model.ActiveAttemptId.HasValue
+                                ? Model.CurrentAttemptNumber
+                                : (Model.AttemptCount > 0 ? Model.AttemptCount : 1);
+                        }
+                        <span class="badge bg-light text-white bg-opacity-25"><i class="bi bi-arrow-repeat me-1"></i>Attempt @displayAttemptNum of @Model.MaxAttempts</span>
                         <span class="badge bg-success-subtle text-success border border-success-subtle">Progress: @Model.CourseProgressPercentage%</span>
-                        @if (Model.TimeLimitMinutes > 0 && Model.CanAttempt)
+                        @if (Model.TimeLimitMinutes > 0 && (Model.ActiveAttemptId.HasValue || Model.IsAdminPreview))
                         {
-                            <span class="badge bg-danger text-white border border-light d-inline-flex align-items-center gap-1 font-monospace fs-6 px-3" id="quizTimerBadge">
+                            <span class="badge bg-danger text-white border border-light d-inline-flex align-items-center gap-1 font-monospace fs-6 px-3"
+                                  id="quizTimerBadge"
+                                  data-deadline-utc="@(Model.AttemptDeadlineUtc.HasValue ? DateTime.SpecifyKind(Model.AttemptDeadlineUtc.Value, DateTimeKind.Utc).ToString("O") : "")"
+                                  data-server-now-utc="@DateTime.SpecifyKind(Model.ServerNowUtc, DateTimeKind.Utc).ToString("O")"
+                                  data-remaining-seconds="@(Model.RemainingSeconds ?? (Model.TimeLimitMinutes * 60))"
+                                  data-attempt-id="@(Model.ActiveAttemptId?.ToString() ?? "")"
+                                  data-save-url="/Student/Course/@Model.CourseId/Quiz/@Model.CourseItemId/SaveAnswer"
+                                  data-reload-url="/Student/Course/@Model.CourseId/Quiz/@Model.CourseItemId">
                                 <i class="bi bi-stopwatch"></i><span id="quizTimeRemaining">--:--</span>
                             </span>
                         }
@@ -65,15 +77,31 @@
         </div>
     </div>
 
+    @if (!string.IsNullOrWhiteSpace(Model.ExpiredAttemptNotice) || (Model.HasSubmission && Model.LatestIsAutoFinalized && !Model.ActiveAttemptId.HasValue))
+    {
+        var expirationText = !string.IsNullOrWhiteSpace(Model.ExpiredAttemptNotice)
+            ? Model.ExpiredAttemptNotice
+            : $"Your previous attempt (#{Model.AttemptCount}) expired and was automatically finalized using your saved pre-deadline answers (Score: {Model.LatestScore ?? 0}%).";
+        <div class="alert alert-warning alert-permanent border rounded-3 shadow-sm mb-4 d-flex align-items-center gap-3" role="alert">
+            <i class="bi bi-hourglass-bottom text-warning fs-3 flex-shrink-0"></i>
+            <div>
+                <h6 class="fw-bold mb-0">Previous Timed Attempt Auto-Finalized</h6>
+                <span class="small text-dark">@expirationText</span>
+            </div>
+        </div>
+    }
+
+    <div id="quizTimerWarningAlert" class="alert alert-permanent d-none border rounded-3 shadow-sm mb-4" role="alert"></div>
+
     @if (!Model.CanAttempt)
     {
-        <div class="alert alert-danger border rounded-3 shadow-sm mb-4 d-flex align-items-center justify-content-between flex-wrap gap-3">
+        <div class="alert alert-danger alert-permanent border rounded-3 shadow-sm mb-4 d-flex align-items-center justify-content-between flex-wrap gap-3">
             <div class="d-flex align-items-center gap-3">
                 <i class="bi bi-slash-circle-fill text-danger fs-2"></i>
                 <div>
                     <h6 class="fw-bold mb-0">Maximum Attempts Reached</h6>
                     <span class="small text-muted">
-                        You have completed all <strong>@Model.MaxAttempts</strong> allowed attempts for this quiz. Your official selected score is <strong>@(Model.BestScore ?? Model.LatestScore ?? 0)%</strong>.
+                        You have completed all <strong>@Model.MaxAttempts</strong> allowed attempts for this quiz (<strong>0</strong> attempts remaining). Your official selected score is <strong>@(Model.BestScore ?? Model.LatestScore ?? 0)%</strong>.
                     </span>
                 </div>
             </div>
@@ -85,9 +113,9 @@
             }
         </div>
     }
-    else if (Model.HasSubmission)
+    else if (Model.HasSubmission && !Model.RequiresExplicitNextAttemptStart)
     {
-        <div class="alert @(Model.LatestIsPassed == true ? "alert-success" : "alert-warning") border rounded-3 shadow-sm mb-4 d-flex align-items-center justify-content-between flex-wrap gap-3">
+        <div class="alert @(Model.LatestIsPassed == true ? "alert-success" : "alert-warning") alert-permanent border rounded-3 shadow-sm mb-4 d-flex align-items-center justify-content-between flex-wrap gap-3">
             <div class="d-flex align-items-center gap-3">
                 <i class="bi @(Model.LatestIsPassed == true ? "bi-check-circle-fill text-success" : "bi-exclamation-triangle-fill text-warning") fs-2"></i>
                 <div>
@@ -112,7 +140,124 @@
     <div class="row g-4">
         <!-- Left / Center Column: Questions Form -->
         <div class="col-lg-8">
-            @if (Model.Questions.Count == 0)
+            @if (Model.RequiresExplicitNextAttemptStart)
+            {
+                <div class="card border rounded-3 p-4 p-md-5 bg-white shadow-sm mb-4" id="startNextAttemptCard">
+                    <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 border-bottom pb-3 mb-4">
+                        <div>
+                            <span class="badge @(Model.LatestIsAutoFinalized ? "bg-warning text-dark border border-warning" : (Model.LatestIsPassed == true ? "bg-success-subtle text-success border border-success-subtle" : "bg-danger-subtle text-danger border border-danger-subtle")) mb-2">
+                                <i class="bi @(Model.LatestIsAutoFinalized ? "bi-hourglass-bottom" : (Model.LatestIsPassed == true ? "bi-check-circle-fill" : "bi-x-circle-fill")) me-1"></i>
+                                @(Model.LatestIsAutoFinalized ? "Expired (Auto-Finalized)" : (Model.LatestIsPassed == true ? "Passed" : "Submitted"))
+                            </span>
+                            <h4 class="fw-bold text-dark mb-1">
+                                @(Model.LatestIsAutoFinalized ? "Previous Attempt Expired" : "Previous Attempt Completed")
+                            </h4>
+                            <p class="text-secondary small mb-0">
+                                Review your previous attempt summary below. Your next attempt timer will only start when you click <strong>Start Next Attempt</strong>.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div class="row g-3 mb-4">
+                        <div class="col-6 col-md-3">
+                            <div class="border rounded-3 p-3 bg-light text-center h-100">
+                                <div class="text-muted small mb-1">Previous Attempt</div>
+                                <div class="fw-bold text-dark">Attempt #@Model.AttemptCount</div>
+                            </div>
+                        </div>
+                        <div class="col-6 col-md-3">
+                            <div class="border rounded-3 p-3 bg-light text-center h-100">
+                                <div class="text-muted small mb-1">Final Score</div>
+                                <div class="fw-bold @(Model.LatestIsPassed == true ? "text-success" : "text-danger")">@(Model.LatestScore ?? 0)%</div>
+                            </div>
+                        </div>
+                        <div class="col-6 col-md-3">
+                            <div class="border rounded-3 p-3 bg-light text-center h-100">
+                                <div class="text-muted small mb-1">Correct Answers</div>
+                                <div class="fw-bold text-dark">
+                                    @(Model.LatestCorrectQuestionsCount.HasValue && Model.LatestTotalQuestionsCount.HasValue
+                                        ? $"{Model.LatestCorrectQuestionsCount.Value} / {Model.LatestTotalQuestionsCount.Value}"
+                                        : "N/A")
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-6 col-md-3">
+                            <div class="border rounded-3 p-3 bg-light text-center h-100">
+                                <div class="text-muted small mb-1">Remaining Attempts</div>
+                                <div class="fw-bold text-primary">@Model.RemainingAttempts of @Model.MaxAttempts</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    @if (Model.TimeLimitMinutes > 0)
+                    {
+                        <div class="alert alert-info alert-permanent small border rounded-3 mb-4 d-flex align-items-center gap-2">
+                            <i class="bi bi-stopwatch fs-5 flex-shrink-0"></i>
+                            <span>Attempt #@Model.CurrentAttemptNumber has a <strong>@Model.TimeLimitMinutes-minute</strong> time limit once started. Refreshing this page does not start the timer.</span>
+                        </div>
+                    }
+
+                    <div id="startNextAttemptError" class="alert alert-danger alert-permanent d-none mb-3" role="alert"></div>
+
+                    <div class="d-flex align-items-center justify-content-between flex-wrap gap-3">
+                        <div class="d-flex align-items-center gap-2 flex-wrap">
+                            @if (Model.LatestSubmissionId.HasValue)
+                            {
+                                <a href="/Student/Course/@Model.CourseId/Quiz/@Model.CourseItemId/Result/@Model.LatestSubmissionId.Value" class="btn btn-outline-dark d-inline-flex align-items-center gap-2">
+                                    <i class="bi bi-file-earmark-text"></i>
+                                    <span>View Previous Result</span>
+                                </a>
+                            }
+                            <a href="/Student/Course/@Model.CourseId" class="btn btn-outline-secondary d-inline-flex align-items-center gap-2">
+                                <i class="bi bi-arrow-left"></i>
+                                <span>Back to Course</span>
+                            </a>
+                        </div>
+
+                        <form asp-controller="Student"
+                              asp-action="StartNextAttempt"
+                              method="post"
+                              id="startNextAttemptForm"
+                              data-start-url="/Student/Course/@Model.CourseId/Quiz/@Model.CourseItemId/StartNextAttempt">
+                            @Html.AntiForgeryToken()
+                            <input type="hidden" name="courseId" value="@Model.CourseId" />
+                            <input type="hidden" name="courseItemId" value="@Model.CourseItemId" />
+                            <button type="submit" class="btn btn-primary btn-lg px-4 d-inline-flex align-items-center gap-2 shadow" id="btnStartNextAttempt">
+                                <i class="bi bi-play-circle-fill"></i>
+                                <span>Start Next Attempt</span>
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            }
+            else if (!Model.CanAttempt && !Model.IsAdminPreview)
+            {
+                <div class="card border rounded-3 p-4 p-md-5 bg-white shadow-sm mb-4" id="noAttemptsRemainingCard">
+                    <div class="text-center py-2">
+                        <i class="bi bi-lock-fill text-danger fs-1 mb-3 d-block"></i>
+                        <h4 class="fw-bold text-dark mb-2">No Attempts Remaining</h4>
+                        <p class="text-secondary small mb-4">
+                            You have used all <strong>@Model.MaxAttempts</strong> attempts for this quiz.
+                            @if (Model.LatestCorrectQuestionsCount.HasValue && Model.LatestTotalQuestionsCount.HasValue)
+                            {
+                                <span>Latest attempt: <strong>@(Model.LatestScore ?? 0)%</strong> (@Model.LatestCorrectQuestionsCount.Value / @Model.LatestTotalQuestionsCount.Value correct) &bull; Official Best Score: <strong>@(Model.BestScore ?? Model.LatestScore ?? 0)%</strong>.</span>
+                            }
+                        </p>
+                        <div class="d-flex align-items-center justify-content-center gap-2 flex-wrap">
+                            @if (Model.LatestSubmissionId.HasValue)
+                            {
+                                <a href="/Student/Course/@Model.CourseId/Quiz/@Model.CourseItemId/Result/@Model.LatestSubmissionId.Value" class="btn btn-danger px-4">
+                                    <i class="bi bi-file-earmark-text me-1"></i> View Final Result
+                                </a>
+                            }
+                            <a href="/Student/Course/@Model.CourseId" class="btn btn-outline-secondary px-4">
+                                <i class="bi bi-arrow-left me-1"></i> Return to Course Overview
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            }
+            else if (Model.Questions.Count == 0)
             {
                 <div class="card border rounded-3 p-5 bg-white shadow-sm text-center">
                     <i class="bi bi-patch-question text-muted fs-1 mb-3"></i>
@@ -131,6 +276,10 @@
                     @Html.AntiForgeryToken()
                     <input type="hidden" name="courseId" value="@Model.CourseId" />
                     <input type="hidden" name="courseItemId" value="@Model.CourseItemId" />
+                    @if (Model.ActiveAttemptId.HasValue)
+                    {
+                        <input type="hidden" name="attemptId" id="quizAttemptIdInput" value="@Model.ActiveAttemptId.Value" />
+                    }
 
                     @for (int i = 0; i < Model.Questions.Count; i++)
                     {
@@ -157,13 +306,16 @@
                                     @foreach (var opt in q.Options)
                                     {
                                         var optRadioId = $"opt_{q.QuestionId}_{opt.OptionId}";
+                                        bool isSavedChoice = Model.SavedAnswers.TryGetValue(q.QuestionId, out var savedOptId) && savedOptId == opt.OptionId;
                                         <div class="card border rounded-3 p-3 mb-2 quiz-option-card bg-light-subtle">
                                             <div class="form-check d-flex align-items-center m-0">
-                                                <input class="form-check-input me-3 flex-shrink-0"
+                                                <input class="form-check-input me-3 flex-shrink-0 quiz-answer-radio"
                                                        type="radio"
                                                        name="answers[@q.QuestionId]"
                                                        id="@optRadioId"
                                                        value="@opt.OptionId"
+                                                       data-question-id="@q.QuestionId"
+                                                       checked="@(isSavedChoice ? "checked" : null)"
                                                        style="cursor:pointer;" />
                                                 <label class="form-check-label w-100 text-dark" for="@optRadioId" style="cursor:pointer;">
                                                     @opt.Text
@@ -179,10 +331,18 @@
                     <!-- Bottom Submission Bar -->
                     <div class="card border rounded-3 p-4 bg-white shadow-sm mb-4">
                         <div class="d-flex align-items-center justify-content-between flex-wrap gap-3">
-                            <a href="/Student/Course/@Model.CourseId" class="btn btn-outline-secondary d-inline-flex align-items-center gap-2">
-                                <i class="bi bi-arrow-left"></i>
-                                <span>Cancel & Back to Course</span>
-                            </a>
+                            <div class="d-flex align-items-center gap-3 flex-wrap">
+                                <a href="/Student/Course/@Model.CourseId" class="btn btn-outline-secondary d-inline-flex align-items-center gap-2">
+                                    <i class="bi bi-arrow-left"></i>
+                                    <span>Cancel & Back to Course</span>
+                                </a>
+                                @if (Model.ActiveAttemptId.HasValue && Model.CanAttempt)
+                                {
+                                    <span id="quizSaveStatus" class="small text-muted">
+                                        <i class="bi bi-cloud-check me-1"></i>Answers auto-save when selected
+                                    </span>
+                                }
+                            </div>
                             <button type="submit" class="btn btn-primary btn-lg px-5 d-inline-flex align-items-center gap-2 shadow" id="btnSubmitQuiz">
                                 <i class="bi bi-send-check"></i>
                                 <span>Submit Quiz</span>
@@ -353,12 +513,77 @@
         document.addEventListener('DOMContentLoaded', function () {
             var timeLimitMinutes = @Model.TimeLimitMinutes;
             var canAttempt = @(Model.CanAttempt.ToString().ToLower());
+            var form = document.getElementById('quizSubmissionForm');
+            var submitBtn = document.getElementById('btnSubmitQuiz');
+            var warningAlert = document.getElementById('quizTimerWarningAlert');
+            var saveStatusEl = document.getElementById('quizSaveStatus');
+
+            var startNextForm = document.getElementById('startNextAttemptForm');
+            var startNextBtn = document.getElementById('btnStartNextAttempt');
+            var startNextErr = document.getElementById('startNextAttemptError');
+            var isStartingNextAttempt = false;
+
+            if (startNextForm && startNextBtn) {
+                startNextForm.addEventListener('submit', function (e) {
+                    if (isStartingNextAttempt) {
+                        e.preventDefault();
+                        return false;
+                    }
+
+                    e.preventDefault();
+                    isStartingNextAttempt = true;
+                    startNextBtn.disabled = true;
+                    var originalBtnHtml = startNextBtn.innerHTML;
+                    startNextBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Starting Next Attempt...';
+                    if (startNextErr) {
+                        startNextErr.classList.add('d-none');
+                        startNextErr.textContent = '';
+                    }
+
+                    var startToken = startNextForm.querySelector('input[name="__RequestVerificationToken"]');
+                    var payload = new URLSearchParams();
+                    if (startToken) {
+                        payload.append('__RequestVerificationToken', startToken.value);
+                    }
+                    payload.append('courseId', '@Model.CourseId');
+                    payload.append('courseItemId', '@Model.CourseItemId');
+
+                    var startUrl = startNextForm.dataset.startUrl || startNextForm.getAttribute('action');
+                    fetch(startUrl, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                            'Accept': 'application/json',
+                            'X-Requested-With': 'XMLHttpRequest'
+                        },
+                        body: payload.toString()
+                    })
+                    .then(function (resp) {
+                        return resp.json().catch(function () { return { success: false, message: 'Unexpected server response (' + resp.status + ').' }; })
+                            .then(function (data) { return { ok: resp.ok, status: resp.status, data: data }; });
+                    })
+                    .then(function (res) {
+                        if (res.ok && res.data && res.data.success) {
+                            window.location.href = res.data.redirectUrl || window.location.href;
+                            return;
+                        }
+                        throw new Error((res.data && res.data.message) || 'Unable to start the next attempt.');
+                    })
+                    .catch(function (err) {
+                        isStartingNextAttempt = false;
+                        startNextBtn.disabled = false;
+                        startNextBtn.innerHTML = originalBtnHtml;
+                        if (startNextErr) {
+                            startNextErr.textContent = err && err.message ? err.message : 'Unable to start the next attempt. Please try again.';
+                            startNextErr.classList.remove('d-none');
+                        }
+                    });
+                });
+            }
 
             if (!canAttempt) {
-                var form = document.getElementById('quizSubmissionForm');
                 if (form) {
                     form.querySelectorAll('input').forEach(function (i) { i.disabled = true; });
-                    var submitBtn = document.getElementById('btnSubmitQuiz');
                     if (submitBtn) {
                         submitBtn.disabled = true;
                         submitBtn.className = 'btn btn-secondary btn-lg px-5 disabled';
@@ -368,37 +593,193 @@
                 return;
             }
 
-            if (timeLimitMinutes > 0) {
-                var totalSeconds = @(Model.RemainingSeconds ?? (Model.TimeLimitMinutes * 60));
-                var timerDisplay = document.getElementById('quizTimeRemaining');
+            var isExpired = false;
+            var isSubmitting = false;
+
+            function lockQuizSubmission(customMessage, redirectUrl) {
+                if (isExpired) return;
+                isExpired = true;
+
+                if (form) {
+                    form.querySelectorAll('input[type="radio"]').forEach(function (i) { i.disabled = true; });
+                }
+                if (submitBtn) {
+                    submitBtn.disabled = true;
+                    submitBtn.className = 'btn btn-danger btn-lg px-5 disabled';
+                    submitBtn.innerHTML = '<i class="bi bi-hourglass-bottom me-1"></i> Time Expired';
+                }
+                if (warningAlert) {
+                    warningAlert.className = 'alert alert-danger alert-permanent border rounded-3 shadow-sm mb-4 d-flex align-items-center justify-content-between flex-wrap gap-3';
+                    var msg = customMessage || 'Time limit reached. Submission is disabled and your pre-deadline saved answers are preserved.';
+                    warningAlert.innerHTML = '';
+
+                    var left = document.createElement('div');
+                    left.className = 'd-flex align-items-center gap-3';
+                    var icon = document.createElement('i');
+                    icon.className = 'bi bi-exclamation-octagon-fill fs-3 flex-shrink-0';
+                    var textWrap = document.createElement('div');
+                    var title = document.createElement('h6');
+                    title.className = 'fw-bold mb-0';
+                    title.textContent = 'Quiz Time Expired';
+                    var body = document.createElement('span');
+                    body.className = 'small';
+                    body.textContent = msg;
+                    textWrap.appendChild(title);
+                    textWrap.appendChild(body);
+                    left.appendChild(icon);
+                    left.appendChild(textWrap);
+                    warningAlert.appendChild(left);
+
+                    var refreshLink = document.createElement('a');
+                    refreshLink.href = redirectUrl || (document.getElementById('quizTimerBadge')?.dataset.reloadUrl || window.location.href);
+                    refreshLink.className = 'btn btn-sm btn-outline-danger bg-white fw-semibold';
+                    refreshLink.textContent = redirectUrl ? 'View Finalized Result' : 'Refresh Attempt Status';
+                    warningAlert.appendChild(refreshLink);
+                }
+            }
+
+            if (form) {
+                form.addEventListener('submit', function (e) {
+                    if (isExpired || isSubmitting) {
+                        e.preventDefault();
+                        return false;
+                    }
+                    isSubmitting = true;
+                    if (submitBtn) {
+                        submitBtn.disabled = true;
+                        submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>Submitting...';
+                    }
+                });
+
                 var timerBadge = document.getElementById('quizTimerBadge');
+                var attemptId = timerBadge ? timerBadge.dataset.attemptId : '';
+                var saveUrl = timerBadge ? timerBadge.dataset.saveUrl : '';
+                var tokenInput = form.querySelector('input[name="__RequestVerificationToken"]');
+
+                if (attemptId && saveUrl && tokenInput) {
+                    form.querySelectorAll('.quiz-answer-radio').forEach(function (radio) {
+                        radio.addEventListener('change', function () {
+                            if (isExpired || !this.checked) return;
+
+                            var questionId = this.dataset.questionId;
+                            var optionId = this.value;
+                            if (saveStatusEl) {
+                                saveStatusEl.innerHTML = '<i class="bi bi-arrow-repeat me-1"></i>Saving answer...';
+                            }
+
+                            var payload = new URLSearchParams();
+                            payload.append('__RequestVerificationToken', tokenInput.value);
+                            payload.append('attemptId', attemptId);
+                            payload.append('questionId', questionId);
+                            payload.append('optionId', optionId);
+
+                            fetch(saveUrl, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+                                body: payload.toString(),
+                                keepalive: true
+                            })
+                            .then(function (resp) {
+                                return resp.json().then(function (data) { return { status: resp.status, data: data }; });
+                            })
+                            .then(function (res) {
+                                if (res.data && res.data.expired) {
+                                    lockQuizSubmission(res.data.message, res.data.redirectUrl);
+                                    return;
+                                }
+                                if (res.data && res.data.success) {
+                                    if (saveStatusEl) {
+                                        saveStatusEl.innerHTML = '<i class="bi bi-cloud-check-fill text-success me-1"></i>All changes saved';
+                                    }
+                                } else if (saveStatusEl) {
+                                    saveStatusEl.innerHTML = '<i class="bi bi-exclamation-circle text-warning me-1"></i>Could not auto-save';
+                                }
+                            })
+                            .catch(function () {
+                                if (saveStatusEl) {
+                                    saveStatusEl.innerHTML = '<i class="bi bi-wifi-off text-warning me-1"></i>Offline — answer stays selected locally';
+                                }
+                            });
+                        });
+                    });
+                }
+            }
+
+            var activeTimerBadge = document.getElementById('quizTimerBadge');
+            if (timeLimitMinutes > 0 && activeTimerBadge) {
+                var timerDisplay = document.getElementById('quizTimeRemaining');
+                var timerBadge = activeTimerBadge;
+                var deadlineIso = timerBadge ? timerBadge.dataset.deadlineUtc : '';
+                var serverNowIso = timerBadge ? timerBadge.dataset.serverNowUtc : '';
+                var rawRemainingSeconds = timerBadge ? timerBadge.dataset.remainingSeconds : '';
+                var serverRemainingSeconds = parseInt(
+                    (rawRemainingSeconds !== '' && rawRemainingSeconds !== undefined)
+                        ? rawRemainingSeconds
+                        : '@(Model.RemainingSeconds ?? (Model.TimeLimitMinutes * 60))',
+                    10);
+                if (isNaN(serverRemainingSeconds) || serverRemainingSeconds < 0) {
+                    serverRemainingSeconds = 0;
+                }
+
+                function parseExplicitUtcTimestamp(iso) {
+                    if (!iso || typeof iso !== 'string') return NaN;
+                    var trimmed = iso.trim();
+                    // Never allow an ISO timestamp without an explicit timezone suffix to be parsed as local time.
+                    if (!/(Z|[+-]\d{2}:\d{2})$/i.test(trimmed)) return NaN;
+                    return Date.parse(trimmed);
+                }
+
+                // Use server-computed data-remaining-seconds as primary initial duration and monotonic performance.now()
+                // for elapsed time; cap with explicit-UTC timestamp delta so client logic can never extend the deadline.
+                var initialRemainingMs = serverRemainingSeconds * 1000;
+                var parsedDeadline = parseExplicitUtcTimestamp(deadlineIso);
+                var parsedServerNow = parseExplicitUtcTimestamp(serverNowIso);
+                if (!isNaN(parsedDeadline) && !isNaN(parsedServerNow)) {
+                    var utcDeltaMs = Math.max(0, parsedDeadline - parsedServerNow);
+                    initialRemainingMs = Math.min(initialRemainingMs, utcDeltaMs);
+                }
+                var pageStartPerfMs = performance.now();
                 var warned = false;
+                var interval = null;
+
+                function formatTime(totalSec) {
+                    var hrs = Math.floor(totalSec / 3600);
+                    var mins = Math.floor((totalSec % 3600) / 60);
+                    var secs = totalSec % 60;
+                    var mStr = mins < 10 ? '0' + mins : '' + mins;
+                    var sStr = secs < 10 ? '0' + secs : '' + secs;
+                    return hrs > 0 ? hrs + ':' + mStr + ':' + sStr : mStr + ':' + sStr;
+                }
 
                 function updateTimer() {
-                    var m = Math.floor(totalSeconds / 60);
-                    var s = totalSeconds % 60;
-                    var mStr = m < 10 ? '0' + m : m;
-                    var sStr = s < 10 ? '0' + s : s;
-                    if (timerDisplay) timerDisplay.textContent = mStr + ':' + sStr;
+                    var elapsedMs = Math.max(0, performance.now() - pageStartPerfMs);
+                    var remainingMs = Math.max(0, initialRemainingMs - elapsedMs);
+                    var totalSeconds = Math.ceil(remainingMs / 1000);
 
-                    if (totalSeconds <= 120 && !warned) {
+                    if (timerDisplay) timerDisplay.textContent = formatTime(totalSeconds);
+
+                    if (totalSeconds > 0 && totalSeconds <= 120 && !warned) {
                         warned = true;
                         if (timerBadge) {
                             timerBadge.classList.add('shadow-sm');
                         }
+                        if (warningAlert && !isExpired) {
+                            warningAlert.className = 'alert alert-warning alert-permanent border rounded-3 shadow-sm mb-4 d-flex align-items-center gap-2';
+                            warningAlert.innerHTML = '<i class="bi bi-clock-history fs-5 flex-shrink-0"></i><span><strong>Less than 2 minutes remaining!</strong> Please review and submit your quiz before time expires.</span>';
+                        }
                     }
 
-                    if (totalSeconds <= 0) {
-                        clearInterval(interval);
-                        alert('Time limit reached! Submitting your quiz now.');
-                        var form = document.getElementById('quizSubmissionForm');
-                        if (form) form.submit();
+                    if (remainingMs <= 0) {
+                        if (interval) clearInterval(interval);
+                        if (timerDisplay) timerDisplay.textContent = '00:00';
+                        lockQuizSubmission(null, null);
                     }
-                    totalSeconds--;
                 }
 
                 updateTimer();
-                var interval = setInterval(updateTimer, 1000);
+                if (!isExpired) {
+                    interval = setInterval(updateTimer, 500);
+                }
             }
         });
     </script>

@@ -444,13 +444,28 @@ public static class StudentLearningAssessmentTestRunner
                 .ThenInclude(qu => qu.Options)
             .FirstAsync(q => q.Id == quizPlayer.QuizId);
 
-        // Clean up any prior test quiz submissions for this quiz to ensure repeatable test runs
+        // Clean up any prior test quiz attempts and submissions for this quiz to ensure repeatable test runs
+        var oldQuizAttempts = await context.QuizAttempts
+            .Include(qa => qa.DraftAnswers)
+            .Where(qa => qa.QuizId == quizInDb.Id && qa.StudentId == studentUser.Id)
+            .ToListAsync();
+        if (oldQuizAttempts.Any())
+        {
+            foreach (var qa in oldQuizAttempts)
+            {
+                context.QuizAttemptAnswers.RemoveRange(qa.DraftAnswers);
+            }
+            context.QuizAttempts.RemoveRange(oldQuizAttempts);
+            await context.SaveChangesAsync();
+        }
+
         var oldQuizSubs = await context.QuizSubmissions
             .Include(qs => qs.Answers)
             .Where(qs => qs.QuizId == quizInDb.Id && qs.StudentId == studentUser.Id)
             .ToListAsync();
         if (oldQuizSubs.Any())
         {
+            context.QuizSubmissionAnswers.RemoveRange(oldQuizSubs.SelectMany(qs => qs.Answers));
             context.QuizSubmissions.RemoveRange(oldQuizSubs);
             await context.SaveChangesAsync();
         }

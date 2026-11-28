@@ -24,6 +24,10 @@ public class QuizSubmission
 
     public int MaxAttemptsAllowed { get; set; } = 3;
 
+    public DateTime? StartedAtUtc { get; set; }
+
+    public bool IsAutoFinalized { get; set; }
+
     public DateTime SubmittedAt { get; set; } = DateTime.UtcNow;
 
     public virtual ICollection<QuizSubmissionAnswer> Answers { get; set; } = new List<QuizSubmissionAnswer>();

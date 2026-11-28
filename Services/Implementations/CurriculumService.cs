@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using AUBDigitalAcademy.Data;
 using AUBDigitalAcademy.Models;
@@ -10,6 +11,21 @@ namespace AUBDigitalAcademy.Services.Implementations;
 
 public class CurriculumService : ICurriculumService
 {
+    /// <summary>
+    /// Short documented server-side grace window (30s) to absorb network/auto-save latency
+    /// right at timer expiration without allowing meaningful post-deadline solving.
+    /// </summary>
+    public static readonly TimeSpan QuizGracePeriod = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// Ensures UTC <see cref="DateTimeKind"/> metadata is preserved without shifting ticks or applying timezone offsets.
+    /// </summary>
+    internal static DateTime EnsureUtcKind(DateTime value)
+        => value.Kind == DateTimeKind.Utc ? value : DateTime.SpecifyKind(value, DateTimeKind.Utc);
+
+    internal static DateTime? EnsureUtcKind(DateTime? value)
+        => value.HasValue ? EnsureUtcKind(value.Value) : null;
+
     private readonly ApplicationDbContext _context;
     private readonly ILogger<CurriculumService> _logger;
     private readonly IAssignmentStorageService? _storageService;
@@ -316,20 +332,24 @@ public class CurriculumService : ICurriculumService
         var quizSubCount = await _context.QuizSubmissions
             .CountAsync(qs => qs.Quiz.CourseItem.ChapterId == chapterId);
 
+        var quizAttemptCount = await _context.QuizAttempts
+            .CountAsync(qa => qa.Quiz.CourseItem.ChapterId == chapterId);
+
         var assignmentSubCount = await _context.AssignmentSubmissions
             .CountAsync(asub => asub.Assignment.CourseItem.ChapterId == chapterId);
 
-        int totalStudentData = progressCount + quizSubCount + assignmentSubCount;
+        int totalQuizRecords = Math.Max(quizSubCount, quizAttemptCount);
+        int totalStudentData = progressCount + totalQuizRecords + assignmentSubCount;
         if (totalStudentData > 0)
         {
-            var warning = $"Cannot delete module '{chapter.Title}' because it contains active student learning records ({progressCount} progress records, {quizSubCount + assignmentSubCount} submissions).";
+            var warning = $"Cannot delete module '{chapter.Title}' because it contains active student learning records ({progressCount} progress records, {totalQuizRecords + assignmentSubCount} submissions).";
             _logger.LogWarning("Safe delete blocked for module ID {ChapterId}: {Warning}", chapterId, warning);
             return CurriculumOperationResult.BlockedByStudentData(
                 chapter.Id,
                 chapter.Title,
                 warning,
                 progressCount,
-                quizSubCount + assignmentSubCount);
+                totalQuizRecords + assignmentSubCount);
         }
 
         try
@@ -1455,9 +1475,10 @@ public class CurriculumService : ICurriculumService
             return CurriculumOperationResult.ValidationError("Quiz item does not belong to the specified module.");
         }
 
-        if (courseItem.Quiz != null && courseItem.Quiz.Submissions.Any())
+        if (courseItem.Quiz != null &&
+            (courseItem.Quiz.Submissions.Any() || await _context.QuizAttempts.AnyAsync(qa => qa.QuizId == courseItem.Quiz.Id)))
         {
-            _logger.LogWarning("Safe delete blocked for Quiz ID {QuizId}: Student submissions exist.", courseItem.Quiz.Id);
+            _logger.LogWarning("Safe delete blocked for Quiz ID {QuizId}: Student submissions or attempts exist.", courseItem.Quiz.Id);
             return CurriculumOperationResult.Fail("Cannot delete this quiz because student submissions already exist. Preserving academic history.");
         }
 
@@ -2083,14 +2104,112 @@ public class CurriculumService : ICurriculumService
             .AsNoTracking()
             .Where(qs => qs.QuizId == quiz.Id && qs.StudentId == studentId)
             .OrderByDescending(qs => qs.SubmittedAt)
+            .ThenByDescending(qs => qs.Id)
             .ToListAsync();
 
-        var latestSubmission = allSubmissions.FirstOrDefault();
+        var existingAttemptsMeta = await _context.QuizAttempts
+            .AsNoTracking()
+            .Where(qa => qa.QuizId == quiz.Id && qa.StudentId == studentId)
+            .OrderBy(qa => qa.AttemptNumber)
+            .Select(qa => new { qa.AttemptNumber, qa.MaxAttemptsAllowed })
+            .FirstOrDefaultAsync();
+
         var firstSubmission = allSubmissions.LastOrDefault();
         int effectiveMaxAttempts = firstSubmission != null && firstSubmission.MaxAttemptsAllowed > 0
             ? firstSubmission.MaxAttemptsAllowed
-            : (quiz.MaxAttempts > 0 ? quiz.MaxAttempts : 3);
+            : (existingAttemptsMeta != null && existingAttemptsMeta.MaxAttemptsAllowed > 0
+                ? existingAttemptsMeta.MaxAttemptsAllowed
+                : (quiz.MaxAttempts > 0 ? quiz.MaxAttempts : 3));
+
+        var (isQuizAccessible, missingQuizPrereqs) = await CheckItemAccessAsync(currentItem.Id, studentId, allowAdminPreview);
+
+        DateTime nowUtc = DateTime.UtcNow;
+        QuizAttempt? activeAttempt = null;
+        string? expiredAttemptNotice = null;
+
+        if (!allowAdminPreview && isQuizAccessible)
+        {
+            activeAttempt = await _context.QuizAttempts
+                .AsNoTracking()
+                .Include(qa => qa.DraftAnswers)
+                .FirstOrDefaultAsync(qa => qa.QuizId == quiz.Id && qa.StudentId == studentId && qa.Status == QuizAttemptStatus.InProgress);
+
+            DateTime? activeDeadlineUtc = EnsureUtcKind(activeAttempt?.DeadlineUtc);
+            if (activeAttempt != null &&
+                quiz.TimeLimitMinutes > 0 &&
+                activeDeadlineUtc.HasValue &&
+                nowUtc > activeDeadlineUtc.Value.Add(QuizGracePeriod))
+            {
+                var (finalizedResult, finalizedOutcome) = await FinalizeExpiredAttemptSafelyAsync(
+                    courseId,
+                    courseItemId,
+                    currentItem.Title,
+                    course.Code,
+                    course.Title,
+                    quiz,
+                    studentId,
+                    activeAttempt.Id,
+                    nowUtc);
+
+                if (finalizedResult.IsSuccess && finalizedOutcome != null)
+                {
+                    expiredAttemptNotice = $"Your previous attempt (#{activeAttempt.AttemptNumber}) expired and was automatically finalized using your saved pre-deadline answers (Score: {finalizedOutcome.Score}%).";
+                }
+                else if (finalizedResult.Status == CurriculumOperationStatus.Conflict)
+                {
+                    expiredAttemptNotice = $"Your previous attempt (#{activeAttempt.AttemptNumber}) expired and has been finalized.";
+                }
+
+                activeAttempt = null;
+                allSubmissions = await _context.QuizSubmissions
+                    .AsNoTracking()
+                    .Where(qs => qs.QuizId == quiz.Id && qs.StudentId == studentId)
+                    .OrderByDescending(qs => qs.SubmittedAt)
+                    .ThenByDescending(qs => qs.Id)
+                    .ToListAsync();
+            }
+
+            if (allSubmissions.Count == 0 && effectiveMaxAttempts > 0 && activeAttempt == null)
+            {
+                int maxAttemptNum = await _context.QuizAttempts
+                    .AsNoTracking()
+                    .Where(qa => qa.QuizId == quiz.Id && qa.StudentId == studentId)
+                    .Select(qa => (int?)qa.AttemptNumber)
+                    .MaxAsync() ?? 0;
+
+                activeAttempt = await CreateOrResumeInProgressAttemptAsync(
+                    quiz,
+                    studentId,
+                    Math.Max(allSubmissions.Count, maxAttemptNum) + 1,
+                    effectiveMaxAttempts,
+                    nowUtc);
+            }
+        }
+
+        var latestSubmission = allSubmissions.FirstOrDefault();
         var bestScore = allSubmissions.Any() ? allSubmissions.Max(s => s.Score) : (double?)null;
+
+        int? latestCorrectQuestionsCount = null;
+        int? latestTotalQuestionsCount = null;
+        if (latestSubmission != null)
+        {
+            var latestAnswerStats = await _context.QuizSubmissionAnswers
+                .AsNoTracking()
+                .Where(a => a.QuizSubmissionId == latestSubmission.Id)
+                .Select(a => a.IsCorrect)
+                .ToListAsync();
+
+            if (latestAnswerStats.Count > 0)
+            {
+                latestTotalQuestionsCount = latestAnswerStats.Count;
+                latestCorrectQuestionsCount = latestAnswerStats.Count(isCorrect => isCorrect == true);
+            }
+            else
+            {
+                latestTotalQuestionsCount = quiz.Questions.Count;
+                latestCorrectQuestionsCount = 0;
+            }
+        }
 
         // Query completed item IDs (all types for sidebar indicators) and lesson-only IDs for progress
         var completedRows = await _context.CourseProgresses
@@ -2132,7 +2251,16 @@ public class CurriculumService : ICurriculumService
                     }).ToList()
             }).ToList();
 
-        var (isQuizAccessible, missingQuizPrereqs) = await CheckItemAccessAsync(currentItem.Id, studentId, allowAdminPreview);
+        DateTime? resolvedAttemptDeadlineUtc = EnsureUtcKind(activeAttempt?.DeadlineUtc);
+        int? remainingSeconds = null;
+        if (!allowAdminPreview && isQuizAccessible && resolvedAttemptDeadlineUtc.HasValue)
+        {
+            remainingSeconds = Math.Max(0, (int)Math.Floor((resolvedAttemptDeadlineUtc.Value - nowUtc).TotalSeconds));
+        }
+
+        var savedAnswers = activeAttempt?.DraftAnswers
+            .Where(a => a.SelectedOptionId.HasValue)
+            .ToDictionary(a => a.QuestionId, a => a.SelectedOptionId!.Value) ?? new Dictionary<int, int>();
 
         return new StudentQuizPlayerViewModel
         {
@@ -2148,9 +2276,17 @@ public class CurriculumService : ICurriculumService
             QuizTitle = currentItem.Title,
             QuizPosition = currentItem.Position,
             TimeLimitMinutes = quiz.TimeLimitMinutes,
+            RemainingSeconds = remainingSeconds,
+            ActiveAttemptId = activeAttempt?.Id,
+            AttemptStartedAtUtc = EnsureUtcKind(activeAttempt?.StartedAtUtc),
+            AttemptDeadlineUtc = resolvedAttemptDeadlineUtc,
+            ServerNowUtc = EnsureUtcKind(nowUtc),
+            ExpiredAttemptNotice = expiredAttemptNotice,
+            SavedAnswers = savedAnswers,
             MaxAttempts = effectiveMaxAttempts,
             PassingScore = quiz.PassingScore,
             IsLocked = !isQuizAccessible,
+            IsAdminPreview = allowAdminPreview,
             MissingPrerequisites = missingQuizPrereqs,
             IsPublished = quiz.IsPublished,
             HasSubmission = latestSubmission != null,
@@ -2159,6 +2295,9 @@ public class CurriculumService : ICurriculumService
             LatestScore = latestSubmission?.Score,
             BestScore = bestScore,
             LatestIsPassed = latestSubmission?.IsPassed,
+            LatestIsAutoFinalized = latestSubmission?.IsAutoFinalized ?? false,
+            LatestCorrectQuestionsCount = latestCorrectQuestionsCount,
+            LatestTotalQuestionsCount = latestTotalQuestionsCount,
             LatestSubmittedAt = latestSubmission?.SubmittedAt,
             CourseProgressPercentage = progressPct,
             CompletedLessonsCount = completedLessonCount,
@@ -2183,8 +2322,386 @@ public class CurriculumService : ICurriculumService
         };
     }
 
+    public async Task<CurriculumOperationResult> SaveQuizAnswerAsync(
+        string studentId,
+        int courseId,
+        int courseItemId,
+        int attemptId,
+        int questionId,
+        int optionId)
+    {
+        if (string.IsNullOrWhiteSpace(studentId) || courseId <= 0 || courseItemId <= 0 || attemptId <= 0 || questionId <= 0 || optionId <= 0)
+        {
+            return CurriculumOperationResult.ValidationError("Invalid quiz answer request parameters.");
+        }
+
+        var isEnrolled = await _context.Enrollments.AsNoTracking()
+            .AnyAsync(e => e.StudentId == studentId && e.CourseId == courseId);
+        if (!isEnrolled)
+        {
+            return CurriculumOperationResult.Forbidden("Student is not enrolled in this course.");
+        }
+
+        var (isQuizAccessible, missingPrereqs) = await CheckItemAccessAsync(courseItemId, studentId, allowAdminPreview: false);
+        if (!isQuizAccessible)
+        {
+            return CurriculumOperationResult.Forbidden($"This quiz is locked by prerequisites: {string.Join(", ", missingPrereqs)}.");
+        }
+
+        var courseItem = await _context.CourseItems
+            .AsNoTracking()
+            .Include(ci => ci.Chapter)
+                .ThenInclude(ch => ch.Course)
+            .Include(ci => ci.Quiz)
+                .ThenInclude(q => q!.Questions)
+                    .ThenInclude(qu => qu.Options)
+            .FirstOrDefaultAsync(ci => ci.Id == courseItemId && ci.Type == ItemType.Quiz);
+
+        if (courseItem == null || courseItem.Quiz == null || courseItem.Chapter == null || courseItem.Chapter.CourseId != courseId)
+        {
+            return CurriculumOperationResult.NotFound("Quiz not found.");
+        }
+
+        var quiz = courseItem.Quiz;
+        if (!quiz.IsPublished)
+        {
+            return CurriculumOperationResult.NotFound("Quiz not found.");
+        }
+
+        var question = quiz.Questions.FirstOrDefault(q => q.Id == questionId);
+        if (question == null || !question.Options.Any(o => o.Id == optionId))
+        {
+            return CurriculumOperationResult.ValidationError("Question or option does not belong to this quiz.");
+        }
+
+        var attempt = await _context.QuizAttempts
+            .AsNoTracking()
+            .FirstOrDefaultAsync(qa => qa.Id == attemptId && qa.QuizId == quiz.Id && qa.StudentId == studentId);
+
+        if (attempt == null)
+        {
+            return CurriculumOperationResult.NotFound("Quiz attempt not found.");
+        }
+
+        if (attempt.Status != QuizAttemptStatus.InProgress)
+        {
+            return CurriculumOperationResult.Conflict("This quiz attempt has already been finalized.", attempt.QuizSubmissionId);
+        }
+
+        var nowUtc = DateTime.UtcNow;
+        DateTime? attemptDeadlineUtc = EnsureUtcKind(attempt.DeadlineUtc);
+        if (quiz.TimeLimitMinutes > 0 && attemptDeadlineUtc.HasValue && nowUtc > attemptDeadlineUtc.Value.Add(QuizGracePeriod))
+        {
+            var (finalizedResult, _) = await FinalizeExpiredAttemptSafelyAsync(
+                courseId,
+                courseItemId,
+                courseItem.Title,
+                courseItem.Chapter.Course?.Code ?? "",
+                courseItem.Chapter.Course?.Title ?? "",
+                quiz,
+                studentId,
+                attempt.Id,
+                nowUtc);
+
+            return CurriculumOperationResult.Expired(
+                "Quiz time limit has expired. Your saved pre-deadline answers have been finalized.",
+                finalizedResult.EntityId);
+        }
+
+        var existingAnswer = await _context.QuizAttemptAnswers
+            .FirstOrDefaultAsync(a => a.QuizAttemptId == attempt.Id && a.QuestionId == questionId);
+        if (existingAnswer == null)
+        {
+            _context.QuizAttemptAnswers.Add(new QuizAttemptAnswer
+            {
+                QuizAttemptId = attempt.Id,
+                QuestionId = questionId,
+                SelectedOptionId = optionId,
+                UpdatedAtUtc = nowUtc
+            });
+        }
+        else
+        {
+            existingAnswer.SelectedOptionId = optionId;
+            existingAnswer.UpdatedAtUtc = nowUtc;
+        }
+
+        try
+        {
+            await _context.SaveChangesAsync();
+            _context.ChangeTracker.Clear();
+        }
+        catch (DbUpdateException ex) when (IsSqlUniqueConstraintViolation(ex))
+        {
+            _context.ChangeTracker.Clear();
+            var concurrentAnswer = await _context.QuizAttemptAnswers
+                .FirstOrDefaultAsync(a => a.QuizAttemptId == attempt.Id && a.QuestionId == questionId);
+            if (concurrentAnswer != null)
+            {
+                concurrentAnswer.SelectedOptionId = optionId;
+                concurrentAnswer.UpdatedAtUtc = DateTime.UtcNow;
+                await _context.SaveChangesAsync();
+                _context.ChangeTracker.Clear();
+            }
+        }
+
+        int remaining = attemptDeadlineUtc.HasValue
+            ? Math.Max(0, (int)Math.Floor((attemptDeadlineUtc.Value - nowUtc).TotalSeconds))
+            : 0;
+
+        return CurriculumOperationResult.Success(
+            attempt.Id,
+            courseItem.Title,
+            "Answer saved.",
+            courseItemId,
+            remaining);
+    }
+
+    public async Task<(CurriculumOperationResult Result, QuizAttempt? Attempt)> StartNextQuizAttemptAsync(
+        string studentId,
+        int courseId,
+        int courseItemId)
+    {
+        if (string.IsNullOrWhiteSpace(studentId) || courseId <= 0 || courseItemId <= 0)
+        {
+            return (CurriculumOperationResult.ValidationError("Invalid quiz attempt request."), null);
+        }
+
+        var isEnrolled = await _context.Enrollments
+            .AsNoTracking()
+            .AnyAsync(e => e.StudentId == studentId && e.CourseId == courseId);
+        if (!isEnrolled)
+        {
+            _logger.LogWarning("StartNextQuizAttemptAsync: Student {StudentId} is not enrolled in Course {CourseId}.", studentId, courseId);
+            return (CurriculumOperationResult.Forbidden("Student is not enrolled in this course."), null);
+        }
+
+        var courseItem = await _context.CourseItems
+            .AsNoTracking()
+            .Include(ci => ci.Chapter)
+                .ThenInclude(ch => ch.Course)
+            .Include(ci => ci.Quiz)
+                .ThenInclude(q => q!.Questions)
+                    .ThenInclude(qu => qu.Options)
+            .FirstOrDefaultAsync(ci => ci.Id == courseItemId && ci.Type == ItemType.Quiz);
+
+        if (courseItem == null || courseItem.Quiz == null || courseItem.Chapter == null || courseItem.Chapter.CourseId != courseId)
+        {
+            return (CurriculumOperationResult.NotFound("Quiz not found."), null);
+        }
+
+        var quiz = courseItem.Quiz;
+        if (!quiz.IsPublished)
+        {
+            return (CurriculumOperationResult.NotFound("Quiz not found."), null);
+        }
+
+        var (isQuizAccessible, missingQuizPrereqs) = await CheckItemAccessAsync(courseItem.Id, studentId, allowAdminPreview: false);
+        if (!isQuizAccessible)
+        {
+            return (CurriculumOperationResult.Forbidden($"This quiz is locked by prerequisites: {string.Join(", ", missingQuizPrereqs)}."), null);
+        }
+
+        var firstSubmission = await _context.QuizSubmissions
+            .AsNoTracking()
+            .Where(qs => qs.QuizId == quiz.Id && qs.StudentId == studentId)
+            .OrderBy(qs => qs.SubmittedAt)
+            .ThenBy(qs => qs.Id)
+            .FirstOrDefaultAsync();
+
+        var firstAttemptRecord = await _context.QuizAttempts
+            .AsNoTracking()
+            .Where(qa => qa.QuizId == quiz.Id && qa.StudentId == studentId)
+            .OrderBy(qa => qa.AttemptNumber)
+            .FirstOrDefaultAsync();
+
+        int effectiveMaxAttempts = firstSubmission != null && firstSubmission.MaxAttemptsAllowed > 0
+            ? firstSubmission.MaxAttemptsAllowed
+            : (firstAttemptRecord != null && firstAttemptRecord.MaxAttemptsAllowed > 0
+                ? firstAttemptRecord.MaxAttemptsAllowed
+                : (quiz.MaxAttempts > 0 ? quiz.MaxAttempts : 3));
+
+        DateTime nowUtc = DateTime.UtcNow;
+
+        var activeAttempt = await _context.QuizAttempts
+            .AsNoTracking()
+            .FirstOrDefaultAsync(qa => qa.QuizId == quiz.Id && qa.StudentId == studentId && qa.Status == QuizAttemptStatus.InProgress);
+
+        if (activeAttempt != null)
+        {
+            DateTime? activeDeadlineUtc = EnsureUtcKind(activeAttempt.DeadlineUtc);
+            if (quiz.TimeLimitMinutes > 0 && activeDeadlineUtc.HasValue)
+            {
+                if (nowUtc > activeDeadlineUtc.Value.Add(QuizGracePeriod))
+                {
+                    await FinalizeExpiredAttemptSafelyAsync(
+                        courseId,
+                        courseItemId,
+                        courseItem.Title,
+                        courseItem.Chapter.Course?.Code ?? "",
+                        courseItem.Chapter.Course?.Title ?? "",
+                        quiz,
+                        studentId,
+                        activeAttempt.Id,
+                        nowUtc);
+                }
+                else if (nowUtc > activeDeadlineUtc.Value)
+                {
+                    return (
+                        CurriculumOperationResult.Conflict(
+                            "Your current quiz attempt is still finalizing within the grace window. Please wait a few seconds and refresh.",
+                            activeAttempt.Id),
+                        null);
+                }
+                else
+                {
+                    return (CurriculumOperationResult.Ok("Active quiz attempt resumed.", activeAttempt.Id), activeAttempt);
+                }
+            }
+            else
+            {
+                return (CurriculumOperationResult.Ok("Active quiz attempt resumed.", activeAttempt.Id), activeAttempt);
+            }
+        }
+
+        // Re-check active attempts after any concurrent finalization
+        activeAttempt = await _context.QuizAttempts
+            .AsNoTracking()
+            .FirstOrDefaultAsync(qa => qa.QuizId == quiz.Id && qa.StudentId == studentId && qa.Status == QuizAttemptStatus.InProgress);
+        if (activeAttempt != null)
+        {
+            DateTime? activeDeadlineUtc = EnsureUtcKind(activeAttempt.DeadlineUtc);
+            if (quiz.TimeLimitMinutes > 0 && activeDeadlineUtc.HasValue && nowUtc > activeDeadlineUtc.Value)
+            {
+                return (
+                    CurriculumOperationResult.Conflict(
+                        "Your previous quiz attempt is finalizing. Please refresh in a moment.",
+                        activeAttempt.Id),
+                    null);
+            }
+            return (CurriculumOperationResult.Ok("Active quiz attempt resumed.", activeAttempt.Id), activeAttempt);
+        }
+
+        int submissionsCount = await _context.QuizSubmissions
+            .AsNoTracking()
+            .CountAsync(qs => qs.QuizId == quiz.Id && qs.StudentId == studentId);
+
+        if (submissionsCount >= effectiveMaxAttempts)
+        {
+            _logger.LogWarning("StartNextQuizAttemptAsync: Student {StudentId} has reached MaxAttempts ({Max}) for Quiz {QuizId}.",
+                studentId, effectiveMaxAttempts, quiz.Id);
+            return (CurriculumOperationResult.Forbidden($"You have reached the maximum allowed attempts ({effectiveMaxAttempts}) for this quiz."), null);
+        }
+
+        int maxAttemptNum = await _context.QuizAttempts
+            .AsNoTracking()
+            .Where(qa => qa.QuizId == quiz.Id && qa.StudentId == studentId)
+            .Select(qa => (int?)qa.AttemptNumber)
+            .MaxAsync() ?? 0;
+
+        var createdOrResumed = await CreateOrResumeInProgressAttemptAsync(
+            quiz,
+            studentId,
+            Math.Max(submissionsCount, maxAttemptNum) + 1,
+            effectiveMaxAttempts,
+            nowUtc);
+
+        if (createdOrResumed == null)
+        {
+            return (CurriculumOperationResult.Forbidden($"You have reached the maximum allowed attempts ({effectiveMaxAttempts}) for this quiz."), null);
+        }
+
+        return (CurriculumOperationResult.Ok("Next quiz attempt started.", createdOrResumed.Id), createdOrResumed);
+    }
+
+    private async Task<QuizAttempt?> CreateOrResumeInProgressAttemptAsync(
+        Quiz quiz,
+        string studentId,
+        int attemptNumber,
+        int effectiveMaxAttempts,
+        DateTime nowUtc)
+    {
+        var newAttempt = new QuizAttempt
+        {
+            QuizId = quiz.Id,
+            StudentId = studentId,
+            AttemptNumber = attemptNumber,
+            Status = QuizAttemptStatus.InProgress,
+            StartedAtUtc = nowUtc,
+            DeadlineUtc = quiz.TimeLimitMinutes > 0 ? nowUtc.AddMinutes(quiz.TimeLimitMinutes) : null,
+            MaxAttemptsAllowed = effectiveMaxAttempts
+        };
+
+        _context.QuizAttempts.Add(newAttempt);
+        try
+        {
+            await _context.SaveChangesAsync();
+            _context.Entry(newAttempt).State = EntityState.Detached;
+            return newAttempt;
+        }
+        catch (DbUpdateException ex) when (IsSqlUniqueConstraintViolation(ex))
+        {
+            _context.Entry(newAttempt).State = EntityState.Detached;
+            var existingActive = await _context.QuizAttempts
+                .AsNoTracking()
+                .Include(qa => qa.DraftAnswers)
+                .FirstOrDefaultAsync(qa => qa.QuizId == quiz.Id && qa.StudentId == studentId && qa.Status == QuizAttemptStatus.InProgress);
+
+            if (existingActive != null)
+            {
+                return existingActive;
+            }
+
+            int refreshedSubmissions = await _context.QuizSubmissions
+                .AsNoTracking()
+                .CountAsync(qs => qs.QuizId == quiz.Id && qs.StudentId == studentId);
+
+            if (refreshedSubmissions < effectiveMaxAttempts)
+            {
+                int refreshedMaxAttemptNum = await _context.QuizAttempts
+                    .AsNoTracking()
+                    .Where(qa => qa.QuizId == quiz.Id && qa.StudentId == studentId)
+                    .Select(qa => (int?)qa.AttemptNumber)
+                    .MaxAsync() ?? 0;
+
+                var retryAttempt = new QuizAttempt
+                {
+                    QuizId = quiz.Id,
+                    StudentId = studentId,
+                    AttemptNumber = Math.Max(refreshedSubmissions, refreshedMaxAttemptNum) + 1,
+                    Status = QuizAttemptStatus.InProgress,
+                    StartedAtUtc = nowUtc,
+                    DeadlineUtc = quiz.TimeLimitMinutes > 0 ? nowUtc.AddMinutes(quiz.TimeLimitMinutes) : null,
+                    MaxAttemptsAllowed = effectiveMaxAttempts
+                };
+                _context.QuizAttempts.Add(retryAttempt);
+                try
+                {
+                    await _context.SaveChangesAsync();
+                    _context.Entry(retryAttempt).State = EntityState.Detached;
+                    return retryAttempt;
+                }
+                catch (DbUpdateException retryEx) when (IsSqlUniqueConstraintViolation(retryEx))
+                {
+                    _context.Entry(retryAttempt).State = EntityState.Detached;
+                    return await _context.QuizAttempts
+                        .AsNoTracking()
+                        .Include(qa => qa.DraftAnswers)
+                        .FirstOrDefaultAsync(qa => qa.QuizId == quiz.Id && qa.StudentId == studentId && qa.Status == QuizAttemptStatus.InProgress);
+                }
+            }
+
+            return null;
+        }
+    }
+
     public async Task<(CurriculumOperationResult Result, StudentQuizResultViewModel? Outcome)> SubmitQuizAsync(
-        string studentId, int courseId, int courseItemId, Dictionary<int, int> selectedOptions)
+        string studentId,
+        int courseId,
+        int courseItemId,
+        Dictionary<int, int> selectedOptions,
+        int? attemptId = null,
+        bool requireActiveAttempt = false)
     {
         if (string.IsNullOrWhiteSpace(studentId))
         {
@@ -2197,7 +2714,7 @@ public class CurriculumService : ICurriculumService
         }
 
         // Enrollment check
-        var isEnrolled = await _context.Enrollments.AnyAsync(e => e.StudentId == studentId && e.CourseId == courseId);
+        var isEnrolled = await _context.Enrollments.AsNoTracking().AnyAsync(e => e.StudentId == studentId && e.CourseId == courseId);
         if (!isEnrolled)
         {
             _logger.LogWarning("SubmitQuizAsync: Student {StudentId} is not enrolled in Course {CourseId}.", studentId, courseId);
@@ -2205,12 +2722,13 @@ public class CurriculumService : ICurriculumService
         }
 
         var courseItem = await _context.CourseItems
+            .AsNoTracking()
             .Include(ci => ci.Chapter)
                 .ThenInclude(ch => ch.Course)
             .Include(ci => ci.Quiz)
                 .ThenInclude(q => q!.Questions)
                     .ThenInclude(qu => qu.Options)
-        .FirstOrDefaultAsync(ci => ci.Id == courseItemId && ci.Type == ItemType.Quiz);
+            .FirstOrDefaultAsync(ci => ci.Id == courseItemId && ci.Type == ItemType.Quiz);
 
         if (courseItem == null || courseItem.Quiz == null || courseItem.Chapter == null)
         {
@@ -2230,29 +2748,321 @@ public class CurriculumService : ICurriculumService
             return (CurriculumOperationResult.NotFound("Quiz not found."), null);
         }
 
-        // Query student's first attempt to determine effective MaxAttempts (future-only limit rule)
-        var firstAttempt = await _context.QuizSubmissions
-            .AsNoTracking()
-            .Where(qs => qs.QuizId == quiz.Id && qs.StudentId == studentId)
-            .OrderBy(qs => qs.SubmittedAt)
-            .FirstOrDefaultAsync();
+        string courseCode = courseItem.Chapter.Course?.Code ?? "";
+        string courseTitle = courseItem.Chapter.Course?.Title ?? "";
+        DateTime nowUtc = DateTime.UtcNow;
 
-        int effectiveMaxAttempts = firstAttempt != null && firstAttempt.MaxAttemptsAllowed > 0
-            ? firstAttempt.MaxAttemptsAllowed
-            : (quiz.MaxAttempts > 0 ? quiz.MaxAttempts : 3);
-
-        // Enforce attempt limit
-        var existingAttemptsCount = await _context.QuizSubmissions
-            .CountAsync(qs => qs.QuizId == quiz.Id && qs.StudentId == studentId);
-        if (existingAttemptsCount >= effectiveMaxAttempts)
+        await using var transaction = await _context.Database.BeginTransactionAsync();
+        try
         {
-            _logger.LogWarning("SubmitQuizAsync: Student {StudentId} has reached MaxAttempts ({Max}) for Quiz {QuizId}.",
-                studentId, effectiveMaxAttempts, quiz.Id);
-            return (CurriculumOperationResult.Forbidden($"You have reached the maximum allowed attempts ({effectiveMaxAttempts}) for this quiz."), null);
+            // Query student's first attempt to determine effective MaxAttempts (future-only limit rule)
+            var firstSubmission = await _context.QuizSubmissions
+                .AsNoTracking()
+                .Where(qs => qs.QuizId == quiz.Id && qs.StudentId == studentId)
+                .OrderBy(qs => qs.SubmittedAt)
+                .ThenBy(qs => qs.Id)
+                .FirstOrDefaultAsync();
+
+            var firstAttemptRecord = await _context.QuizAttempts
+                .AsNoTracking()
+                .Where(qa => qa.QuizId == quiz.Id && qa.StudentId == studentId)
+                .OrderBy(qa => qa.AttemptNumber)
+                .FirstOrDefaultAsync();
+
+            int effectiveMaxAttempts = firstSubmission != null && firstSubmission.MaxAttemptsAllowed > 0
+                ? firstSubmission.MaxAttemptsAllowed
+                : (firstAttemptRecord != null && firstAttemptRecord.MaxAttemptsAllowed > 0
+                    ? firstAttemptRecord.MaxAttemptsAllowed
+                    : (quiz.MaxAttempts > 0 ? quiz.MaxAttempts : 3));
+
+            var existingAttemptsCount = await _context.QuizSubmissions
+                .AsNoTracking()
+                .CountAsync(qs => qs.QuizId == quiz.Id && qs.StudentId == studentId);
+
+            QuizAttempt? attempt;
+            if (attemptId.HasValue)
+            {
+                attempt = await _context.QuizAttempts
+                    .AsNoTracking()
+                    .Include(qa => qa.DraftAnswers)
+                    .FirstOrDefaultAsync(qa => qa.Id == attemptId.Value && qa.QuizId == quiz.Id && qa.StudentId == studentId);
+
+                if (attempt == null)
+                {
+                    await transaction.RollbackAsync();
+                    return (CurriculumOperationResult.ValidationError("Quiz attempt not found."), null);
+                }
+
+                if (attempt.Status != QuizAttemptStatus.InProgress)
+                {
+                    await transaction.RollbackAsync();
+                    return (CurriculumOperationResult.Conflict("This quiz attempt has already been finalized.", attempt.QuizSubmissionId), null);
+                }
+            }
+            else
+            {
+                attempt = await _context.QuizAttempts
+                    .AsNoTracking()
+                    .Include(qa => qa.DraftAnswers)
+                    .FirstOrDefaultAsync(qa => qa.QuizId == quiz.Id && qa.StudentId == studentId && qa.Status == QuizAttemptStatus.InProgress);
+
+                if (attempt == null)
+                {
+                    if (requireActiveAttempt)
+                    {
+                        await transaction.RollbackAsync();
+                        if (existingAttemptsCount >= effectiveMaxAttempts)
+                        {
+                            return (CurriculumOperationResult.Forbidden($"You have reached the maximum allowed attempts ({effectiveMaxAttempts}) for this quiz."), null);
+                        }
+                        return (CurriculumOperationResult.ValidationError("No active quiz attempt was found. Please open the quiz before submitting."), null);
+                    }
+
+                    if (existingAttemptsCount >= effectiveMaxAttempts)
+                    {
+                        await transaction.RollbackAsync();
+                        _logger.LogWarning("SubmitQuizAsync: Student {StudentId} has reached MaxAttempts ({Max}) for Quiz {QuizId}.",
+                            studentId, effectiveMaxAttempts, quiz.Id);
+                        return (CurriculumOperationResult.Forbidden($"You have reached the maximum allowed attempts ({effectiveMaxAttempts}) for this quiz."), null);
+                    }
+
+                    attempt = new QuizAttempt
+                    {
+                        QuizId = quiz.Id,
+                        StudentId = studentId,
+                        AttemptNumber = existingAttemptsCount + 1,
+                        Status = QuizAttemptStatus.InProgress,
+                        StartedAtUtc = nowUtc,
+                        DeadlineUtc = quiz.TimeLimitMinutes > 0 ? nowUtc.AddMinutes(quiz.TimeLimitMinutes) : null,
+                        MaxAttemptsAllowed = effectiveMaxAttempts
+                    };
+                }
+            }
+
+            if (existingAttemptsCount >= effectiveMaxAttempts)
+            {
+                await transaction.RollbackAsync();
+                _logger.LogWarning("SubmitQuizAsync: Student {StudentId} has reached MaxAttempts ({Max}) for Quiz {QuizId}.",
+                    studentId, effectiveMaxAttempts, quiz.Id);
+                return (CurriculumOperationResult.Forbidden($"You have reached the maximum allowed attempts ({effectiveMaxAttempts}) for this quiz."), null);
+            }
+
+            DateTime? attemptDeadlineUtc = EnsureUtcKind(attempt.DeadlineUtc);
+            bool isExpired = quiz.TimeLimitMinutes > 0 &&
+                             attemptDeadlineUtc.HasValue &&
+                             nowUtc > attemptDeadlineUtc.Value.Add(QuizGracePeriod);
+
+            Dictionary<int, int> answersToGrade;
+            if (isExpired)
+            {
+                // Reject late POST payload; grade ONLY pre-deadline saved draft answers
+                answersToGrade = attempt.DraftAnswers
+                    .Where(a => a.SelectedOptionId.HasValue)
+                    .ToDictionary(a => a.QuestionId, a => a.SelectedOptionId!.Value);
+
+                _logger.LogWarning("SubmitQuizAsync expired: Student {StudentId}, Quiz {QuizId}, Attempt {AttemptId}, Deadline {DeadlineUtc}, Now {NowUtc}. Finalizing from {DraftCount} saved pre-deadline answer(s).",
+                    studentId, quiz.Id, attempt.Id, attempt.DeadlineUtc, nowUtc, answersToGrade.Count);
+            }
+            else
+            {
+                answersToGrade = selectedOptions ?? new Dictionary<int, int>();
+            }
+
+            var outcome = await FinalizeAttemptInCurrentTransactionAsync(
+                courseId,
+                courseItemId,
+                courseItem.Title,
+                courseCode,
+                courseTitle,
+                quiz,
+                studentId,
+                attempt,
+                answersToGrade,
+                isAutoFinalized: isExpired,
+                nowUtc: nowUtc,
+                existingAttemptsCount: existingAttemptsCount,
+                effectiveMaxAttempts: effectiveMaxAttempts);
+
+            if (outcome == null)
+            {
+                await transaction.RollbackAsync();
+                int? existingSubId = attempt.Id > 0
+                    ? await _context.QuizAttempts.AsNoTracking().Where(qa => qa.Id == attempt.Id).Select(qa => qa.QuizSubmissionId).FirstOrDefaultAsync()
+                    : null;
+                return (CurriculumOperationResult.Conflict("This quiz attempt has already been finalized.", existingSubId), null);
+            }
+
+            await transaction.CommitAsync();
+
+            await TryDispatchQuizNotificationAsync(studentId, courseId, courseItemId, courseItem.Title, outcome.Score, outcome.IsPassed);
+
+            if (isExpired)
+            {
+                return (
+                    CurriculumOperationResult.Expired(
+                        "Quiz time limit has expired. Late answers were rejected and your attempt was finalized using your pre-deadline saved answers.",
+                        outcome.SubmissionId),
+                    outcome);
+            }
+
+            _logger.LogInformation("Student {StudentId} submitted Quiz ID {QuizId} (Submission ID {SubmissionId}, Attempt {Attempt}/{Max}): Score={Score}%, IsPassed={IsPassed}.",
+                studentId, quiz.Id, outcome.SubmissionId, outcome.AttemptNumber, effectiveMaxAttempts, outcome.Score, outcome.IsPassed);
+
+            return (CurriculumOperationResult.Ok("Quiz submitted successfully.", outcome.SubmissionId), outcome);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            await transaction.RollbackAsync();
+            _context.ChangeTracker.Clear();
+            int? existingSubId = attemptId.HasValue
+                ? await _context.QuizAttempts.AsNoTracking().Where(qa => qa.Id == attemptId.Value).Select(qa => qa.QuizSubmissionId).FirstOrDefaultAsync()
+                : null;
+            return (CurriculumOperationResult.Conflict("This quiz attempt has already been finalized.", existingSubId), null);
+        }
+        catch (DbUpdateException ex) when (IsSqlUniqueConstraintViolation(ex))
+        {
+            await transaction.RollbackAsync();
+            _context.ChangeTracker.Clear();
+            int? existingSubId = attemptId.HasValue
+                ? await _context.QuizAttempts.AsNoTracking().Where(qa => qa.Id == attemptId.Value).Select(qa => qa.QuizSubmissionId).FirstOrDefaultAsync()
+                : null;
+            return (CurriculumOperationResult.Conflict("A concurrent submission for this quiz attempt is already finalized.", existingSubId), null);
+        }
+    }
+
+    private async Task<(CurriculumOperationResult Result, StudentQuizResultViewModel? Outcome)> FinalizeExpiredAttemptSafelyAsync(
+        int courseId,
+        int courseItemId,
+        string quizTitle,
+        string courseCode,
+        string courseTitle,
+        Quiz quiz,
+        string studentId,
+        int attemptId,
+        DateTime nowUtc)
+    {
+        await using var transaction = await _context.Database.BeginTransactionAsync();
+        try
+        {
+            var attempt = await _context.QuizAttempts
+                .AsNoTracking()
+                .Include(qa => qa.DraftAnswers)
+                .FirstOrDefaultAsync(qa => qa.Id == attemptId && qa.QuizId == quiz.Id && qa.StudentId == studentId);
+
+            if (attempt == null)
+            {
+                await transaction.RollbackAsync();
+                return (CurriculumOperationResult.NotFound("Quiz attempt not found."), null);
+            }
+
+            if (attempt.Status != QuizAttemptStatus.InProgress)
+            {
+                await transaction.RollbackAsync();
+                return (CurriculumOperationResult.Conflict("This quiz attempt has already been finalized.", attempt.QuizSubmissionId), null);
+            }
+
+            var existingAttemptsCount = await _context.QuizSubmissions
+                .AsNoTracking()
+                .CountAsync(qs => qs.QuizId == quiz.Id && qs.StudentId == studentId);
+
+            int effectiveMaxAttempts = attempt.MaxAttemptsAllowed > 0
+                ? attempt.MaxAttemptsAllowed
+                : (quiz.MaxAttempts > 0 ? quiz.MaxAttempts : 3);
+
+            var draftMap = attempt.DraftAnswers
+                .Where(a => a.SelectedOptionId.HasValue)
+                .ToDictionary(a => a.QuestionId, a => a.SelectedOptionId!.Value);
+
+            var outcome = await FinalizeAttemptInCurrentTransactionAsync(
+                courseId,
+                courseItemId,
+                quizTitle,
+                courseCode,
+                courseTitle,
+                quiz,
+                studentId,
+                attempt,
+                draftMap,
+                isAutoFinalized: true,
+                nowUtc: nowUtc,
+                existingAttemptsCount: existingAttemptsCount,
+                effectiveMaxAttempts: effectiveMaxAttempts);
+
+            if (outcome == null)
+            {
+                await transaction.RollbackAsync();
+                var existingSubId = await _context.QuizAttempts
+                    .AsNoTracking()
+                    .Where(qa => qa.Id == attemptId)
+                    .Select(qa => qa.QuizSubmissionId)
+                    .FirstOrDefaultAsync();
+                return (CurriculumOperationResult.Conflict("Quiz attempt already finalized.", existingSubId), null);
+            }
+
+            await transaction.CommitAsync();
+
+            await TryDispatchQuizNotificationAsync(studentId, courseId, courseItemId, quizTitle, outcome.Score, outcome.IsPassed);
+
+            return (CurriculumOperationResult.Ok("Expired quiz attempt auto-finalized.", outcome.SubmissionId), outcome);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            await transaction.RollbackAsync();
+            _context.ChangeTracker.Clear();
+            var existingSubId = await _context.QuizAttempts
+                .AsNoTracking()
+                .Where(qa => qa.Id == attemptId)
+                .Select(qa => qa.QuizSubmissionId)
+                .FirstOrDefaultAsync();
+            return (CurriculumOperationResult.Conflict("Quiz attempt already finalized.", existingSubId), null);
+        }
+        catch (DbUpdateException ex) when (IsSqlUniqueConstraintViolation(ex))
+        {
+            await transaction.RollbackAsync();
+            _context.ChangeTracker.Clear();
+            var existingSubId = await _context.QuizAttempts
+                .AsNoTracking()
+                .Where(qa => qa.Id == attemptId)
+                .Select(qa => qa.QuizSubmissionId)
+                .FirstOrDefaultAsync();
+            return (CurriculumOperationResult.Conflict("Quiz attempt already finalized.", existingSubId), null);
+        }
+    }
+
+    private async Task<StudentQuizResultViewModel?> FinalizeAttemptInCurrentTransactionAsync(
+        int courseId,
+        int courseItemId,
+        string quizTitle,
+        string courseCode,
+        string courseTitle,
+        Quiz quiz,
+        string studentId,
+        QuizAttempt attempt,
+        Dictionary<int, int> selectedOptions,
+        bool isAutoFinalized,
+        DateTime nowUtc,
+        int existingAttemptsCount,
+        int effectiveMaxAttempts)
+    {
+        var targetStatus = isAutoFinalized ? QuizAttemptStatus.Expired : QuizAttemptStatus.Submitted;
+
+        // Claim the active QuizAttempt row FIRST via atomic UPDATE to serialize concurrent submissions
+        // and prevent SQL Server lock-order deadlocks.
+        if (attempt.Id > 0)
+        {
+            int claimedRows = await _context.QuizAttempts
+                .Where(qa => qa.Id == attempt.Id && qa.Status == QuizAttemptStatus.InProgress)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(qa => qa.Status, targetStatus)
+                    .SetProperty(qa => qa.FinalizedAtUtc, nowUtc));
+
+            if (claimedRows == 0)
+            {
+                return null;
+            }
         }
 
         bool areAttemptsExhausted = (existingAttemptsCount + 1) >= effectiveMaxAttempts;
-
         var questions = quiz.Questions.OrderBy(q => q.Order).ToList();
 
         double totalPoints = questions.Sum(q => q.Points > 0 ? q.Points : 1.0);
@@ -2266,13 +3076,16 @@ public class CurriculumService : ICurriculumService
         {
             double qPoints = q.Points > 0 ? q.Points : 1.0;
             int? selectedOptId = null;
-            if (selectedOptions != null && selectedOptions.TryGetValue(q.Id, out int optId))
+            if (selectedOptions.TryGetValue(q.Id, out int optId))
             {
                 selectedOptId = optId;
             }
 
-            var correctOpt = q.Options.FirstOrDefault(o => o.IsCorrect);
             var selectedOpt = selectedOptId.HasValue ? q.Options.FirstOrDefault(o => o.Id == selectedOptId.Value) : null;
+            if (selectedOpt == null)
+            {
+                selectedOptId = null;
+            }
             bool isQuestionCorrect = selectedOpt != null && selectedOpt.IsCorrect;
 
             if (isQuestionCorrect)
@@ -2306,12 +3119,17 @@ public class CurriculumService : ICurriculumService
                 AnswerText = selectedOpt?.Text,
                 PointsEarned = isQuestionCorrect ? qPoints : 0.0,
                 IsCorrect = isQuestionCorrect,
-                CreatedAt = DateTime.UtcNow
+                CreatedAt = nowUtc
             });
         }
 
         double score = totalPoints > 0 ? Math.Round((earnedPoints / totalPoints) * 100.0, 2) : 0.0;
         bool isPassed = totalPoints > 0 && score >= 50.0;
+
+        DateTime? attemptDeadlineUtc = EnsureUtcKind(attempt.DeadlineUtc);
+        DateTime recordedSubmittedAt = isAutoFinalized && attemptDeadlineUtc.HasValue && nowUtc > attemptDeadlineUtc.Value
+            ? attemptDeadlineUtc.Value
+            : nowUtc;
 
         var submission = new QuizSubmission
         {
@@ -2320,13 +3138,28 @@ public class CurriculumService : ICurriculumService
             Score = score,
             IsPassed = isPassed,
             MaxAttemptsAllowed = effectiveMaxAttempts,
-            SubmittedAt = DateTime.UtcNow
+            StartedAtUtc = EnsureUtcKind(attempt.StartedAtUtc),
+            IsAutoFinalized = isAutoFinalized,
+            SubmittedAt = recordedSubmittedAt
         };
 
         _context.QuizSubmissions.Add(submission);
+        if (attempt.Id == 0)
+        {
+            attempt.Status = targetStatus;
+            attempt.FinalizedAtUtc = nowUtc;
+            attempt.QuizSubmission = submission;
+            _context.QuizAttempts.Add(attempt);
+        }
         await _context.SaveChangesAsync();
 
-        // Persist individual answers linked to this submission
+        if (attempt.Id > 0)
+        {
+            await _context.QuizAttempts
+                .Where(qa => qa.Id == attempt.Id)
+                .ExecuteUpdateAsync(s => s.SetProperty(qa => qa.QuizSubmissionId, submission.Id));
+        }
+
         foreach (var ans in answersToInsert)
         {
             ans.QuizSubmissionId = submission.Id;
@@ -2335,15 +3168,56 @@ public class CurriculumService : ICurriculumService
         _context.QuizSubmissionAnswers.AddRange(answersToInsert);
         await _context.SaveChangesAsync();
 
-        // Dispatch Grade Released notification to student
+        var allAttemptScores = await _context.QuizSubmissions
+            .AsNoTracking()
+            .Where(qs => qs.QuizId == quiz.Id && qs.StudentId == studentId)
+            .Select(qs => qs.Score)
+            .ToListAsync();
+        double bestScore = allAttemptScores.Any() ? allAttemptScores.Max() : score;
+
+        return new StudentQuizResultViewModel
+        {
+            CourseId = courseId,
+            CourseCode = courseCode,
+            CourseTitle = courseTitle,
+            CourseItemId = courseItemId,
+            QuizId = quiz.Id,
+            QuizTitle = quizTitle,
+            PassingScore = 50.0,
+            SubmissionId = submission.Id,
+            AttemptNumber = existingAttemptsCount + 1,
+            MaxAttempts = effectiveMaxAttempts,
+            AreAttemptsExhausted = areAttemptsExhausted,
+            Score = score,
+            BestScore = bestScore,
+            IsPassed = isPassed,
+            StartedAtUtc = submission.StartedAtUtc,
+            IsAutoFinalized = submission.IsAutoFinalized,
+            SubmittedAt = submission.SubmittedAt,
+            TotalPoints = totalPoints,
+            EarnedPoints = earnedPoints,
+            TotalQuestions = questions.Count,
+            CorrectQuestionsCount = correctCount,
+            Questions = questionBreakdown
+        };
+    }
+
+    private async Task TryDispatchQuizNotificationAsync(
+        string studentId,
+        int courseId,
+        int courseItemId,
+        string quizTitle,
+        double score,
+        bool isPassed)
+    {
         try
         {
             var notif = new Notification
             {
                 UserId = studentId,
                 Type = NotificationType.GradeReleased,
-                Title = $"Quiz Graded: {courseItem.Title}",
-                Message = $"Your score for {courseItem.Title} is {score}% ({(isPassed ? "Passed" : "Not Passed")}).",
+                Title = $"Quiz Graded: {quizTitle}",
+                Message = $"Your score for {quizTitle} is {score}% ({(isPassed ? "Passed" : "Not Passed")}).",
                 TargetUrl = $"/Student/Course/{courseId}/Quiz/{courseItemId}",
                 IsRead = false,
                 CreatedAt = DateTime.UtcNow
@@ -2355,41 +3229,11 @@ public class CurriculumService : ICurriculumService
         {
             _logger.LogWarning(ex, "Failed to dispatch quiz grade notification for student {StudentId}.", studentId);
         }
+    }
 
-        _logger.LogInformation("Student {StudentId} submitted Quiz ID {QuizId} (Submission ID {SubmissionId}, Attempt {Attempt}/{Max}): Score={Score}%, IsPassed={IsPassed}.",
-            studentId, quiz.Id, submission.Id, existingAttemptsCount + 1, quiz.MaxAttempts, score, isPassed);
-
-        var allAttemptScores = await _context.QuizSubmissions
-            .Where(qs => qs.QuizId == quiz.Id && qs.StudentId == studentId)
-            .Select(qs => qs.Score)
-            .ToListAsync();
-        double bestScore = allAttemptScores.Any() ? allAttemptScores.Max() : score;
-
-        var outcome = new StudentQuizResultViewModel
-        {
-            CourseId = courseId,
-            CourseCode = courseItem.Chapter.Course?.Code ?? "",
-            CourseTitle = courseItem.Chapter.Course?.Title ?? "",
-            CourseItemId = courseItemId,
-            QuizId = quiz.Id,
-            QuizTitle = courseItem.Title,
-            PassingScore = 50.0,
-            SubmissionId = submission.Id,
-            AttemptNumber = existingAttemptsCount + 1,
-            MaxAttempts = effectiveMaxAttempts,
-            AreAttemptsExhausted = areAttemptsExhausted,
-            Score = score,
-            BestScore = bestScore,
-            IsPassed = isPassed,
-            SubmittedAt = submission.SubmittedAt,
-            TotalPoints = totalPoints,
-            EarnedPoints = earnedPoints,
-            TotalQuestions = questions.Count,
-            CorrectQuestionsCount = correctCount,
-            Questions = questionBreakdown
-        };
-
-        return (CurriculumOperationResult.Ok("Quiz submitted successfully.", submission.Id), outcome);
+    private static bool IsSqlUniqueConstraintViolation(DbUpdateException ex)
+    {
+        return ex.InnerException is SqlException sqlEx && (sqlEx.Number == 2601 || sqlEx.Number == 2627);
     }
 
     public async Task<StudentQuizResultViewModel?> GetStudentQuizResultAsync(int courseId, int courseItemId, int submissionId, string studentId, bool allowAdminPreview = false)
@@ -2497,6 +3341,8 @@ public class CurriculumService : ICurriculumService
             Score = submission.Score,
             BestScore = bestScore,
             IsPassed = submission.IsPassed,
+            StartedAtUtc = submission.StartedAtUtc,
+            IsAutoFinalized = submission.IsAutoFinalized,
             SubmittedAt = submission.SubmittedAt,
             TotalPoints = totalPoints,
             EarnedPoints = earnedPoints,

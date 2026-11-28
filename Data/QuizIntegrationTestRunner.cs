@@ -15,6 +15,7 @@ using AUBDigitalAcademy.Data;
 using AUBDigitalAcademy.Models;
 using AUBDigitalAcademy.Models.Enums;
 using AUBDigitalAcademy.Models.ViewModels;
+using AUBDigitalAcademy.Services.Implementations;
 using AUBDigitalAcademy.Services.Interfaces;
 
 namespace AUBDigitalAcademy.Data;
@@ -470,6 +471,8 @@ public static class QuizIntegrationTestRunner
                 { question2.Id, q2WrongOpt.Id }
             };
 
+            // Start Attempt #2 explicitly via StartNextAttempt before submitting
+            await studentACtrl.StartNextAttempt(course1.Id, quizItem.Id);
             var partialSubmit = await studentACtrl.SubmitQuiz(course1.Id, quizItem.Id, partialAnswers);
             var partialRedirect = (RedirectToActionResult)partialSubmit;
             int partialSubId = (int)partialRedirect.RouteValues!["submissionId"]!;
@@ -493,6 +496,7 @@ public static class QuizIntegrationTestRunner
                 { question1.Id, question1.Options.First(o => !o.IsCorrect).Id },
                 { question2.Id, question2.Options.First(o => !o.IsCorrect).Id }
             };
+            await studentACtrl.StartNextAttempt(course1.Id, quizItem.Id);
             var wrongSubmit = await studentACtrl.SubmitQuiz(course1.Id, quizItem.Id, allWrongAnswers);
             int wrongSubId = (int)((RedirectToActionResult)wrongSubmit).RouteValues!["submissionId"]!;
             var wrongSub = await context.QuizSubmissions.FirstAsync(qs => qs.Id == wrongSubId);
@@ -803,129 +807,699 @@ public static class QuizIntegrationTestRunner
                 return;
             }
 
-            // Server-side quiz timer: remaining seconds persists across refreshes & expired attempts are rejected
+            // -------------------------------------------------------------
+            // TEST 19: Persistent Server-Side Quiz Timer, Auto-Save, Expiration & Concurrency
+            // -------------------------------------------------------------
             var timedQuizRes = await curriculumService.CreateQuizAsync(new QuizCreateViewModel
             {
                 CourseId = course1.Id,
                 ChapterId = module1.Id,
-                Title = "Timed Quiz",
+                Title = "Timed Quiz DB Persistence",
                 TimeLimitMinutes = 10,
                 PassingScore = 50.0,
                 MaxAttempts = 2,
                 IsPublished = true
             });
             int timedQuizItemId = timedQuizRes.EntityId!.Value;
-            var memoryCache = scope.ServiceProvider.GetRequiredService<Microsoft.Extensions.Caching.Memory.IMemoryCache>();
-            var timedCtrl = new StudentController(
-                enrollmentService,
-                courseService,
-                curriculumService,
-                null!,
-                userManager,
-                context,
-                studentLogger,
-                null,
-                memoryCache);
-            timedCtrl.ControllerContext = studentACtrl.ControllerContext;
-            timedCtrl.TempData = new TempDataDictionary(timedCtrl.HttpContext, new DummyTempDataProvider());
-
-            var firstLoad = (await timedCtrl.Quiz(course1.Id, timedQuizItemId) as ViewResult)?.Model as StudentQuizPlayerViewModel;
-            if (firstLoad == null || !firstLoad.RemainingSeconds.HasValue || firstLoad.RemainingSeconds.Value <= 0)
-            {
-                Fail("Server-Side Quiz Timer (Start)", "Expected RemainingSeconds > 0 on first quiz load.");
-                return;
-            }
-
-            // Simulate elapsed time beyond 10m + 30s grace in server cache
-            var timerKey = $"quiz-timer:{studentA.Id}:{timedQuizItemId}:{firstLoad.CurrentAttemptNumber}";
-            Microsoft.Extensions.Caching.Memory.CacheExtensions.Set(
-                memoryCache,
-                timerKey,
-                DateTime.UtcNow.AddMinutes(-12));
-
-            var refreshLoad = (await timedCtrl.Quiz(course1.Id, timedQuizItemId) as ViewResult)?.Model as StudentQuizPlayerViewModel;
-            var expiredSubmit = await timedCtrl.SubmitQuiz(course1.Id, timedQuizItemId, new Dictionary<int, int>());
             var timedQuizEntity = await context.Quizzes.FirstAsync(q => q.CourseItemId == timedQuizItemId);
-            int timedSubCount = await context.QuizSubmissions.CountAsync(qs => qs.QuizId == timedQuizEntity.Id);
 
-            if (refreshLoad == null || refreshLoad.RemainingSeconds != 0 ||
-                expiredSubmit is not RedirectToActionResult || timedSubCount != 0)
+            var tq1Res = await curriculumService.AddQuestionAsync(timedQuizEntity.Id, new QuestionViewModel
             {
-                Fail("Server-Side Quiz Timer (Expiration)", $"Expected RemainingSeconds=0 on refresh and 0 submissions on expired submit, got Rem={refreshLoad?.RemainingSeconds}, SubCount={timedSubCount}.");
+                QuizId = timedQuizEntity.Id,
+                Text = "Timed Q1 (2 pts)?",
+                Points = 2.0,
+                Order = 1,
+                Type = QuestionType.MultipleChoice,
+                Options = new List<QuestionOptionViewModel>
+                {
+                    new() { Text = "Correct 1", IsCorrect = true },
+                    new() { Text = "Wrong 1", IsCorrect = false }
+                }
+            });
+            var tq2Res = await curriculumService.AddQuestionAsync(timedQuizEntity.Id, new QuestionViewModel
+            {
+                QuizId = timedQuizEntity.Id,
+                Text = "Timed Q2 (3 pts)?",
+                Points = 3.0,
+                Order = 2,
+                Type = QuestionType.MultipleChoice,
+                Options = new List<QuestionOptionViewModel>
+                {
+                    new() { Text = "Correct 2", IsCorrect = true },
+                    new() { Text = "Wrong 2", IsCorrect = false }
+                }
+            });
+            var tq1 = await context.Questions.Include(q => q.Options).FirstAsync(q => q.Id == tq1Res.EntityId!.Value);
+            var tq2 = await context.Questions.Include(q => q.Options).FirstAsync(q => q.Id == tq2Res.EntityId!.Value);
+            var tq1Correct = tq1.Options.First(o => o.IsCorrect);
+            var tq2Correct = tq2.Options.First(o => o.IsCorrect);
+
+            // 19a: Submitting via controller without starting an active attempt is rejected
+            var unstartedSubmitRes = await studentACtrl.SubmitQuiz(course1.Id, timedQuizItemId, new Dictionary<int, int> { { tq1.Id, tq1Correct.Id } });
+            int preStartSubCount = await context.QuizSubmissions.CountAsync(qs => qs.QuizId == timedQuizEntity.Id);
+            if (unstartedSubmitRes is not RedirectToActionResult unstartedRta || unstartedRta.ActionName != nameof(StudentController.Quiz) || preStartSubCount != 0)
+            {
+                Fail("Server-Side Quiz Timer (Require Active Attempt)", "Direct POST without opening quiz should be rejected with 0 submissions.");
                 return;
             }
 
-            Pass("Edit Question & Server-Side Quiz Timer: Question update verified, browser refresh preserves remaining time, and expired submission is rejected");
+            // 19b: Opening quiz persists StartedAtUtc and DeadlineUtc in SQL Server
+            var firstLoad = (await studentACtrl.Quiz(course1.Id, timedQuizItemId) as ViewResult)?.Model as StudentQuizPlayerViewModel;
+            if (firstLoad == null || !firstLoad.ActiveAttemptId.HasValue || !firstLoad.AttemptStartedAtUtc.HasValue ||
+                !firstLoad.AttemptDeadlineUtc.HasValue || !firstLoad.RemainingSeconds.HasValue || firstLoad.RemainingSeconds.Value <= 0)
+            {
+                Fail("Server-Side Quiz Timer (Start)", "Expected persisted ActiveAttemptId, StartedAtUtc, DeadlineUtc, and RemainingSeconds > 0.");
+                return;
+            }
+            var attempt1Id = firstLoad.ActiveAttemptId.Value;
+
+            // Save Q1 pre-deadline via SaveQuizAnswer
+            var saveQ1Res = await studentACtrl.SaveQuizAnswer(course1.Id, timedQuizItemId, attempt1Id, tq1.Id, tq1Correct.Id);
+            if (saveQ1Res is not JsonResult)
+            {
+                Fail("Quiz Draft Answer Auto-Save", $"Expected JsonResult from SaveQuizAnswer, got {saveQ1Res.GetType().Name}.");
+                return;
+            }
+
+            // 19c: Refreshing in a brand new DI scope (simulating restart / memory wipe) preserves identical StartedAtUtc, DeadlineUtc, and saved draft answers
+            StudentQuizPlayerViewModel? refreshInNewScope;
+            using (var scope2 = serviceProvider.CreateScope())
+            {
+                var curSvc2 = scope2.ServiceProvider.GetRequiredService<ICurriculumService>();
+                refreshInNewScope = await curSvc2.GetStudentQuizPlayerAsync(course1.Id, timedQuizItemId, studentA.Id);
+            }
+            if (refreshInNewScope == null ||
+                refreshInNewScope.ActiveAttemptId != attempt1Id ||
+                refreshInNewScope.AttemptStartedAtUtc != firstLoad.AttemptStartedAtUtc ||
+                refreshInNewScope.AttemptDeadlineUtc != firstLoad.AttemptDeadlineUtc ||
+                !refreshInNewScope.SavedAnswers.TryGetValue(tq1.Id, out var restoredOptId) ||
+                restoredOptId != tq1Correct.Id)
+            {
+                Fail("Server-Side Quiz Timer (Refresh Persistence)", "Refreshing across fresh scope altered StartedAtUtc/DeadlineUtc or lost saved draft answer.");
+                return;
+            }
+
+            // 19d: Simulate expiration beyond 10m + 30s grace; late POST answers are rejected and ONLY pre-deadline Q1 (40%) is finalized
+            var attempt1Db = await context.QuizAttempts.FirstAsync(qa => qa.Id == attempt1Id);
+            attempt1Db.StartedAtUtc = DateTime.UtcNow.AddMinutes(-12);
+            attempt1Db.DeadlineUtc = DateTime.UtcNow.AddMinutes(-2);
+            await context.SaveChangesAsync();
+            context.ChangeTracker.Clear();
+
+            // Student attempts late SubmitQuiz with both Q1 and Q2 (Q2 must be rejected!)
+            var lateAnswers = new Dictionary<int, int>
+            {
+                { tq1.Id, tq1Correct.Id },
+                { tq2.Id, tq2Correct.Id }
+            };
+            var expiredSubmitRes = await studentACtrl.SubmitQuiz(course1.Id, timedQuizItemId, lateAnswers, attempt1Id);
+            var attempt1Reloaded = await context.QuizAttempts.AsNoTracking().FirstAsync(qa => qa.Id == attempt1Id);
+            var finalizedExpSub = await context.QuizSubmissions.AsNoTracking().Include(qs => qs.Answers).FirstOrDefaultAsync(qs => qs.Id == attempt1Reloaded.QuizSubmissionId);
+
+            if (expiredSubmitRes is not RedirectToActionResult expRta ||
+                expRta.ActionName != nameof(StudentController.QuizResult) ||
+                attempt1Reloaded.Status != QuizAttemptStatus.Expired ||
+                finalizedExpSub == null ||
+                !finalizedExpSub.IsAutoFinalized ||
+                Math.Abs(finalizedExpSub.Score - 40.0) > 0.01)
+            {
+                Fail("Server-Side Quiz Timer (Expired Auto-Finalize)",
+                    $"Expected QuizResult redirect, Expired status, IsAutoFinalized=true, and Score=40.0% from pre-deadline Q1 only. Actual Status={attempt1Reloaded.Status}, Score={finalizedExpSub?.Score}.");
+                return;
+            }
+
+            // 19e: Repeated submission on already-finalized attempt is rejected and does NOT mutate Score or create duplicate submission
+            var repeatSubmitRes = await curriculumService.SubmitQuizAsync(studentA.Id, course1.Id, timedQuizItemId, lateAnswers, attempt1Id, requireActiveAttempt: true);
+            int subCountAfterRepeat = await context.QuizSubmissions.CountAsync(qs => qs.QuizId == timedQuizEntity.Id);
+            if (repeatSubmitRes.Result.Status != CurriculumOperationStatus.Conflict || subCountAfterRepeat != 1)
+            {
+                Fail("Repeated Submission Protection", $"Expected Conflict and 1 submission, got Status={repeatSubmitRes.Result.Status}, Count={subCountAfterRepeat}.");
+                return;
+            }
+
+            // 19f: Refresh after expiration does NOT auto-start Attempt #2; explicit StartNextAttempt starts Attempt #2; expiring Attempt #2 exhausts MaxAttempts (2/2)
+            var preStartReload = (await studentACtrl.Quiz(course1.Id, timedQuizItemId) as ViewResult)?.Model as StudentQuizPlayerViewModel;
+            if (preStartReload == null ||
+                preStartReload.ActiveAttemptId.HasValue ||
+                !preStartReload.RequiresExplicitNextAttemptStart ||
+                preStartReload.AttemptCount != 1 ||
+                preStartReload.RemainingAttempts != 1)
+            {
+                Fail("Refresh Does Not Auto-Start Retake",
+                    $"Expected ActiveAttemptId=null and RequiresExplicitNextAttemptStart=true after prior submission, got Active={preStartReload?.ActiveAttemptId}, RequiresStart={preStartReload?.RequiresExplicitNextAttemptStart}.");
+                return;
+            }
+
+            await studentACtrl.StartNextAttempt(course1.Id, timedQuizItemId);
+            var attempt2Load = (await studentACtrl.Quiz(course1.Id, timedQuizItemId) as ViewResult)?.Model as StudentQuizPlayerViewModel;
+            if (attempt2Load == null || !attempt2Load.ActiveAttemptId.HasValue || attempt2Load.CurrentAttemptNumber != 2)
+            {
+                Fail("Retake After Expired Attempt", "Expected Attempt #2 to start cleanly via explicit StartNextAttempt.");
+                return;
+            }
+            var attempt2Db = await context.QuizAttempts.FirstAsync(qa => qa.Id == attempt2Load.ActiveAttemptId.Value);
+            attempt2Db.StartedAtUtc = DateTime.UtcNow.AddMinutes(-15);
+            attempt2Db.DeadlineUtc = DateTime.UtcNow.AddMinutes(-5);
+            await context.SaveChangesAsync();
+            context.ChangeTracker.Clear();
+
+            var postExpiryReload = (await studentACtrl.Quiz(course1.Id, timedQuizItemId) as ViewResult)?.Model as StudentQuizPlayerViewModel;
+            var attempt2Reloaded = await context.QuizAttempts.AsNoTracking().FirstAsync(qa => qa.Id == attempt2Load.ActiveAttemptId.Value);
+            int subCountAfterExhaustion = await context.QuizSubmissions.CountAsync(qs => qs.QuizId == timedQuizEntity.Id);
+            var blockedAttempt3Res = await studentACtrl.StartNextAttempt(course1.Id, timedQuizItemId);
+            if (postExpiryReload == null ||
+                postExpiryReload.CanAttempt ||
+                postExpiryReload.ActiveAttemptId.HasValue ||
+                postExpiryReload.RequiresExplicitNextAttemptStart ||
+                postExpiryReload.AttemptCount != 2 ||
+                postExpiryReload.RemainingAttempts != 0 ||
+                !postExpiryReload.LatestIsAutoFinalized ||
+                string.IsNullOrWhiteSpace(postExpiryReload.ExpiredAttemptNotice) ||
+                attempt2Reloaded.Status != QuizAttemptStatus.Expired ||
+                subCountAfterExhaustion != 2 ||
+                blockedAttempt3Res is not ForbidResult)
+            {
+                Fail("Reload Auto-Finalize & MaxAttempts Exhaustion",
+                    $"Expected CanAttempt=false, AttemptCount=2, ExpiredAttemptNotice set, StartNextAttempt Forbidden, got CanAttempt={postExpiryReload?.CanAttempt}, Count={postExpiryReload?.AttemptCount}, Subs={subCountAfterExhaustion}, BlockedType={blockedAttempt3Res.GetType().Name}.");
+                return;
+            }
+
+            // 19g: Concurrent Start Race & Concurrent Submission Race + Grace Period
+            var raceQuizRes = await curriculumService.CreateQuizAsync(new QuizCreateViewModel
+            {
+                CourseId = course1.Id,
+                ChapterId = module1.Id,
+                Title = "Concurrency & Grace Quiz",
+                TimeLimitMinutes = 5,
+                PassingScore = 50.0,
+                MaxAttempts = 3,
+                IsPublished = true
+            });
+            int raceQuizItemId = raceQuizRes.EntityId!.Value;
+            var raceQuizEntity = await context.Quizzes.FirstAsync(q => q.CourseItemId == raceQuizItemId);
+            var rq1Res = await curriculumService.AddQuestionAsync(raceQuizEntity.Id, new QuestionViewModel
+            {
+                QuizId = raceQuizEntity.Id,
+                Text = "Concurrency Q1?",
+                Points = 10.0,
+                Order = 1,
+                Type = QuestionType.MultipleChoice,
+                Options = new List<QuestionOptionViewModel>
+                {
+                    new() { Text = "Yes", IsCorrect = true },
+                    new() { Text = "No", IsCorrect = false }
+                }
+            });
+            var rq1 = await context.Questions.Include(q => q.Options).FirstAsync(q => q.Id == rq1Res.EntityId!.Value);
+            var rq1Correct = rq1.Options.First(o => o.IsCorrect);
+
+            // Concurrent Start (2 scopes call GetStudentQuizPlayerAsync simultaneously)
+            var startTasks = new[]
+            {
+                Task.Run(async () =>
+                {
+                    using var s = serviceProvider.CreateScope();
+                    return await s.ServiceProvider.GetRequiredService<ICurriculumService>().GetStudentQuizPlayerAsync(course1.Id, raceQuizItemId, studentA.Id);
+                }),
+                Task.Run(async () =>
+                {
+                    using var s = serviceProvider.CreateScope();
+                    return await s.ServiceProvider.GetRequiredService<ICurriculumService>().GetStudentQuizPlayerAsync(course1.Id, raceQuizItemId, studentA.Id);
+                })
+            };
+            var startResults = await Task.WhenAll(startTasks);
+            int inProgressCount = await context.QuizAttempts.CountAsync(qa => qa.QuizId == raceQuizEntity.Id && qa.StudentId == studentA.Id && qa.Status == QuizAttemptStatus.InProgress);
+            if (startResults[0]?.ActiveAttemptId == null || startResults[0]!.ActiveAttemptId != startResults[1]?.ActiveAttemptId || inProgressCount != 1)
+            {
+                Fail("Concurrent Quiz Attempt Start", $"Expected 1 shared ActiveAttemptId, got {startResults[0]?.ActiveAttemptId} vs {startResults[1]?.ActiveAttemptId}, InProgressCount={inProgressCount}.");
+                return;
+            }
+            int raceAttempt1Id = startResults[0]!.ActiveAttemptId!.Value;
+
+            // Grace period check: 10 seconds past DeadlineUtc (within 30s QuizGracePeriod) still succeeds
+            var raceAttempt1Db = await context.QuizAttempts.FirstAsync(qa => qa.Id == raceAttempt1Id);
+            raceAttempt1Db.StartedAtUtc = DateTime.UtcNow.AddMinutes(-5).AddSeconds(-10);
+            raceAttempt1Db.DeadlineUtc = DateTime.UtcNow.AddSeconds(-10);
+            await context.SaveChangesAsync();
+            context.ChangeTracker.Clear();
+
+            // Concurrent Submit on the same active attempt
+            var submitTasks = new[]
+            {
+                Task.Run(async () =>
+                {
+                    using var s = serviceProvider.CreateScope();
+                    return await s.ServiceProvider.GetRequiredService<ICurriculumService>().SubmitQuizAsync(
+                        studentA.Id, course1.Id, raceQuizItemId, new Dictionary<int, int> { { rq1.Id, rq1Correct.Id } }, raceAttempt1Id, requireActiveAttempt: true);
+                }),
+                Task.Run(async () =>
+                {
+                    using var s = serviceProvider.CreateScope();
+                    return await s.ServiceProvider.GetRequiredService<ICurriculumService>().SubmitQuizAsync(
+                        studentA.Id, course1.Id, raceQuizItemId, new Dictionary<int, int> { { rq1.Id, rq1Correct.Id } }, raceAttempt1Id, requireActiveAttempt: true);
+                })
+            };
+            var submitResults = await Task.WhenAll(submitTasks);
+            int successCount = submitResults.Count(r => r.Result.IsSuccess);
+            int conflictCount = submitResults.Count(r => r.Result.Status == CurriculumOperationStatus.Conflict);
+            int raceSubCount = await context.QuizSubmissions.CountAsync(qs => qs.QuizId == raceQuizEntity.Id);
+            if (successCount != 1 || conflictCount != 1 || raceSubCount != 1)
+            {
+                Fail("Concurrent Quiz Submission & Grace Window",
+                    $"Expected 1 Success + 1 Conflict + 1 DB submission, got Success={successCount}, Conflict={conflictCount}, DBSubs={raceSubCount}.");
+                return;
+            }
+
+            // 19h: Frontend Quiz.cshtml timer hardening verification
+            var quizViewPath = Path.Combine(
+                scope.ServiceProvider.GetRequiredService<Microsoft.Extensions.Hosting.IHostEnvironment>().ContentRootPath,
+                "Views", "Student", "Quiz.cshtml");
+            var quizViewText = await System.IO.File.ReadAllTextAsync(quizViewPath);
+            if (!quizViewText.Contains("data-deadline-utc") ||
+                !quizViewText.Contains("data-remaining-seconds") ||
+                !quizViewText.Contains("DateTime.SpecifyKind") ||
+                !quizViewText.Contains("alert-permanent") ||
+                !quizViewText.Contains("parseExplicitUtcTimestamp") ||
+                !quizViewText.Contains("performance.now()") ||
+                !quizViewText.Contains("lockQuizSubmission") ||
+                quizViewText.Contains("Date.now()") ||
+                quizViewText.Contains("alert("))
+            {
+                Fail("Frontend Quiz.cshtml Timer Hardening", "Quiz.cshtml missing server-anchored UTC/remaining-seconds/alert-permanent hardening or contains Date.now()/alert().");
+                return;
+            }
+
+            Pass("Edit Question & Server-Side Quiz Timer: Persisted UTC timing, refresh/draft resilience, expiration auto-finalize, grace window, repeat/concurrent protection, and UI hardening verified");
+
+            // -------------------------------------------------------------
+            // TEST 20: UTC DateTimeKind Normalization & Browser Refresh Serialization
+            // -------------------------------------------------------------
+            var sampleUtc = new DateTime(2026, 11, 28, 8, 30, 0, DateTimeKind.Utc);
+            var sampleUnspecified = new DateTime(sampleUtc.Ticks, DateTimeKind.Unspecified);
+            var normalizedFromUtc = CurriculumService.EnsureUtcKind(sampleUtc);
+            var normalizedFromUnspecified = CurriculumService.EnsureUtcKind(sampleUnspecified);
+            var normalizedNullable = CurriculumService.EnsureUtcKind((DateTime?)sampleUnspecified);
+            var normalizedNull = CurriculumService.EnsureUtcKind((DateTime?)null);
+            if (normalizedFromUtc.Kind != DateTimeKind.Utc ||
+                normalizedFromUtc.Ticks != sampleUtc.Ticks ||
+                normalizedFromUnspecified.Kind != DateTimeKind.Utc ||
+                normalizedFromUnspecified.Ticks != sampleUtc.Ticks ||
+                !normalizedNullable.HasValue ||
+                normalizedNullable.Value.Kind != DateTimeKind.Utc ||
+                normalizedNullable.Value.Ticks != sampleUtc.Ticks ||
+                normalizedNull.HasValue)
+            {
+                Fail("UTC Kind Helper Tick Preservation", "EnsureUtcKind altered timestamp ticks, failed to set DateTimeKind.Utc, or broke nullable semantics.");
+                return;
+            }
+
+            var utcQuizRes = await curriculumService.CreateQuizAsync(new QuizCreateViewModel
+            {
+                CourseId = course1.Id,
+                ChapterId = module1.Id,
+                Title = "UTC Timer Serialization Quiz",
+                TimeLimitMinutes = 15,
+                PassingScore = 50.0,
+                MaxAttempts = 3,
+                IsPublished = true
+            });
+            int utcQuizItemId = utcQuizRes.EntityId!.Value;
+            var utcQuizEntity = await context.Quizzes.FirstAsync(q => q.CourseItemId == utcQuizItemId);
+            await curriculumService.AddQuestionAsync(utcQuizEntity.Id, new QuestionViewModel
+            {
+                QuizId = utcQuizEntity.Id,
+                Text = "UTC Q1?",
+                Points = 10.0,
+                Order = 1,
+                Type = QuestionType.MultipleChoice,
+                Options = new List<QuestionOptionViewModel>
+                {
+                    new() { Text = "True", IsCorrect = true },
+                    new() { Text = "False", IsCorrect = false }
+                }
+            });
+
+            var utcStartLoad = (await studentACtrl.Quiz(course1.Id, utcQuizItemId) as ViewResult)?.Model as StudentQuizPlayerViewModel;
+            if (utcStartLoad == null ||
+                !utcStartLoad.ActiveAttemptId.HasValue ||
+                !utcStartLoad.AttemptStartedAtUtc.HasValue ||
+                !utcStartLoad.AttemptDeadlineUtc.HasValue ||
+                utcStartLoad.AttemptStartedAtUtc.Value.Kind != DateTimeKind.Utc ||
+                utcStartLoad.AttemptDeadlineUtc.Value.Kind != DateTimeKind.Utc ||
+                utcStartLoad.ServerNowUtc.Kind != DateTimeKind.Utc ||
+                !utcStartLoad.AttemptDeadlineUtc.Value.ToString("O").EndsWith("Z") ||
+                !utcStartLoad.ServerNowUtc.ToString("O").EndsWith("Z") ||
+                !utcStartLoad.RemainingSeconds.HasValue ||
+                utcStartLoad.RemainingSeconds.Value <= 800)
+            {
+                Fail("UTC Quiz Start Kind & Format", "Newly started attempt timestamps must use DateTimeKind.Utc, emit 'Z' suffix in ToString(\"O\"), and report positive RemainingSeconds.");
+                return;
+            }
+
+            int utcAttemptId = utcStartLoad.ActiveAttemptId.Value;
+
+            // Reload directly from SQL Server in a fresh scope to verify EF Core ValueConverter restores DateTimeKind.Utc and exact ticks
+            using (var scopeUtc1 = serviceProvider.CreateScope())
+            {
+                var dbUtc1 = scopeUtc1.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+                var reloadedRow = await dbUtc1.QuizAttempts.AsNoTracking().FirstAsync(qa => qa.Id == utcAttemptId);
+                if (reloadedRow.StartedAtUtc.Kind != DateTimeKind.Utc ||
+                    reloadedRow.StartedAtUtc.Ticks != utcStartLoad.AttemptStartedAtUtc.Value.Ticks ||
+                    !reloadedRow.DeadlineUtc.HasValue ||
+                    reloadedRow.DeadlineUtc.Value.Kind != DateTimeKind.Utc ||
+                    reloadedRow.DeadlineUtc.Value.Ticks != utcStartLoad.AttemptDeadlineUtc.Value.Ticks ||
+                    reloadedRow.FinalizedAtUtc.HasValue)
+                {
+                    Fail("SQL Server QuizAttempt UTC Reload", "Reloading QuizAttempt from SQL Server did not preserve ticks with DateTimeKind.Utc and null FinalizedAtUtc.");
+                    return;
+                }
+            }
+
+            // Simulate legacy/raw SQL Server datetime2 row written without EF write converter (Unspecified ticks)
+            // and verify reload interprets them as UTC without offset shift.
+            var expectedStartUtc = DateTime.UtcNow.AddMinutes(-2);
+            var expectedDeadlineUtc = DateTime.UtcNow.AddMinutes(13);
+            var unspecStart = new DateTime(expectedStartUtc.Ticks, DateTimeKind.Unspecified);
+            var unspecDeadline = new DateTime(expectedDeadlineUtc.Ticks, DateTimeKind.Unspecified);
+            await context.Database.ExecuteSqlInterpolatedAsync(
+                $"UPDATE QuizAttempts SET StartedAtUtc = {unspecStart}, DeadlineUtc = {unspecDeadline} WHERE Id = {utcAttemptId}");
+            context.ChangeTracker.Clear();
+
+            using (var scopeUtc2 = serviceProvider.CreateScope())
+            {
+                var dbUtc2 = scopeUtc2.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+                var curSvcUtc2 = scopeUtc2.ServiceProvider.GetRequiredService<ICurriculumService>();
+                var reloadedAfterUnspec = await dbUtc2.QuizAttempts.AsNoTracking().FirstAsync(qa => qa.Id == utcAttemptId);
+                var refreshPlayer = await curSvcUtc2.GetStudentQuizPlayerAsync(course1.Id, utcQuizItemId, studentA.Id);
+
+                if (reloadedAfterUnspec.StartedAtUtc.Kind != DateTimeKind.Utc ||
+                    reloadedAfterUnspec.StartedAtUtc.Ticks != expectedStartUtc.Ticks ||
+                    !reloadedAfterUnspec.DeadlineUtc.HasValue ||
+                    reloadedAfterUnspec.DeadlineUtc.Value.Kind != DateTimeKind.Utc ||
+                    reloadedAfterUnspec.DeadlineUtc.Value.Ticks != expectedDeadlineUtc.Ticks ||
+                    refreshPlayer == null ||
+                    !refreshPlayer.AttemptStartedAtUtc.HasValue ||
+                    refreshPlayer.AttemptStartedAtUtc.Value.Kind != DateTimeKind.Utc ||
+                    refreshPlayer.AttemptStartedAtUtc.Value.Ticks != expectedStartUtc.Ticks ||
+                    !refreshPlayer.AttemptDeadlineUtc.HasValue ||
+                    refreshPlayer.AttemptDeadlineUtc.Value.Kind != DateTimeKind.Utc ||
+                    refreshPlayer.AttemptDeadlineUtc.Value.Ticks != expectedDeadlineUtc.Ticks ||
+                    !refreshPlayer.AttemptDeadlineUtc.Value.ToString("O").EndsWith("Z") ||
+                    !refreshPlayer.ServerNowUtc.ToString("O").EndsWith("Z") ||
+                    !refreshPlayer.RemainingSeconds.HasValue ||
+                    refreshPlayer.RemainingSeconds.Value <= 700)
+                {
+                    Fail("Quiz Refresh UTC Preservation", "Refreshing active attempt with Unspecified DB timestamps failed to preserve ticks/Utc kind or returned non-positive RemainingSeconds.");
+                    return;
+                }
+            }
+
+            // Genuinely expired attempt: within grace window shows 0s; past grace window auto-finalizes with UTC FinalizedAtUtc
+            var attemptGraceDb = await context.QuizAttempts.FirstAsync(qa => qa.Id == utcAttemptId);
+            attemptGraceDb.DeadlineUtc = DateTime.UtcNow.AddSeconds(-10);
+            await context.SaveChangesAsync();
+            context.ChangeTracker.Clear();
+
+            using (var scopeGrace = serviceProvider.CreateScope())
+            {
+                var gracePlayer = await scopeGrace.ServiceProvider.GetRequiredService<ICurriculumService>()
+                    .GetStudentQuizPlayerAsync(course1.Id, utcQuizItemId, studentA.Id);
+                if (gracePlayer == null || !gracePlayer.RemainingSeconds.HasValue || gracePlayer.RemainingSeconds.Value != 0 ||
+                    gracePlayer.ActiveAttemptId != utcAttemptId)
+                {
+                    Fail("Genuinely Expired (Grace Window) RemainingSeconds", "Attempt past DeadlineUtc inside grace window must report RemainingSeconds == 0.");
+                    return;
+                }
+            }
+
+            var attemptExpiredDb = await context.QuizAttempts.FirstAsync(qa => qa.Id == utcAttemptId);
+            attemptExpiredDb.DeadlineUtc = DateTime.UtcNow.AddSeconds(-45);
+            await context.SaveChangesAsync();
+            context.ChangeTracker.Clear();
+
+            using (var scopeExpired = serviceProvider.CreateScope())
+            {
+                var curSvcExp = scopeExpired.ServiceProvider.GetRequiredService<ICurriculumService>();
+                var dbExp = scopeExpired.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+                var expiredPlayer = await curSvcExp.GetStudentQuizPlayerAsync(course1.Id, utcQuizItemId, studentA.Id);
+                var finalizedAttempt = await dbExp.QuizAttempts.AsNoTracking().FirstAsync(qa => qa.Id == utcAttemptId);
+
+                if (expiredPlayer == null ||
+                    string.IsNullOrWhiteSpace(expiredPlayer.ExpiredAttemptNotice) ||
+                    finalizedAttempt.Status != QuizAttemptStatus.Expired ||
+                    !finalizedAttempt.FinalizedAtUtc.HasValue ||
+                    finalizedAttempt.FinalizedAtUtc.Value.Kind != DateTimeKind.Utc)
+                {
+                    Fail("Genuinely Expired Auto-Finalize & FinalizedAtUtc Kind",
+                        $"Expected ExpiredAttemptNotice, Expired status, and DateTimeKind.Utc FinalizedAtUtc, got Status={finalizedAttempt.Status}, FinalizedKind={finalizedAttempt.FinalizedAtUtc?.Kind}.");
+                    return;
+                }
+            }
+
+            Pass("Quiz Timer UTC Serialization: Verified DateTimeKind.Utc across Start/SQL Reload/FinalizedAtUtc, tick preservation, future RemainingSeconds on refresh, genuine expiration, and UI checks");
+
+            // -------------------------------------------------------------
+            // TEST 21: Explicit Start Next Attempt After Expiration & Concurrency
+            // -------------------------------------------------------------
+            var expFlowQuizRes = await curriculumService.CreateQuizAsync(new QuizCreateViewModel
+            {
+                CourseId = course1.Id,
+                ChapterId = module1.Id,
+                Title = "Explicit Next Attempt Quiz",
+                TimeLimitMinutes = 2,
+                PassingScore = 50.0,
+                MaxAttempts = 3,
+                IsPublished = true
+            });
+            int expFlowItemId = expFlowQuizRes.EntityId!.Value;
+            var expFlowQuizEntity = await context.Quizzes.FirstAsync(q => q.CourseItemId == expFlowItemId);
+
+            var eq1Res = await curriculumService.AddQuestionAsync(expFlowQuizEntity.Id, new QuestionViewModel
+            {
+                QuizId = expFlowQuizEntity.Id,
+                Text = "Explicit Flow Q1?",
+                Points = 1.0,
+                Order = 1,
+                Type = QuestionType.MultipleChoice,
+                Options = new List<QuestionOptionViewModel>
+                {
+                    new() { Text = "Correct", IsCorrect = true },
+                    new() { Text = "Wrong", IsCorrect = false }
+                }
+            });
+            var eq2Res = await curriculumService.AddQuestionAsync(expFlowQuizEntity.Id, new QuestionViewModel
+            {
+                QuizId = expFlowQuizEntity.Id,
+                Text = "Explicit Flow Q2?",
+                Points = 1.0,
+                Order = 2,
+                Type = QuestionType.MultipleChoice,
+                Options = new List<QuestionOptionViewModel>
+                {
+                    new() { Text = "Wrong", IsCorrect = false },
+                    new() { Text = "Correct", IsCorrect = true }
+                }
+            });
+            var eq1 = await context.Questions.Include(q => q.Options).FirstAsync(q => q.Id == eq1Res.EntityId!.Value);
+            var eq2 = await context.Questions.Include(q => q.Options).FirstAsync(q => q.Id == eq2Res.EntityId!.Value);
+            var eq1Correct = eq1.Options.First(o => o.IsCorrect);
+
+            // 21a: Initial GET starts Attempt #1 and saves 1 of 2 answers pre-deadline
+            var expStart1 = (await studentACtrl.Quiz(course1.Id, expFlowItemId) as ViewResult)?.Model as StudentQuizPlayerViewModel;
+            if (expStart1 == null || !expStart1.ActiveAttemptId.HasValue || expStart1.CurrentAttemptNumber != 1)
+            {
+                Fail("Explicit Flow Initial Start", "Expected initial Quiz GET to create Attempt #1.");
+                return;
+            }
+            int expAttempt1Id = expStart1.ActiveAttemptId.Value;
+            await studentACtrl.SaveQuizAnswer(course1.Id, expFlowItemId, expAttempt1Id, eq1.Id, eq1Correct.Id);
+
+            // 21b: Grace window check: 10s past DeadlineUtc still keeps Attempt #1 InProgress & blocks premature StartNextAttempt
+            var expAttempt1Db = await context.QuizAttempts.FirstAsync(qa => qa.Id == expAttempt1Id);
+            expAttempt1Db.StartedAtUtc = DateTime.UtcNow.AddMinutes(-2).AddSeconds(-10);
+            expAttempt1Db.DeadlineUtc = DateTime.UtcNow.AddSeconds(-10);
+            await context.SaveChangesAsync();
+            context.ChangeTracker.Clear();
+
+            var graceStartAttempt = await curriculumService.StartNextQuizAttemptAsync(studentA.Id, course1.Id, expFlowItemId);
+            if (graceStartAttempt.Result.Status != CurriculumOperationStatus.Conflict)
+            {
+                Fail("StartNextAttempt Respects Grace Window", $"Expected Conflict inside 30s grace window, got {graceStartAttempt.Result.Status}.");
+                return;
+            }
+
+            // 21c: Past 30s grace window (40s expired) -> multiple GET refreshes finalize Attempt #1, preserve result, and NEVER auto-create Attempt #2
+            expAttempt1Db = await context.QuizAttempts.FirstAsync(qa => qa.Id == expAttempt1Id);
+            expAttempt1Db.StartedAtUtc = DateTime.UtcNow.AddMinutes(-2).AddSeconds(-40);
+            expAttempt1Db.DeadlineUtc = DateTime.UtcNow.AddSeconds(-40);
+            await context.SaveChangesAsync();
+            context.ChangeTracker.Clear();
+
+            var refreshAfterExp1 = (await studentACtrl.Quiz(course1.Id, expFlowItemId) as ViewResult)?.Model as StudentQuizPlayerViewModel;
+            var refreshAfterExp2 = (await studentACtrl.Quiz(course1.Id, expFlowItemId) as ViewResult)?.Model as StudentQuizPlayerViewModel;
+            int attemptCountAfterRefreshes = await context.QuizAttempts.CountAsync(qa => qa.QuizId == expFlowQuizEntity.Id && qa.StudentId == studentA.Id);
+            var finalizedExp1 = await context.QuizAttempts.AsNoTracking().FirstAsync(qa => qa.Id == expAttempt1Id);
+            var subExp1 = await context.QuizSubmissions.AsNoTracking().FirstOrDefaultAsync(qs => qs.Id == finalizedExp1.QuizSubmissionId);
+
+            if (refreshAfterExp1 == null ||
+                refreshAfterExp2 == null ||
+                attemptCountAfterRefreshes != 1 ||
+                finalizedExp1.Status != QuizAttemptStatus.Expired ||
+                !finalizedExp1.FinalizedAtUtc.HasValue ||
+                subExp1 == null ||
+                !subExp1.IsAutoFinalized ||
+                Math.Abs(subExp1.Score - 50.0) > 0.01 ||
+                refreshAfterExp1.ActiveAttemptId.HasValue ||
+                refreshAfterExp2.ActiveAttemptId.HasValue ||
+                !refreshAfterExp1.RequiresExplicitNextAttemptStart ||
+                !refreshAfterExp2.RequiresExplicitNextAttemptStart ||
+                !refreshAfterExp2.LatestIsAutoFinalized ||
+                refreshAfterExp2.LatestCorrectQuestionsCount != 1 ||
+                refreshAfterExp2.LatestTotalQuestionsCount != 2 ||
+                refreshAfterExp2.RemainingAttempts != 2 ||
+                refreshAfterExp2.RemainingSeconds.HasValue)
+            {
+                Fail("Refresh After Expiration Preserves Result Without Creating Attempt #2",
+                    $"AttemptCount={attemptCountAfterRefreshes}, Status={finalizedExp1.Status}, SubAuto={subExp1?.IsAutoFinalized}, Score={subExp1?.Score}, Refresh2Active={refreshAfterExp2?.ActiveAttemptId}, Correct={refreshAfterExp2?.LatestCorrectQuestionsCount}/{refreshAfterExp2?.LatestTotalQuestionsCount}.");
+                return;
+            }
+
+            // 21d: Concurrent StartNextAttempt (simulating double-click) creates exactly ONE Attempt #2 with fresh server deadline & returns JSON
+            var concurrentStartTasks = new[]
+            {
+                Task.Run(async () =>
+                {
+                    using var s = serviceProvider.CreateScope();
+                    return await s.ServiceProvider.GetRequiredService<ICurriculumService>().StartNextQuizAttemptAsync(studentA.Id, course1.Id, expFlowItemId);
+                }),
+                Task.Run(async () =>
+                {
+                    using var s = serviceProvider.CreateScope();
+                    return await s.ServiceProvider.GetRequiredService<ICurriculumService>().StartNextQuizAttemptAsync(studentA.Id, course1.Id, expFlowItemId);
+                })
+            };
+            var concurrentStartResults = await Task.WhenAll(concurrentStartTasks);
+            int totalAfterStart2 = await context.QuizAttempts.CountAsync(qa => qa.QuizId == expFlowQuizEntity.Id && qa.StudentId == studentA.Id);
+            int activeAfterStart2 = await context.QuizAttempts.CountAsync(qa => qa.QuizId == expFlowQuizEntity.Id && qa.StudentId == studentA.Id && qa.Status == QuizAttemptStatus.InProgress);
+
+            var startRes0 = concurrentStartResults[0].Attempt;
+            var startRes1 = concurrentStartResults[1].Attempt;
+            if (!concurrentStartResults[0].Result.IsSuccess ||
+                !concurrentStartResults[1].Result.IsSuccess ||
+                startRes0 == null ||
+                startRes1 == null ||
+                startRes0.Id != startRes1.Id ||
+                startRes0.AttemptNumber != 2 ||
+                startRes0.DeadlineUtc is not DateTime attempt2DeadlineUtc ||
+                attempt2DeadlineUtc <= DateTime.UtcNow ||
+                totalAfterStart2 != 2 ||
+                activeAfterStart2 != 1)
+            {
+                Fail("Concurrent StartNextAttempt Deduplication",
+                    $"Expected 1 shared Attempt #2, got Id1={startRes0?.Id}, Id2={startRes1?.Id}, Total={totalAfterStart2}, Active={activeAfterStart2}.");
+                return;
+            }
+
+            // Calling StartNextAttempt again (JSON mode) while Attempt #2 is InProgress resumes Attempt #2 instead of creating Attempt #3
+            studentACtrl.ControllerContext.HttpContext.Request.Headers["Accept"] = "application/json";
+            var jsonResumeRes = await studentACtrl.StartNextAttempt(course1.Id, expFlowItemId) as JsonResult;
+            studentACtrl.ControllerContext.HttpContext.Request.Headers.Remove("Accept");
+            int totalAfterResume = await context.QuizAttempts.CountAsync(qa => qa.QuizId == expFlowQuizEntity.Id && qa.StudentId == studentA.Id);
+            if (jsonResumeRes == null || totalAfterResume != 2)
+            {
+                Fail("StartNextAttempt Resumes Active Attempt", $"Expected JsonResult and Total=2 attempts, got {jsonResumeRes?.GetType().Name}, Total={totalAfterResume}.");
+                return;
+            }
+
+            // 21e: Complete Attempt #2 and Attempt #3, then verify MaxAttempts blocks Attempt #4 + unpublished/unenrolled quizzes blocked
+            await studentACtrl.SubmitQuiz(course1.Id, expFlowItemId, new Dictionary<int, int> { { eq1.Id, eq1Correct.Id } }, concurrentStartResults[0].Attempt!.Id);
+            var start3CtrlRes = await studentACtrl.StartNextAttempt(course1.Id, expFlowItemId);
+            var load3Model = (await studentACtrl.Quiz(course1.Id, expFlowItemId) as ViewResult)?.Model as StudentQuizPlayerViewModel;
+            if (start3CtrlRes is not RedirectToActionResult || load3Model == null || !load3Model.ActiveAttemptId.HasValue || load3Model.CurrentAttemptNumber != 3)
+            {
+                Fail("Explicit Start Attempt #3", "Expected Attempt #3 to start explicitly.");
+                return;
+            }
+            await studentACtrl.SubmitQuiz(course1.Id, expFlowItemId, new Dictionary<int, int> { { eq1.Id, eq1Correct.Id } }, load3Model.ActiveAttemptId.Value);
+
+            var exhaustedReload = (await studentACtrl.Quiz(course1.Id, expFlowItemId) as ViewResult)?.Model as StudentQuizPlayerViewModel;
+            var start4Blocked = await studentACtrl.StartNextAttempt(course1.Id, expFlowItemId);
+            var unpublishedBlocked = await studentACtrl.StartNextAttempt(course1.Id, draftQuizItemId);
+            var unenrolledBlocked = await studentBCtrl.StartNextAttempt(course1.Id, expFlowItemId);
+
+            if (exhaustedReload == null ||
+                exhaustedReload.CanAttempt ||
+                exhaustedReload.RequiresExplicitNextAttemptStart ||
+                exhaustedReload.RemainingAttempts != 0 ||
+                start4Blocked is not ForbidResult ||
+                unpublishedBlocked is not NotFoundObjectResult ||
+                unenrolledBlocked is not ForbidResult)
+            {
+                Fail("MaxAttempts & Access Enforcement on StartNextAttempt",
+                    $"Expected CanAttempt=false, start4=Forbid, draft=NotFound, unenrolled=Forbid; got start4={start4Blocked.GetType().Name}, draft={unpublishedBlocked.GetType().Name}, unenrolled={unenrolledBlocked.GetType().Name}.");
+                return;
+            }
+
+            // 21f: Verify Quiz.cshtml UI markup for Start Next Attempt
+            var latestQuizViewText = await System.IO.File.ReadAllTextAsync(quizViewPath);
+            if (!latestQuizViewText.Contains("btnStartNextAttempt") ||
+                !latestQuizViewText.Contains("startNextAttemptForm") ||
+                !latestQuizViewText.Contains("StartNextAttempt") ||
+                !latestQuizViewText.Contains("RequiresExplicitNextAttemptStart") ||
+                !latestQuizViewText.Contains("RemainingAttempts") ||
+                !latestQuizViewText.Contains("LatestCorrectQuestionsCount"))
+            {
+                Fail("Quiz.cshtml Start Next Attempt UI Verification", "Quiz.cshtml missing required Start Next Attempt form/button/summary markers.");
+                return;
+            }
+
+            Pass("Explicit Start Next Attempt: Grace window, non-mutating refresh, result summary, double-click/concurrency deduplication, active resume, MaxAttempts, and security verified");
         }
         finally
         {
             // Cleanup test data
             try
             {
-                if (studentASubmission != null)
+                context.ChangeTracker.Clear();
+                var testStudentIds = new[] { studentA?.Id, studentB?.Id }.Where(id => !string.IsNullOrEmpty(id)).Cast<string>().ToList();
+                var testCourseIds = new[] { course1?.Id ?? 0, course2?.Id ?? 0 }.Where(id => id > 0).ToList();
+
+                if (testStudentIds.Any())
                 {
-                    var allSubs = await context.QuizSubmissions
-                        .Where(qs => (studentA != null && qs.StudentId == studentA.Id) || (studentB != null && qs.StudentId == studentB.Id))
-                        .ToListAsync();
-                    context.QuizSubmissions.RemoveRange(allSubs);
+                    await context.QuizAttemptAnswers.Where(a => testStudentIds.Contains(a.QuizAttempt.StudentId)).ExecuteDeleteAsync();
+                    await context.QuizAttempts.Where(qa => testStudentIds.Contains(qa.StudentId)).ExecuteDeleteAsync();
+                    await context.QuizSubmissionAnswers.Where(a => testStudentIds.Contains(a.QuizSubmission.StudentId)).ExecuteDeleteAsync();
+                    await context.QuizSubmissions.Where(qs => testStudentIds.Contains(qs.StudentId)).ExecuteDeleteAsync();
                 }
 
-                if (course1 != null)
+                if (testCourseIds.Any())
                 {
-                    var c1Items = await context.CourseItems
-                        .Include(ci => ci.Quiz).ThenInclude(q => q!.Questions).ThenInclude(qu => qu.Options)
-                        .Where(ci => ci.Chapter.CourseId == course1.Id)
-                        .ToListAsync();
-                    foreach (var ci in c1Items)
-                    {
-                        if (ci.Quiz != null)
-                        {
-                            foreach (var q in ci.Quiz.Questions)
-                            {
-                                context.QuestionOptions.RemoveRange(q.Options);
-                            }
-                            context.Questions.RemoveRange(ci.Quiz.Questions);
-                            context.Quizzes.Remove(ci.Quiz);
-                        }
-                        context.CourseItems.Remove(ci);
-                    }
-                    var c1Modules = await context.Chapters.Where(ch => ch.CourseId == course1.Id).ToListAsync();
-                    context.Chapters.RemoveRange(c1Modules);
-                    var c1Enrollments = await context.Enrollments.Where(e => e.CourseId == course1.Id).ToListAsync();
-                    context.Enrollments.RemoveRange(c1Enrollments);
-                    context.Courses.Remove(course1);
+                    await context.QuizAttemptAnswers.Where(a => testCourseIds.Contains(a.QuizAttempt.Quiz.CourseItem.Chapter.CourseId)).ExecuteDeleteAsync();
+                    await context.QuizAttempts.Where(qa => testCourseIds.Contains(qa.Quiz.CourseItem.Chapter.CourseId)).ExecuteDeleteAsync();
+                    await context.QuizSubmissionAnswers.Where(a => testCourseIds.Contains(a.QuizSubmission.Quiz.CourseItem.Chapter.CourseId)).ExecuteDeleteAsync();
+                    await context.QuizSubmissions.Where(qs => testCourseIds.Contains(qs.Quiz.CourseItem.Chapter.CourseId)).ExecuteDeleteAsync();
+                    await context.QuestionOptions.Where(o => testCourseIds.Contains(o.Question.Quiz.CourseItem.Chapter.CourseId)).ExecuteDeleteAsync();
+                    await context.Questions.Where(q => testCourseIds.Contains(q.Quiz.CourseItem.Chapter.CourseId)).ExecuteDeleteAsync();
+                    await context.Quizzes.Where(q => testCourseIds.Contains(q.CourseItem.Chapter.CourseId)).ExecuteDeleteAsync();
+                    await context.Lessons.Where(l => testCourseIds.Contains(l.CourseItem.Chapter.CourseId)).ExecuteDeleteAsync();
+                    await context.Books.Where(b => testCourseIds.Contains(b.CourseItem.Chapter.CourseId)).ExecuteDeleteAsync();
+                    await context.Assignments.Where(a => testCourseIds.Contains(a.CourseItem.Chapter.CourseId)).ExecuteDeleteAsync();
+                    await context.CourseItems.Where(ci => testCourseIds.Contains(ci.Chapter.CourseId)).ExecuteDeleteAsync();
+                    await context.Chapters.Where(ch => testCourseIds.Contains(ch.CourseId)).ExecuteDeleteAsync();
+                    await context.Enrollments.Where(e => testCourseIds.Contains(e.CourseId)).ExecuteDeleteAsync();
+                    await context.Courses.Where(c => testCourseIds.Contains(c.Id)).ExecuteDeleteAsync();
                 }
 
-                if (course2 != null)
+                if (studentA != null)
                 {
-                    var c2Items = await context.CourseItems
-                        .Include(ci => ci.Quiz).ThenInclude(q => q!.Questions).ThenInclude(qu => qu.Options)
-                        .Where(ci => ci.Chapter.CourseId == course2.Id)
-                        .ToListAsync();
-                    foreach (var ci in c2Items)
-                    {
-                        if (ci.Quiz != null)
-                        {
-                            foreach (var q in ci.Quiz.Questions)
-                            {
-                                context.QuestionOptions.RemoveRange(q.Options);
-                            }
-                            context.Questions.RemoveRange(ci.Quiz.Questions);
-                            context.Quizzes.Remove(ci.Quiz);
-                        }
-                        context.CourseItems.Remove(ci);
-                    }
-                    var c2Modules = await context.Chapters.Where(ch => ch.CourseId == course2.Id).ToListAsync();
-                    context.Chapters.RemoveRange(c2Modules);
-                    var c2Enrollments = await context.Enrollments.Where(e => e.CourseId == course2.Id).ToListAsync();
-                    context.Enrollments.RemoveRange(c2Enrollments);
-                    context.Courses.Remove(course2);
+                    var sA = await userManager.FindByIdAsync(studentA.Id);
+                    if (sA != null) await userManager.DeleteAsync(sA);
                 }
-
-                if (studentA != null) await userManager.DeleteAsync(studentA);
-                if (studentB != null) await userManager.DeleteAsync(studentB);
-
-                await context.SaveChangesAsync();
+                if (studentB != null)
+                {
+                    var sB = await userManager.FindByIdAsync(studentB.Id);
+                    if (sB != null) await userManager.DeleteAsync(sB);
+                }
             }
             catch (Exception ex)
             {

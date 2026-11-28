@@ -158,15 +158,15 @@
 - **Acceptance criteria:** Book reads never push lesson progress >100%; unpublished quizzes return 404/403 to students; Late submissions appear in Teacher pending reviews; stale superseded assignment grades are hidden from Gradebook.
 - **Required tests:** Regression tests for Book vs Lesson progress math, draft quiz rejection, Late submission KPI counts, and multi-attempt assignment gradebook display.
 
-### `TASK-P1-05`: Wire Edit Question UI & Enforce Server-Side Quiz Time Limit
-- **Description:** Add Edit Question modal and button in `Views/Academic/QuizQuestions.cshtml` wired to `AcademicController.GetQuestionJson` and `EditQuestion`. Add server-side quiz attempt start timestamp (`StartedAt` on `QuizSubmission` or session/token) so `TimeLimitMinutes` cannot be bypassed by refreshing the browser. Also clarify or remove unsupported `QuestionType.Essay` until essay grading is designed.
-- **Why it is needed:** Edit Question backend endpoints have no UI, and the quiz timer currently resets on browser refresh.
-- **Affected files:** `Views/Academic/QuizQuestions.cshtml`, `Models/QuizSubmission.cs`, `Services/Implementations/CurriculumService.cs`, `Controllers/StudentController.cs`
+### ~~`TASK-P1-05`: Wire Edit Question UI & Enforce Server-Side Quiz Time Limit~~ **[COMPLETED — Server-Side Timer Hardened 2026-11-28]**
+- **Description:** Add Edit Question modal and button in `Views/Academic/QuizQuestions.cshtml` wired to `AcademicController.GetQuestionJson` and `EditQuestion`. Add server-side quiz attempt start timestamp (`StartedAtUtc` & `DeadlineUtc` persisted in SQL Server `QuizAttempts` + `QuizAttemptAnswers` draft auto-save + `QuizSubmission.StartedAtUtc` / `IsAutoFinalized`) so `TimeLimitMinutes` cannot be bypassed by refreshing the browser, cache eviction, clock manipulation, or concurrent submits. *(Note: `QuestionType.Essay` remains out-of-scope until essay grading is designed.)*
+- **Why it is needed:** Edit Question backend endpoints have no UI, and the quiz timer previously relied on client JS or volatile `IMemoryCache`.
+- **Affected files:** `Views/Academic/QuizQuestions.cshtml`, `Models/Enums/QuizAttemptStatus.cs`, `Models/QuizAttempt.cs`, `Models/QuizAttemptAnswer.cs`, `Models/QuizSubmission.cs`, `Models/ViewModels/StudentViewModels.cs`, `Data/ApplicationDbContext.cs`, `Data/Migrations/20261128064207_AddServerSideQuizAttemptTiming.cs`, `Services/Interfaces/CurriculumOperationResult.cs`, `Services/Interfaces/ICurriculumService.cs`, `Services/Implementations/CurriculumService.cs`, `Controllers/StudentController.cs`, `Views/Student/Quiz.cshtml`, `Views/Student/QuizResult.cshtml`, `Data/QuizIntegrationTestRunner.cs`
 - **Dependencies:** None
 - **Priority:** P1
 - **Estimated complexity:** M
-- **Acceptance criteria:** Faculty can edit existing quiz questions/options in UI; server rejects or auto-closes submissions beyond `TimeLimitMinutes` (+ reasonable grace period).
-- **Required tests:** Quiz edit UI/service test and server-side timer expiration test.
+- **Acceptance criteria:** Faculty can edit existing quiz questions/options in UI; server persists UTC attempt start/deadline, auto-saves pre-deadline draft answers, enforces `DeadlineUtc` (+ 30s grace) inside `SubmitQuizAsync`, prevents concurrent/repeated submission races, and UI disables submission on expiration. *(Verified)*
+- **Required tests:** `--test-quiz` (19/19 passed), `--test-phase4` (26/26 passed), `--test-course-access-modes` (17/17 passed), `--test-notifications-announcements` (22/22 passed).
 
 ---
 

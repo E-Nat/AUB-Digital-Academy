@@ -9,7 +9,7 @@
 ## 1. Verified Project Health & Build/Test Status
 
 - **Build (`dotnet build --no-restore`):** **0 Errors, 0 Warnings** (`NU1902`/`NU1903` resolved by pinning `System.Security.Cryptography.Pkcs` `10.0.15`; `dotnet list package --vulnerable --include-transitive` reports zero vulnerable packages).
-- **EF Core Migrations:** All 5 SQL Server migrations (`InitialSqlServerCreate`, `AddCourseAssistantJoinTable`, `Phase4_StudentLearningAssessmentWorkflow`, `Phase4_FinalRelationalAttachmentsAndQuizSecurity`, `AddNotificationsAndAnnouncements`) are applied cleanly against local `aub_sqlserver`.
+- **EF Core Migrations:** All 6 SQL Server migrations (`InitialSqlServerCreate`, `AddCourseAssistantJoinTable`, `Phase4_StudentLearningAssessmentWorkflow`, `Phase4_FinalRelationalAttachmentsAndQuizSecurity`, `AddNotificationsAndAnnouncements`, `AddServerSideQuizAttemptTiming`) are applied cleanly against local `aub_sqlserver`.
 - **Test Suites:**
   - `dotnet test`: **0 test projects** (no xUnit/NUnit/MSTest project exists yet).
   - **Security, Authentication, Curriculum & Phase 5 Suites Executed (2026-11-28): 268/268 PASSED:**
@@ -69,7 +69,7 @@
    - `_Layout.cshtml` `/Profile` (empty `SettingsController`), `/Teacher/Submissions` (fails without `assignmentId`), `/Assistance/Dashboard` (404 TA breadcrumb), `site.js` `Ctrl+K` search -> `/Admin/Users` (403 for non-Admins).
    - `Admin/Settings.cshtml` -> `/User/Profile` (404).
    - `Teacher/CourseDetails.cshtml` has no link to `/Academic/Curriculum/{id}`, and `Curriculum.cshtml` "Back to Courses" sends Teachers to Admin-only `/Academic/Course` (403).
-3. **Progress Inflation & Assessment Bugs:** `GetStudentBookAsync` marks Books in `CourseProgresses`, inflating lesson completion >100%; `GetStudentQuizPlayerAsync` / `SubmitQuizAsync` ignore `Quiz.IsPublished`; quiz timer is client-side only; `TeacherService` excludes `Late` submissions from `PendingReviewsCount` and omits `IsLatest` in `GetTeacherGradesAsync`; `QuizQuestions.cshtml` lacks Edit Question UI; `Student/Dashboard.cshtml` hardcodes `"Spring 2026"`.
+3. **Progress Inflation & Assessment Bugs:** `GetStudentBookAsync` marks Books in `CourseProgresses`, inflating lesson completion >100%; `GetStudentQuizPlayerAsync` / `SubmitQuizAsync` ignore `Quiz.IsPublished`; ~~quiz timer is client-side only~~ (**RESOLVED (`TASK-P2`, 2026-11-28):** Added persistent `QuizAttempts` + `QuizAttemptAnswers` tables, `QuizSubmission.StartedAtUtc` & `IsAutoFinalized` via `AddServerSideQuizAttemptTiming` migration, DB-backed UTC `DeadlineUtc`, pre-deadline draft auto-save endpoint `SaveQuizAnswer`, atomic `ExecuteUpdateAsync` attempt claim eliminating concurrent double-submit/deadlocks, 30s grace enforcement + automatic pre-deadline finalization on expiration in `CurriculumService.SubmitQuizAsync` & `GetStudentQuizPlayerAsync`, and monotonic `performance.now()` countdown with submit lock on expiration in `Views/Student/Quiz.cshtml`; verified via `--test-quiz` 19/19 passed); `TeacherService` excludes `Late` submissions from `PendingReviewsCount` and omits `IsLatest` in `GetTeacherGradesAsync`; `QuizQuestions.cshtml` lacks Edit Question UI; `Student/Dashboard.cshtml` hardcodes `"Spring 2026"`.
 
 ### P2 — Missing Features (Deferred & Phase 5–6)
 - Categories, Majors, Semesters CRUD (`Views/Academic/{Category,Major,Semester,CourseItem}.cshtml` are 1-line stubs).

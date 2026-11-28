@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using AUBDigitalAcademy.Models;
 
 namespace AUBDigitalAcademy.Data;
@@ -32,6 +33,8 @@ public class ApplicationDbContext : IdentityDbContext<User>
     public DbSet<Announcement> Announcements { get; set; }
     public DbSet<Notification> Notifications { get; set; }
     public DbSet<QuizSubmission> QuizSubmissions { get; set; }
+    public DbSet<QuizAttempt> QuizAttempts { get; set; }
+    public DbSet<QuizAttemptAnswer> QuizAttemptAnswers { get; set; }
     public DbSet<AssignmentSubmission> AssignmentSubmissions { get; set; }
     public DbSet<AssignmentAttachment> AssignmentAttachments { get; set; }
     public DbSet<QuizSubmissionAnswer> QuizSubmissionAnswers { get; set; }
@@ -344,6 +347,77 @@ public class ApplicationDbContext : IdentityDbContext<User>
             entity.HasOne(qs => qs.Student)
                 .WithMany(u => u.QuizSubmissions)
                 .HasForeignKey(qs => qs.StudentId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // QuizAttempt
+        builder.Entity<QuizAttempt>(entity =>
+        {
+            var utcDateTimeConverter = new ValueConverter<DateTime, DateTime>(
+                v => v.Kind == DateTimeKind.Utc ? v : DateTime.SpecifyKind(v, DateTimeKind.Utc),
+                v => DateTime.SpecifyKind(v, DateTimeKind.Utc));
+
+            var nullableUtcDateTimeConverter = new ValueConverter<DateTime?, DateTime?>(
+                v => v.HasValue ? (v.Value.Kind == DateTimeKind.Utc ? v.Value : DateTime.SpecifyKind(v.Value, DateTimeKind.Utc)) : null,
+                v => v.HasValue ? DateTime.SpecifyKind(v.Value, DateTimeKind.Utc) : null);
+
+            entity.Property(qa => qa.StartedAtUtc)
+                .HasConversion(utcDateTimeConverter);
+
+            entity.Property(qa => qa.DeadlineUtc)
+                .HasConversion(nullableUtcDateTimeConverter);
+
+            entity.Property(qa => qa.FinalizedAtUtc)
+                .HasConversion(nullableUtcDateTimeConverter);
+
+            entity.Property(qa => qa.MaxAttemptsAllowed).HasDefaultValue(3);
+            entity.Property(qa => qa.RowVersion).IsRowVersion();
+
+            entity.HasIndex(qa => new { qa.QuizId, qa.StudentId })
+                .IsUnique()
+                .HasFilter("[Status] = 0");
+
+            entity.HasIndex(qa => new { qa.QuizId, qa.StudentId, qa.AttemptNumber })
+                .IsUnique();
+
+            entity.HasIndex(qa => qa.QuizSubmissionId)
+                .IsUnique()
+                .HasFilter("[QuizSubmissionId] IS NOT NULL");
+
+            entity.HasOne(qa => qa.Quiz)
+                .WithMany()
+                .HasForeignKey(qa => qa.QuizId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(qa => qa.Student)
+                .WithMany()
+                .HasForeignKey(qa => qa.StudentId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(qa => qa.QuizSubmission)
+                .WithOne()
+                .HasForeignKey<QuizAttempt>(qa => qa.QuizSubmissionId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // QuizAttemptAnswer
+        builder.Entity<QuizAttemptAnswer>(entity =>
+        {
+            entity.HasIndex(a => new { a.QuizAttemptId, a.QuestionId }).IsUnique();
+
+            entity.HasOne(a => a.QuizAttempt)
+                .WithMany(qa => qa.DraftAnswers)
+                .HasForeignKey(a => a.QuizAttemptId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(a => a.Question)
+                .WithMany()
+                .HasForeignKey(a => a.QuestionId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(a => a.SelectedOption)
+                .WithMany()
+                .HasForeignKey(a => a.SelectedOptionId)
                 .OnDelete(DeleteBehavior.Restrict);
         });
 

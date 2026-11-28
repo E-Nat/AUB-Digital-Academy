@@ -193,21 +193,33 @@ public class StudentQuizPlayerViewModel
     public int QuizPosition { get; set; }
     public int TimeLimitMinutes { get; set; } = 30;
     public int? RemainingSeconds { get; set; }
+    public int? ActiveAttemptId { get; set; }
+    public DateTime? AttemptStartedAtUtc { get; set; }
+    public DateTime? AttemptDeadlineUtc { get; set; }
+    public DateTime ServerNowUtc { get; set; } = DateTime.UtcNow;
+    public string? ExpiredAttemptNotice { get; set; }
+    public Dictionary<int, int> SavedAnswers { get; set; } = new();
     public int MaxAttempts { get; set; } = 3;
     public double PassingScore { get; set; } = 60.0;
     public bool IsPublished { get; set; }
 
     // Submission Context
+    public bool IsAdminPreview { get; set; }
     public bool IsLocked { get; set; }
     public List<string> MissingPrerequisites { get; set; } = new();
     public bool HasSubmission { get; set; }
     public int AttemptCount { get; set; }
     public int CurrentAttemptNumber => AttemptCount + 1;
+    public int RemainingAttempts => Math.Max(0, MaxAttempts - AttemptCount);
     public bool CanAttempt => CurrentAttemptNumber <= MaxAttempts;
+    public bool RequiresExplicitNextAttemptStart => !IsAdminPreview && !ActiveAttemptId.HasValue && HasSubmission && CanAttempt;
     public int? LatestSubmissionId { get; set; }
     public double? LatestScore { get; set; }
     public double? BestScore { get; set; }
     public bool? LatestIsPassed { get; set; }
+    public bool LatestIsAutoFinalized { get; set; }
+    public int? LatestCorrectQuestionsCount { get; set; }
+    public int? LatestTotalQuestionsCount { get; set; }
     public DateTime? LatestSubmittedAt { get; set; }
 
     // Questions
@@ -260,6 +272,8 @@ public class StudentQuizResultViewModel
     public double Score { get; set; }
     public double? BestScore { get; set; }
     public bool IsPassed { get; set; }
+    public DateTime? StartedAtUtc { get; set; }
+    public bool IsAutoFinalized { get; set; }
     public DateTime SubmittedAt { get; set; }
     public double TotalPoints { get; set; }
     public double EarnedPoints { get; set; }

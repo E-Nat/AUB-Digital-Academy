@@ -784,19 +784,6 @@ public class StudentController : Controller
             return RedirectToAction(nameof(Course), new { id = courseId.Value });
         }
 
-        // Server-side quiz attempt timer: persist StartedAtUtc across browser refreshes
-        if (!isAdmin && playerModel.CanAttempt && playerModel.TimeLimitMinutes > 0 && _memoryCache != null)
-        {
-            var timerKey = $"quiz-timer:{currentUserId}:{courseItemId}:{playerModel.CurrentAttemptNumber}";
-            var startedAtUtc = _memoryCache.GetOrCreate(timerKey, entry =>
-            {
-                entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(playerModel.TimeLimitMinutes + 5);
-                return DateTime.UtcNow;
-            });
-            var remaining = (int)Math.Floor((startedAtUtc.AddMinutes(playerModel.TimeLimitMinutes) - DateTime.UtcNow).TotalSeconds);
-            playerModel.RemainingSeconds = Math.Max(0, remaining);
-        }
-
         ViewData["Title"] = $"{playerModel.QuizTitle} - {playerModel.CourseTitle}";
         ViewData["ActivePage"] = "Courses";
 
@@ -804,16 +791,182 @@ public class StudentController : Controller
     }
 
     /// <summary>
+    /// Explicitly initiates (or idempotently resumes) the next quiz attempt after a prior submission or expiration.
+    /// Enforces student enrollment, prerequisite access, finalized prior attempts, and MaxAttempts limits.
+    /// </summary>
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    [Route("Student/Course/{courseId:int}/Quiz/{courseItemId:int}/StartNextAttempt")]
+    public async Task<IActionResult> StartNextAttempt(int courseId, int courseItemId)
+    {
+        bool expectsJson = string.Equals(Request?.Headers["X-Requested-With"].ToString(), "XMLHttpRequest", StringComparison.OrdinalIgnoreCase)
+            || (Request?.Headers["Accept"].ToString().Contains("application/json", StringComparison.OrdinalIgnoreCase) ?? false);
+
+        if (courseId <= 0 || courseItemId <= 0)
+        {
+            return expectsJson
+                ? BadRequest(new { success = false, message = "Invalid course ID or quiz item ID." })
+                : NotFound("Invalid course ID or quiz item ID.");
+        }
+
+        var currentUserId = _userManager.GetUserId(User);
+        if (string.IsNullOrEmpty(currentUserId))
+        {
+            return Challenge();
+        }
+
+        var isEnrolled = await _enrollmentService.IsStudentEnrolledAsync(currentUserId, courseId);
+        if (!isEnrolled)
+        {
+            _logger.LogWarning("StartNextAttempt access denied: Student '{StudentId}' is not enrolled in Course ID {CourseId}.", currentUserId, courseId);
+            return expectsJson
+                ? StatusCode(StatusCodes.Status403Forbidden, new { success = false, message = "You are not enrolled in this course." })
+                : Forbid();
+        }
+
+        var (result, attempt) = await _curriculumService.StartNextQuizAttemptAsync(currentUserId, courseId, courseItemId);
+        if (!result.IsSuccess || attempt == null)
+        {
+            _logger.LogWarning("StartNextAttempt rejected for Student '{StudentId}', Course {CourseId}, Item {ItemId}: [{Status}] {Message}",
+                currentUserId, courseId, courseItemId, result.Status, result.Message);
+
+            if (expectsJson)
+            {
+                int statusCode = result.Status switch
+                {
+                    CurriculumOperationStatus.Forbidden => StatusCodes.Status403Forbidden,
+                    CurriculumOperationStatus.NotFound => StatusCodes.Status404NotFound,
+                    CurriculumOperationStatus.Conflict => StatusCodes.Status409Conflict,
+                    _ => StatusCodes.Status400BadRequest
+                };
+                return StatusCode(statusCode, new { success = false, message = result.Message });
+            }
+
+            if (result.Status == CurriculumOperationStatus.Forbidden)
+            {
+                return Forbid();
+            }
+            if (result.Status == CurriculumOperationStatus.NotFound)
+            {
+                return NotFound(result.Message);
+            }
+
+            TempData["ErrorMessage"] = result.Message;
+            return RedirectToAction(nameof(Quiz), new { courseId, courseItemId });
+        }
+
+        string redirectUrl = Url?.Action(nameof(Quiz), new { courseId, courseItemId })
+            ?? $"/Student/Course/{courseId}/Quiz/{courseItemId}";
+
+        if (expectsJson)
+        {
+            DateTime nowUtc = DateTime.UtcNow;
+            DateTime? deadlineUtc = attempt.DeadlineUtc.HasValue
+                ? DateTime.SpecifyKind(attempt.DeadlineUtc.Value, DateTimeKind.Utc)
+                : null;
+            int? remainingSeconds = deadlineUtc.HasValue
+                ? Math.Max(0, (int)Math.Floor((deadlineUtc.Value - nowUtc).TotalSeconds))
+                : null;
+
+            return Json(new
+            {
+                success = true,
+                attemptId = attempt.Id,
+                attemptNumber = attempt.AttemptNumber,
+                startedAtUtc = DateTime.SpecifyKind(attempt.StartedAtUtc, DateTimeKind.Utc).ToString("O"),
+                deadlineUtc = deadlineUtc?.ToString("O"),
+                serverNowUtc = nowUtc.ToString("O"),
+                remainingSeconds,
+                redirectUrl
+            });
+        }
+
+        return RedirectToAction(nameof(Quiz), new { courseId, courseItemId });
+    }
+
+    /// <summary>
+    /// Auto-saves a pre-deadline answer selection for an active quiz attempt.
+    /// Enforces server-side UTC deadline and enrollment/prerequisite rules.
+    /// </summary>
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    [Route("Student/Course/{courseId:int}/Quiz/{courseItemId:int}/SaveAnswer")]
+    public async Task<IActionResult> SaveQuizAnswer(int courseId, int courseItemId, int attemptId, int questionId, int optionId)
+    {
+        if (courseId <= 0 || courseItemId <= 0 || attemptId <= 0 || questionId <= 0 || optionId <= 0)
+        {
+            return BadRequest(new { success = false, message = "Invalid quiz answer payload." });
+        }
+
+        var currentUserId = _userManager.GetUserId(User);
+        if (string.IsNullOrEmpty(currentUserId))
+        {
+            return Challenge();
+        }
+
+        var result = await _curriculumService.SaveQuizAnswerAsync(currentUserId, courseId, courseItemId, attemptId, questionId, optionId);
+        if (result.Status == CurriculumOperationStatus.Forbidden)
+        {
+            return Forbid();
+        }
+
+        if (result.Status == CurriculumOperationStatus.NotFound)
+        {
+            return NotFound(new { success = false, message = result.Message });
+        }
+
+        if (result.Status == CurriculumOperationStatus.Expired)
+        {
+            string redirectUrl = result.EntityId.HasValue
+                ? (Url?.Action(nameof(QuizResult), new { courseId, courseItemId, submissionId = result.EntityId.Value })
+                    ?? $"/Student/Course/{courseId}/Quiz/{courseItemId}/Result/{result.EntityId.Value}")
+                : (Url?.Action(nameof(Quiz), new { courseId, courseItemId })
+                    ?? $"/Student/Course/{courseId}/Quiz/{courseItemId}");
+
+            return StatusCode(StatusCodes.Status409Conflict, new
+            {
+                success = false,
+                expired = true,
+                message = result.Message,
+                submissionId = result.EntityId,
+                redirectUrl
+            });
+        }
+
+        if (result.Status == CurriculumOperationStatus.Conflict)
+        {
+            return Conflict(new
+            {
+                success = false,
+                finalized = true,
+                message = result.Message,
+                submissionId = result.EntityId
+            });
+        }
+
+        if (!result.IsSuccess)
+        {
+            return BadRequest(new { success = false, message = result.Message });
+        }
+
+        return Json(new
+        {
+            success = true,
+            message = result.Message,
+            remainingSeconds = result.SecondaryId
+        });
+    }
+
+    /// <summary>
     /// Student Quiz Submission:
-    /// Server evaluates answers against QuestionOption.IsCorrect in SQL Server.
-    /// Client cannot manipulate score.
-    /// Saves QuizSubmission record and redirects to results breakdown.
+    /// Server evaluates answers against QuestionOption.IsCorrect in SQL Server,
+    /// enforces server-persisted UTC attempt deadline, and saves QuizSubmission atomically.
     /// </summary>
     [HttpPost]
     [ValidateAntiForgeryToken]
     [Route("Student/Course/{courseId:int}/Quiz/{courseItemId:int}/Submit")]
     [Route("Student/SubmitQuiz")]
-    public async Task<IActionResult> SubmitQuiz(int courseId, int courseItemId, Dictionary<int, int>? answers)
+    public async Task<IActionResult> SubmitQuiz(int courseId, int courseItemId, Dictionary<int, int>? answers, int? attemptId = null)
     {
         if (courseId <= 0 || courseItemId <= 0)
         {
@@ -843,39 +996,18 @@ public class StudentController : Controller
             return StatusCode(StatusCodes.Status403Forbidden, RedirectToAction(nameof(Course), new { id = courseId }));
         }
 
-        // Server-side quiz timer enforcement (30-second grace period for auto-submit latency)
-        string? activeTimerKey = null;
-        if (!isAdmin && _memoryCache != null)
-        {
-            var quizItem = await _context.CourseItems
-                .AsNoTracking()
-                .Include(ci => ci.Quiz)
-                .FirstOrDefaultAsync(ci => ci.Id == courseItemId && ci.Type == ItemType.Quiz);
-            if (quizItem?.Quiz != null && quizItem.Quiz.TimeLimitMinutes > 0)
-            {
-                var attemptCount = await _context.QuizSubmissions
-                    .CountAsync(qs => qs.QuizId == quizItem.Quiz.Id && qs.StudentId == currentUserId);
-                activeTimerKey = $"quiz-timer:{currentUserId}:{courseItemId}:{attemptCount + 1}";
-                if (_memoryCache.TryGetValue(activeTimerKey, out DateTime startedAtUtc))
-                {
-                    var deadline = startedAtUtc.AddMinutes(quizItem.Quiz.TimeLimitMinutes).AddSeconds(30);
-                    if (DateTime.UtcNow > deadline)
-                    {
-                        _memoryCache.Remove(activeTimerKey);
-                        _logger.LogWarning("SubmitQuiz expired: Student '{StudentId}', CourseItem {ItemId}, StartedAt {StartedAt}.",
-                            currentUserId, courseItemId, startedAtUtc);
-                        TempData["ErrorMessage"] = "Quiz time limit has expired. Your submission was rejected.";
-                        return RedirectToAction(nameof(Quiz), new { courseId, courseItemId });
-                    }
-                }
-            }
-        }
+        var (result, outcome) = await _curriculumService.SubmitQuizAsync(
+            currentUserId,
+            courseId,
+            courseItemId,
+            answers ?? new(),
+            attemptId,
+            requireActiveAttempt: true);
 
-        var (result, outcome) = await _curriculumService.SubmitQuizAsync(currentUserId, courseId, courseItemId, answers ?? new());
         if (!result.IsSuccess)
         {
-            _logger.LogWarning("SubmitQuiz failed for Student '{StudentId}', Course {CourseId}, Item {ItemId}: {Message}",
-                currentUserId, courseId, courseItemId, result.Message);
+            _logger.LogWarning("SubmitQuiz failed/rejected for Student '{StudentId}', Course {CourseId}, Item {ItemId}: [{Status}] {Message}",
+                currentUserId, courseId, courseItemId, result.Status, result.Message);
 
             if (result.Status == CurriculumOperationStatus.Forbidden)
             {
@@ -885,12 +1017,23 @@ public class StudentController : Controller
             {
                 return NotFound(result.Message);
             }
-            return BadRequest(result.Message);
-        }
+            if (result.Status == CurriculumOperationStatus.Expired || result.Status == CurriculumOperationStatus.Conflict)
+            {
+                TempData["ErrorMessage"] = result.Message;
+                if (result.EntityId.HasValue)
+                {
+                    return RedirectToAction(nameof(QuizResult), new
+                    {
+                        courseId,
+                        courseItemId,
+                        submissionId = result.EntityId.Value
+                    });
+                }
+                return RedirectToAction(nameof(Quiz), new { courseId, courseItemId });
+            }
 
-        if (activeTimerKey != null && _memoryCache != null)
-        {
-            _memoryCache.Remove(activeTimerKey);
+            TempData["ErrorMessage"] = result.Message;
+            return RedirectToAction(nameof(Quiz), new { courseId, courseItemId });
         }
 
         TempData["SuccessMessage"] = result.Message;

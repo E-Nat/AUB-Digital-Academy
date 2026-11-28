@@ -206,10 +206,37 @@ public interface ICurriculumService
     Task<StudentQuizPlayerViewModel?> GetStudentQuizPlayerAsync(int courseId, int courseItemId, string studentId, bool allowAdminPreview = false);
 
     /// <summary>
-    /// Evaluates student quiz answers against SQL Server question options, computes score, determines pass/fail,
-    /// and persists a QuizSubmission record in SQL Server.
+    /// Explicitly creates or resumes an active quiz attempt when the student initiates a retake,
+    /// enforcing enrollment, publication, prerequisite access, finalized prior attempts, and MaxAttempts.
     /// </summary>
-    Task<(CurriculumOperationResult Result, StudentQuizResultViewModel? Outcome)> SubmitQuizAsync(string studentId, int courseId, int courseItemId, Dictionary<int, int> selectedOptions);
+    Task<(CurriculumOperationResult Result, QuizAttempt? Attempt)> StartNextQuizAttemptAsync(
+        string studentId,
+        int courseId,
+        int courseItemId);
+
+    /// <summary>
+    /// Evaluates student quiz answers against SQL Server question options, computes score, determines pass/fail,
+    /// enforces server-side attempt timing, and persists a QuizSubmission record in SQL Server.
+    /// </summary>
+    Task<(CurriculumOperationResult Result, StudentQuizResultViewModel? Outcome)> SubmitQuizAsync(
+        string studentId,
+        int courseId,
+        int courseItemId,
+        Dictionary<int, int> selectedOptions,
+        int? attemptId = null,
+        bool requireActiveAttempt = false);
+
+    /// <summary>
+    /// Persists a single pre-deadline draft answer selection for an in-progress quiz attempt.
+    /// Auto-finalizes expired attempts from existing pre-deadline saved answers.
+    /// </summary>
+    Task<CurriculumOperationResult> SaveQuizAnswerAsync(
+        string studentId,
+        int courseId,
+        int courseItemId,
+        int attemptId,
+        int questionId,
+        int optionId);
 
     /// <summary>
     /// Loads student quiz submission result, strictly verifying student ownership and course hierarchy.

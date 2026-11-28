@@ -843,6 +843,100 @@ namespace AUBDigitalAcademy.Data.Migrations
                     b.ToTable("Quizzes");
                 });
 
+            modelBuilder.Entity("AUBDigitalAcademy.Models.QuizAttempt", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("AttemptNumber")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("DeadlineUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("FinalizedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("MaxAttemptsAllowed")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(3);
+
+                    b.Property<int>("QuizId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("QuizSubmissionId")
+                        .HasColumnType("int");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
+                    b.Property<DateTime>("StartedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
+                    b.Property<string>("StudentId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(450)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("QuizSubmissionId")
+                        .IsUnique()
+                        .HasFilter("[QuizSubmissionId] IS NOT NULL");
+
+                    b.HasIndex("StudentId");
+
+                    b.HasIndex("QuizId", "StudentId")
+                        .IsUnique()
+                        .HasFilter("[Status] = 0");
+
+                    b.HasIndex("QuizId", "StudentId", "AttemptNumber")
+                        .IsUnique();
+
+                    b.ToTable("QuizAttempts");
+                });
+
+            modelBuilder.Entity("AUBDigitalAcademy.Models.QuizAttemptAnswer", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("QuestionId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("QuizAttemptId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("SelectedOptionId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("UpdatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("QuestionId");
+
+                    b.HasIndex("SelectedOptionId");
+
+                    b.HasIndex("QuizAttemptId", "QuestionId")
+                        .IsUnique();
+
+                    b.ToTable("QuizAttemptAnswers");
+                });
+
             modelBuilder.Entity("AUBDigitalAcademy.Models.QuizSubmission", b =>
                 {
                     b.Property<int>("Id")
@@ -850,6 +944,9 @@ namespace AUBDigitalAcademy.Data.Migrations
                         .HasColumnType("int");
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<bool>("IsAutoFinalized")
+                        .HasColumnType("bit");
 
                     b.Property<bool>("IsPassed")
                         .HasColumnType("bit");
@@ -864,6 +961,9 @@ namespace AUBDigitalAcademy.Data.Migrations
 
                     b.Property<double>("Score")
                         .HasColumnType("float");
+
+                    b.Property<DateTime?>("StartedAtUtc")
+                        .HasColumnType("datetime2");
 
                     b.Property<string>("StudentId")
                         .IsRequired()
@@ -1665,6 +1765,58 @@ namespace AUBDigitalAcademy.Data.Migrations
                     b.Navigation("CourseItem");
                 });
 
+            modelBuilder.Entity("AUBDigitalAcademy.Models.QuizAttempt", b =>
+                {
+                    b.HasOne("AUBDigitalAcademy.Models.Quiz", "Quiz")
+                        .WithMany()
+                        .HasForeignKey("QuizId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("AUBDigitalAcademy.Models.QuizSubmission", "QuizSubmission")
+                        .WithOne()
+                        .HasForeignKey("AUBDigitalAcademy.Models.QuizAttempt", "QuizSubmissionId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("AUBDigitalAcademy.Models.User", "Student")
+                        .WithMany()
+                        .HasForeignKey("StudentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Quiz");
+
+                    b.Navigation("QuizSubmission");
+
+                    b.Navigation("Student");
+                });
+
+            modelBuilder.Entity("AUBDigitalAcademy.Models.QuizAttemptAnswer", b =>
+                {
+                    b.HasOne("AUBDigitalAcademy.Models.Question", "Question")
+                        .WithMany()
+                        .HasForeignKey("QuestionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("AUBDigitalAcademy.Models.QuizAttempt", "QuizAttempt")
+                        .WithMany("DraftAnswers")
+                        .HasForeignKey("QuizAttemptId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("AUBDigitalAcademy.Models.QuestionOption", "SelectedOption")
+                        .WithMany()
+                        .HasForeignKey("SelectedOptionId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Question");
+
+                    b.Navigation("QuizAttempt");
+
+                    b.Navigation("SelectedOption");
+                });
+
             modelBuilder.Entity("AUBDigitalAcademy.Models.QuizSubmission", b =>
                 {
                     b.HasOne("AUBDigitalAcademy.Models.Quiz", "Quiz")
@@ -1870,6 +2022,11 @@ namespace AUBDigitalAcademy.Data.Migrations
                     b.Navigation("Questions");
 
                     b.Navigation("Submissions");
+                });
+
+            modelBuilder.Entity("AUBDigitalAcademy.Models.QuizAttempt", b =>
+                {
+                    b.Navigation("DraftAnswers");
                 });
 
             modelBuilder.Entity("AUBDigitalAcademy.Models.QuizSubmission", b =>
