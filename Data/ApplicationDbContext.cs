@@ -27,6 +27,8 @@ public class ApplicationDbContext : IdentityDbContext<User>
     public DbSet<CourseProgress> CourseProgresses { get; set; }
     public DbSet<VideoLessonProgress> VideoLessonProgresses { get; set; }
     public DbSet<CourseItemPrerequisite> CourseItemPrerequisites { get; set; }
+    public DbSet<LessonDiscussionThread> LessonDiscussionThreads { get; set; }
+    public DbSet<LessonDiscussionReply> LessonDiscussionReplies { get; set; }
     public DbSet<QuizSubmission> QuizSubmissions { get; set; }
     public DbSet<AssignmentSubmission> AssignmentSubmissions { get; set; }
     public DbSet<AssignmentAttachment> AssignmentAttachments { get; set; }
@@ -100,6 +102,52 @@ public class ApplicationDbContext : IdentityDbContext<User>
             entity.HasOne(p => p.RequiredCourseItem)
                 .WithMany()
                 .HasForeignKey(p => p.RequiredCourseItemId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // LessonDiscussionThread
+        builder.Entity<LessonDiscussionThread>(entity =>
+        {
+            entity.HasIndex(t => t.CourseItemId);
+            entity.HasIndex(t => t.UserId);
+            entity.HasIndex(t => new { t.CourseItemId, t.IsPinned, t.CreatedAt });
+
+            entity.HasOne(t => t.CourseItem)
+                .WithMany(ci => ci.DiscussionThreads)
+                .HasForeignKey(t => t.CourseItemId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(t => t.User)
+                .WithMany(u => u.DiscussionThreads)
+                .HasForeignKey(t => t.UserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(t => t.DeletedBy)
+                .WithMany()
+                .HasForeignKey(t => t.DeletedById)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // LessonDiscussionReply
+        builder.Entity<LessonDiscussionReply>(entity =>
+        {
+            entity.HasIndex(r => r.ThreadId);
+            entity.HasIndex(r => r.UserId);
+            entity.HasIndex(r => new { r.ThreadId, r.IsPinned, r.CreatedAt });
+
+            entity.HasOne(r => r.Thread)
+                .WithMany(t => t.Replies)
+                .HasForeignKey(r => r.ThreadId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(r => r.User)
+                .WithMany(u => u.DiscussionReplies)
+                .HasForeignKey(r => r.UserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(r => r.DeletedBy)
+                .WithMany()
+                .HasForeignKey(r => r.DeletedById)
                 .OnDelete(DeleteBehavior.Restrict);
         });
 

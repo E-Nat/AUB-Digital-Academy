@@ -213,16 +213,16 @@
 - **Acceptance criteria:** Faculty roster displays student identity, completed video count, progress percentage, last activity, and lesson detail scoped strictly by role/ownership.
 - **Required tests:** Scope isolation tests (Teacher A cannot view Teacher B's roster progress; TA cannot view unassigned course progress).
 
-### `TASK-P2-05`: Phase 5B — Lesson Discussions & Moderation
-- **Description:** Add `LessonDiscussionThread` and `LessonDiscussionReply` entities (`IsPinned`, `IsAnswered`, `IsDeleted`/moderation fields) and `IDiscussionService`. Render Q&A threads under video lessons (`Views/Student/Lesson.cshtml`) and faculty moderation controls for Teachers and assigned TAs (reply, pin helpful answers, mark answered, delete inappropriate comments).
+### `TASK-P2-05`: Phase 5B — Lesson Discussions & Moderation — **[COMPLETED 2026-11-27]**
+- **Description:** Added `LessonDiscussionThread` and `LessonDiscussionReply` entities (`IsPinned`, `IsAnswered`, `IsInstructorAnswer`, `IsDeleted`, `DeletedById`, `ModerationReason`, timestamps) with EF Core migration `AddLessonDiscussionsAndModeration` (with Restrict on user FKs to satisfy SQL Server multiple cascade path rules). Implemented `IDiscussionService` / `DiscussionService` and `DiscussionController` with anti-forgery protection, HTML sanitization against Stored XSS, and Open Peer Discussion policy (enrolled students can post and reply to peer threads in their course). Integrated responsive discussion Q&A feed under video lessons (`Views/Student/Lesson.cshtml`) and faculty moderation controls (Teachers, assigned TAs, and Admins can reply as instructors, pin/unpin helpful answers or questions, mark answered/unanswered, and moderate/soft-delete inappropriate content with reasons). Added direct "Discussions" action links in faculty curriculum structure (`Views/Teacher/CourseDetails.cshtml`).
 - **Why it is needed:** Required by `docs/project.md` Sec. 9.
-- **Open Product Decision Required:** Owner must confirm whether students may reply to *any* student's thread or only to *their own* threads (plus faculty replies).
-- **Affected files:** `Models/`, `Data/`, `Services/`, `Controllers/StudentController.cs`, `Controllers/TeacherController.cs`, `Views/Student/Lesson.cshtml`
-- **Dependencies:** Owner peer-reply policy confirmation
+- **Product Decision:** Owner confirmed Open Peer Discussion policy (enrolled students can reply to any peer's thread within the enrolled course).
+- **Affected files:** `Models/LessonDiscussionThread.cs`, `Models/LessonDiscussionReply.cs`, `Models/CourseItem.cs`, `Models/User.cs`, `Data/ApplicationDbContext.cs`, `Data/Migrations/20261127135413_AddLessonDiscussionsAndModeration.cs`, `Models/ViewModels/DiscussionViewModels.cs`, `Models/ViewModels/StudentViewModels.cs`, `Services/Interfaces/IDiscussionService.cs`, `Services/Implementations/DiscussionService.cs`, `Controllers/DiscussionController.cs`, `Controllers/StudentController.cs`, `Views/Student/Lesson.cshtml`, `Views/Teacher/CourseDetails.cshtml`, `Program.cs`, `Data/LessonDiscussionsIntegrationTestRunner.cs`
+- **Dependencies:** None
 - **Priority:** P2
 - **Estimated complexity:** L
-- **Acceptance criteria:** Enrolled students can post questions; Teachers and assigned TAs can reply, pin, mark answered, and moderate; unauthorized users get 403.
-- **Required tests:** Role/ownership authorization tests for posting, pinning, marking answered, and moderation.
+- **Acceptance criteria:** Enrolled students can post questions and reply to peer questions; Teachers and assigned TAs can reply with faculty badge, pin helpful answers, mark answered, and moderate inappropriate comments; unassigned users get 403. *(Verified)*
+- **Required tests:** `--test-lesson-discussions` (22/22 passed), `--test-course-access-modes` (17/17 passed), `--test-video-tracking` (8/8 passed). *(Executed on 2026-11-27).*
 
 ### `TASK-P2-06`: Phase 5C — In-App Notification Center & Announcements
 - **Description:** Add `Announcement` (`Scope`: Global vs Course, `CourseId?`, `CreatedById`, `PublishedAt`) and `Notification` (`UserId`, `Type`, `Title`, `Message`, `TargetUrl`, `IsRead`, `CreatedAt`) + `INotificationService`. Wire notifications for discussion replies, new lessons, announcements, released grades, and milestones (never playback heartbeats). Replace static empty dropdown in `_Layout.cshtml` with live unread count and feed.

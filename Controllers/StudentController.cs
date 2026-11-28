@@ -13,7 +13,7 @@ using AUBDigitalAcademy.Services.Interfaces;
 
 namespace AUBDigitalAcademy.Controllers;
 
-[Authorize(Roles = "Student,Admin")]
+[Authorize(Roles = "Student,Teacher,Assistance,Admin")]
 public class StudentController : Controller
 {
     private readonly IEnrollmentService _enrollmentService;
@@ -26,6 +26,7 @@ public class StudentController : Controller
     private readonly IHtmlSanitizationService _htmlSanitizer;
     private readonly IMemoryCache? _memoryCache;
     private readonly IVideoStorageService? _videoStorageService;
+    private readonly IDiscussionService? _discussionService;
 
     public StudentController(
         IEnrollmentService enrollmentService,
@@ -73,7 +74,8 @@ public class StudentController : Controller
         ILogger<StudentController> logger,
         IHtmlSanitizationService? htmlSanitizer = null,
         IMemoryCache? memoryCache = null,
-        IVideoStorageService? videoStorageService = null)
+        IVideoStorageService? videoStorageService = null,
+        IDiscussionService? discussionService = null)
     {
         _enrollmentService = enrollmentService;
         _courseService = courseService;
@@ -85,6 +87,7 @@ public class StudentController : Controller
         _htmlSanitizer = htmlSanitizer ?? new AUBDigitalAcademy.Services.Implementations.HtmlSanitizationService();
         _memoryCache = memoryCache;
         _videoStorageService = videoStorageService;
+        _discussionService = discussionService;
     }
 
     /// <summary>
@@ -483,16 +486,20 @@ public class StudentController : Controller
             courseId = item.Chapter.CourseId;
         }
 
-        // 1. Strict Server-Side Enrollment Security Check
+        // 1. Strict Server-Side Enrollment & Faculty Access Security Check
+        var isTeacherOwner = await _context.Courses.AnyAsync(c => c.Id == courseId.Value && c.TeacherId == currentUserId);
+        var isAssignedAssistant = await _context.CourseAssistants.AnyAsync(ca => ca.CourseId == courseId.Value && ca.AssistantId == currentUserId);
+        var canFacultyPreview = isAdmin || isTeacherOwner || isAssignedAssistant;
+
         var isEnrolled = await _enrollmentService.IsStudentEnrolledAsync(currentUserId, courseId.Value);
-        if (!isEnrolled && !isAdmin)
+        if (!isEnrolled && !canFacultyPreview)
         {
-            _logger.LogWarning("Lesson player access denied: Student '{StudentId}' is not enrolled in Course ID {CourseId}.", currentUserId, courseId.Value);
+            _logger.LogWarning("Lesson player access denied: User '{UserId}' is not enrolled and not course faculty in Course ID {CourseId}.", currentUserId, courseId.Value);
             return Forbid();
         }
 
         // 2. Load complete Lesson Player ViewModel with completion tracking & ownership validation
-        var playerModel = await _curriculumService.GetStudentLessonPlayerAsync(courseId.Value, lessonId, currentUserId, allowAdminPreview: isAdmin);
+        var playerModel = await _curriculumService.GetStudentLessonPlayerAsync(courseId.Value, lessonId, currentUserId, allowAdminPreview: canFacultyPreview);
         if (playerModel == null)
         {
             _logger.LogWarning("Lesson ID {LessonId} not found or does not belong to Course ID {CourseId}.", lessonId, courseId.Value);
@@ -504,6 +511,12 @@ public class StudentController : Controller
             Response.StatusCode = StatusCodes.Status403Forbidden;
             ViewBag.IsLocked = true;
             ViewBag.MissingPrerequisites = playerModel.MissingPrerequisites;
+        }
+
+        // 3. Load Lesson Discussions (Phase 5B)
+        if (_discussionService != null)
+        {
+            playerModel.Discussions = await _discussionService.GetLessonDiscussionsAsync(playerModel.CourseItemId, currentUserId);
         }
 
         ViewData["Title"] = $"{playerModel.LessonTitle} - {playerModel.CourseTitle}";

@@ -246,6 +246,276 @@
             </div>
         </div>
 
+        <!-- Lesson Discussions & Q&A (Phase 5B) -->
+        <div class="card border-0 shadow-sm rounded-3 mb-4 mt-4" id="discussions">
+            <div class="card-header bg-white border-bottom py-3 px-4 d-flex align-items-center justify-content-between flex-wrap gap-2">
+                <div class="d-flex align-items-center gap-2">
+                    <i class="bi bi-chat-square-text-fill text-primary fs-5"></i>
+                    <h5 class="fw-bold mb-0 text-dark">Lesson Discussions</h5>
+                    <span class="badge bg-primary-subtle text-primary border border-primary-subtle rounded-pill px-2.5 py-1">
+                        @(Model.Discussions?.Threads?.Count ?? 0) @(Model.Discussions?.Threads?.Count == 1 ? "Question" : "Questions")
+                    </span>
+                </div>
+                @if (Model.Discussions?.CanPostThread == true)
+                {
+                    <button class="btn btn-sm btn-primary rounded-pill px-3 py-1.5 fw-semibold d-inline-flex align-items-center gap-1 shadow-sm"
+                            type="button" data-bs-toggle="collapse" data-bs-target="#askQuestionBox" aria-expanded="false" aria-controls="askQuestionBox">
+                        <i class="bi bi-question-circle me-1"></i>
+                        <span>Ask a Question</span>
+                    </button>
+                }
+            </div>
+
+            <div class="card-body p-4">
+                @if (Model.Discussions?.CanPostThread == true)
+                {
+                    <!-- Collapsible "Ask a Question" Form -->
+                    <div class="collapse mb-4" id="askQuestionBox">
+                        <div class="p-3 p-md-4 rounded-3 border bg-light shadow-sm">
+                            <h6 class="fw-bold text-dark mb-3"><i class="bi bi-pencil-square text-primary me-2"></i>Ask a Question about this Lesson</h6>
+                            <form id="createDiscussionThreadForm" asp-controller="Discussion" asp-action="CreateThread" method="post">
+                                @Html.AntiForgeryToken()
+                                <input type="hidden" name="CourseItemId" value="@Model.CourseItemId" />
+                                <div class="mb-3">
+                                    <label class="form-label small fw-semibold text-dark">Question Title <span class="text-danger">*</span></label>
+                                    <input type="text" name="Title" class="form-control" placeholder="e.g. Can someone clarify the difference between array and list?" required minlength="3" maxlength="200" />
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label small fw-semibold text-dark">Details / Context <span class="text-danger">*</span></label>
+                                    <textarea name="Content" class="form-control" rows="3" placeholder="Describe what you tried, the timestamp in the video, or what is confusing..." required minlength="3" maxlength="4000"></textarea>
+                                </div>
+                                <div class="d-flex justify-content-end gap-2">
+                                    <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-3" data-bs-toggle="collapse" data-bs-target="#askQuestionBox">Cancel</button>
+                                    <button type="submit" class="btn btn-sm btn-primary rounded-pill px-3 fw-semibold">
+                                        <i class="bi bi-send me-1"></i> Post Question
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                }
+
+                <!-- Discussion Threads Feed -->
+                @if (Model.Discussions == null || Model.Discussions.Threads.Count == 0)
+                {
+                    <div class="text-center py-5 text-muted">
+                        <i class="bi bi-chat-dots fs-1 d-block mb-2 text-secondary opacity-50"></i>
+                        <h6 class="fw-semibold text-dark mb-1">No questions yet</h6>
+                        <p class="small text-muted mb-0">Have a question or thought about this lesson? Be the first to start a discussion!</p>
+                    </div>
+                }
+                else
+                {
+                    <div class="d-flex flex-column gap-3" id="discussionThreadsContainer">
+                        @foreach (var thread in Model.Discussions.Threads)
+                        {
+                            <div class="card border rounded-3 p-3 discussion-thread-card @(thread.IsPinned ? "border-warning bg-warning bg-opacity-10 shadow-sm" : "bg-white")"
+                                 id="thread-card-@thread.Id" data-thread-id="@thread.Id">
+                                <!-- Thread Header -->
+                                <div class="d-flex align-items-start justify-content-between gap-2 mb-2">
+                                    <div class="d-flex align-items-center gap-2 flex-wrap">
+                                        <div class="avatar-circle-sm bg-primary text-white rounded-circle d-flex align-items-center justify-content-center fw-bold" style="width: 32px; height: 32px; font-size: 0.8rem;">
+                                            @(string.IsNullOrEmpty(thread.AuthorName) ? "U" : thread.AuthorName.Substring(0, 1).ToUpper())
+                                        </div>
+                                        <div>
+                                            <div class="d-flex align-items-center gap-1.5 flex-wrap">
+                                                <span class="fw-semibold text-dark small">@thread.AuthorName</span>
+                                                <span class="badge @(thread.AuthorRole switch { "Teacher" => "bg-primary text-white", "Teaching Assistant" => "bg-info text-dark", "Admin" => "bg-dark text-white", _ => "bg-light text-muted border" }) rounded-pill px-2 py-0.5" style="font-size: 0.65rem;">
+                                                    @thread.AuthorRole
+                                                </span>
+                                                <span class="text-muted" style="font-size: 0.75rem;">&bull; @thread.CreatedAt.ToString("MMM dd, yyyy HH:mm")</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="d-flex align-items-center gap-1">
+                                        @if (thread.IsPinned)
+                                        {
+                                            <span class="badge bg-warning text-dark border border-warning rounded-pill px-2 py-1" style="font-size: 0.7rem;" id="badge-pin-thread-@thread.Id">
+                                                <i class="bi bi-pin-angle-fill me-1"></i>Pinned
+                                            </span>
+                                        }
+                                        @if (thread.IsAnswered)
+                                        {
+                                            <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-2 py-1" style="font-size: 0.7rem;" id="badge-answered-thread-@thread.Id">
+                                                <i class="bi bi-check-circle-fill me-1"></i>Answered
+                                            </span>
+                                        }
+                                        @if (thread.IsDeleted)
+                                        {
+                                            <span class="badge bg-danger-subtle text-danger border border-danger-subtle rounded-pill px-2 py-1" style="font-size: 0.7rem;">
+                                                <i class="bi bi-shield-slash me-1"></i>Moderated
+                                            </span>
+                                        }
+
+                                        <!-- Thread Options Dropdown -->
+                                        @if (thread.CanModerate || thread.IsAuthor)
+                                        {
+                                            <div class="dropdown">
+                                                <button class="btn btn-sm btn-link text-secondary p-1" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                                    <i class="bi bi-three-dots-vertical"></i>
+                                                </button>
+                                                <ul class="dropdown-menu dropdown-menu-end shadow-sm small">
+                                                    @if (thread.CanModerate)
+                                                    {
+                                                        <li>
+                                                            <button class="dropdown-item btn-toggle-pin-thread" type="button" data-thread-id="@thread.Id">
+                                                                <i class="bi bi-pin-angle me-2"></i>@(thread.IsPinned ? "Unpin Question" : "Pin Question")
+                                                            </button>
+                                                        </li>
+                                                    }
+                                                    @if (thread.CanModerate || thread.IsAuthor)
+                                                    {
+                                                        <li>
+                                                            <button class="dropdown-item btn-toggle-answered-thread" type="button" data-thread-id="@thread.Id">
+                                                                <i class="bi bi-check2-circle me-2"></i>@(thread.IsAnswered ? "Mark as Unanswered" : "Mark as Answered")
+                                                            </button>
+                                                        </li>
+                                                        <li><hr class="dropdown-divider"></li>
+                                                        <li>
+                                                            <button class="dropdown-item text-danger btn-delete-thread" type="button"
+                                                                    data-thread-id="@thread.Id" data-is-moderator="@(thread.CanModerate ? "true" : "false")">
+                                                                <i class="bi bi-trash me-2"></i>Delete Question
+                                                            </button>
+                                                        </li>
+                                                    }
+                                                </ul>
+                                            </div>
+                                        }
+                                    </div>
+                                </div>
+
+                                <!-- Thread Body -->
+                                <h6 class="fw-bold text-dark mb-1">@thread.Title</h6>
+                                @if (thread.IsDeleted)
+                                {
+                                    <div class="p-2 mb-2 bg-danger-subtle border border-danger-subtle rounded text-danger small">
+                                        <i class="bi bi-shield-exclamation me-1"></i>
+                                        <strong>Moderated:</strong> @thread.ModerationReason @(thread.DeletedByName != null ? $"by {thread.DeletedByName}" : "")
+                                    </div>
+                                    <p class="text-secondary small text-decoration-line-through mb-2">@thread.Content</p>
+                                }
+                                else
+                                {
+                                    <div class="text-dark small mb-2" style="white-space: pre-wrap;">@Html.Raw(HtmlSanitizer.SanitizeLessonHtml(thread.Content))</div>
+                                }
+
+                                <!-- Thread Action Bar (Replies trigger) -->
+                                <div class="d-flex align-items-center justify-content-between pt-2 border-top">
+                                    <button class="btn btn-sm btn-link text-decoration-none text-muted p-0 d-inline-flex align-items-center gap-1"
+                                            type="button" data-bs-toggle="collapse" data-bs-target="#replies-collapse-@thread.Id" aria-expanded="true">
+                                        <i class="bi bi-chat-left-text"></i>
+                                        <span class="small fw-semibold reply-count-label" id="reply-count-@thread.Id">
+                                            @thread.RepliesCount @(thread.RepliesCount == 1 ? "Reply" : "Replies")
+                                        </span>
+                                    </button>
+                                    @if (Model.Discussions.CanReply && !thread.IsDeleted)
+                                    {
+                                        <button class="btn btn-sm btn-outline-primary rounded-pill px-3 py-0.5 text-xs fw-semibold"
+                                                type="button" data-bs-toggle="collapse" data-bs-target="#reply-form-@thread.Id">
+                                            <i class="bi bi-reply-fill me-1"></i>Reply
+                                        </button>
+                                    }
+                                </div>
+
+                                <!-- Collapsible Replies Area -->
+                                <div class="collapse show mt-3" id="replies-collapse-@thread.Id">
+                                    <div class="ps-md-3 border-start border-2 border-primary-subtle d-flex flex-column gap-2" id="replies-list-@thread.Id">
+                                        @foreach (var reply in thread.Replies)
+                                        {
+                                            <div class="p-2.5 rounded-3 @(reply.IsPinned ? "bg-warning bg-opacity-10 border border-warning" : "bg-light border")"
+                                                 id="reply-card-@reply.Id">
+                                                <div class="d-flex align-items-center justify-content-between mb-1">
+                                                    <div class="d-flex align-items-center gap-1.5 flex-wrap">
+                                                        <span class="fw-semibold text-dark text-xs">@reply.AuthorName</span>
+                                                        <span class="badge @(reply.AuthorRole switch { "Teacher" => "bg-primary text-white", "Teaching Assistant" => "bg-info text-dark", "Admin" => "bg-dark text-white", _ => "bg-secondary-subtle text-muted" }) rounded-pill px-1.5 py-0.5" style="font-size: 0.6rem;">
+                                                            @reply.AuthorRole
+                                                        </span>
+                                                        @if (reply.IsInstructorAnswer)
+                                                        {
+                                                            <span class="badge bg-primary-subtle text-primary border border-primary-subtle rounded-pill px-1.5 py-0.5" style="font-size: 0.6rem;">
+                                                                <i class="bi bi-patch-check-fill me-0.5"></i>Faculty Answer
+                                                            </span>
+                                                        }
+                                                        @if (reply.IsPinned)
+                                                        {
+                                                            <span class="badge bg-warning text-dark border border-warning rounded-pill px-1.5 py-0.5" style="font-size: 0.6rem;" id="badge-pin-reply-@reply.Id">
+                                                                <i class="bi bi-pin-angle-fill me-0.5"></i>Pinned Helpful
+                                                            </span>
+                                                        }
+                                                        @if (reply.IsDeleted)
+                                                        {
+                                                            <span class="badge bg-danger-subtle text-danger border border-danger-subtle rounded-pill px-1.5 py-0.5" style="font-size: 0.6rem;">
+                                                                <i class="bi bi-shield-slash me-0.5"></i>Moderated
+                                                            </span>
+                                                        }
+                                                        <span class="text-muted text-xs">&bull; @reply.CreatedAt.ToString("MMM dd, HH:mm")</span>
+                                                    </div>
+                                                    @if (reply.CanModerate || reply.IsAuthor)
+                                                    {
+                                                        <div class="dropdown">
+                                                            <button class="btn btn-sm btn-link text-secondary p-0" type="button" data-bs-toggle="dropdown">
+                                                                <i class="bi bi-three-dots"></i>
+                                                            </button>
+                                                            <ul class="dropdown-menu dropdown-menu-end shadow-sm small">
+                                                                @if (reply.CanModerate)
+                                                                {
+                                                                    <li>
+                                                                        <button class="dropdown-item btn-toggle-pin-reply" type="button" data-reply-id="@reply.Id">
+                                                                            <i class="bi bi-pin-angle me-2"></i>@(reply.IsPinned ? "Unpin Answer" : "Pin as Helpful Answer")
+                                                                        </button>
+                                                                    </li>
+                                                                    <li><hr class="dropdown-divider"></li>
+                                                                }
+                                                                <li>
+                                                                    <button class="dropdown-item text-danger btn-delete-reply" type="button"
+                                                                            data-reply-id="@reply.Id" data-is-moderator="@(reply.CanModerate ? "true" : "false")">
+                                                                        <i class="bi bi-trash me-2"></i>Delete Reply
+                                                                    </button>
+                                                                </li>
+                                                            </ul>
+                                                        </div>
+                                                    }
+                                                </div>
+                                                @if (reply.IsDeleted)
+                                                {
+                                                    <div class="p-1.5 mb-1 bg-danger-subtle border border-danger-subtle rounded text-danger text-xs">
+                                                        <i class="bi bi-shield-exclamation me-1"></i>
+                                                        <strong>Moderated:</strong> @reply.ModerationReason @(reply.DeletedByName != null ? $"by {reply.DeletedByName}" : "")
+                                                    </div>
+                                                    <p class="text-secondary text-xs text-decoration-line-through mb-0">@reply.Content</p>
+                                                }
+                                                else
+                                                {
+                                                    <div class="text-dark text-xs mb-0" style="white-space: pre-wrap;">@Html.Raw(HtmlSanitizer.SanitizeLessonHtml(reply.Content))</div>
+                                                }
+                                            </div>
+                                        }
+                                    </div>
+
+                                    <!-- Reply Input Box -->
+                                    @if (Model.Discussions.CanReply && !thread.IsDeleted)
+                                    {
+                                        <div class="collapse mt-2" id="reply-form-@thread.Id">
+                                            <form class="create-reply-form" asp-controller="Discussion" asp-action="CreateReply" method="post" data-thread-id="@thread.Id">
+                                                @Html.AntiForgeryToken()
+                                                <input type="hidden" name="ThreadId" value="@thread.Id" />
+                                                <div class="input-group input-group-sm">
+                                                    <textarea name="Content" class="form-control" rows="1" placeholder="Write a constructive reply..." required maxlength="4000"></textarea>
+                                                    <button type="submit" class="btn btn-primary fw-semibold px-3">
+                                                        <i class="bi bi-send-fill me-1"></i> Reply
+                                                    </button>
+                                                </div>
+                                            </form>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+
         <!-- Right Column: Course Curriculum Sidebar Navigation -->
         <div class="col-lg-4">
             <div class="card border rounded-3 bg-white shadow-sm overflow-hidden sticky-lg-top" style="top: 1.5rem; z-index: 10;">
@@ -572,6 +842,167 @@
 
             video.addEventListener('pause', () => sendHeartbeat(pendingStart !== null && pendingEnd !== null));
             video.addEventListener('ended', () => sendHeartbeat(pendingStart !== null && pendingEnd !== null));
+        })();
+
+        // Phase 5B: Lesson Discussions & Moderation Interactive Scripting
+        (function () {
+            const tokenInput = document.querySelector('input[name="__RequestVerificationToken"]');
+            const antiForgeryToken = tokenInput ? tokenInput.value : '';
+
+            // Pin / Unpin Thread
+            document.querySelectorAll('.btn-toggle-pin-thread').forEach(btn => {
+                btn.addEventListener('click', async function () {
+                    const threadId = this.dataset.threadId;
+                    const body = new URLSearchParams({ threadId: threadId });
+                    try {
+                        const res = await fetch('/Discussion/TogglePinThread', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/x-www-form-urlencoded',
+                                'RequestVerificationToken': antiForgeryToken,
+                                'X-Requested-With': 'XMLHttpRequest'
+                            },
+                            body: body.toString()
+                        });
+                        const data = await res.json();
+                        if (res.ok && data.success) {
+                            window.location.hash = 'thread-card-' + threadId;
+                            window.location.reload();
+                        } else {
+                            alert(data.message || 'Failed to update pin state.');
+                        }
+                    } catch (e) {
+                        console.error('Error toggling pin state:', e);
+                    }
+                });
+            });
+
+            // Mark / Unmark Answered
+            document.querySelectorAll('.btn-toggle-answered-thread').forEach(btn => {
+                btn.addEventListener('click', async function () {
+                    const threadId = this.dataset.threadId;
+                    const body = new URLSearchParams({ threadId: threadId });
+                    try {
+                        const res = await fetch('/Discussion/ToggleAnsweredThread', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/x-www-form-urlencoded',
+                                'RequestVerificationToken': antiForgeryToken,
+                                'X-Requested-With': 'XMLHttpRequest'
+                            },
+                            body: body.toString()
+                        });
+                        const data = await res.json();
+                        if (res.ok && data.success) {
+                            window.location.hash = 'thread-card-' + threadId;
+                            window.location.reload();
+                        } else {
+                            alert(data.message || 'Failed to update answered state.');
+                        }
+                    } catch (e) {
+                        console.error('Error toggling answered state:', e);
+                    }
+                });
+            });
+
+            // Pin / Unpin Reply
+            document.querySelectorAll('.btn-toggle-pin-reply').forEach(btn => {
+                btn.addEventListener('click', async function () {
+                    const replyId = this.dataset.replyId;
+                    const body = new URLSearchParams({ replyId: replyId });
+                    try {
+                        const res = await fetch('/Discussion/TogglePinReply', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/x-www-form-urlencoded',
+                                'RequestVerificationToken': antiForgeryToken,
+                                'X-Requested-With': 'XMLHttpRequest'
+                            },
+                            body: body.toString()
+                        });
+                        const data = await res.json();
+                        if (res.ok && data.success) {
+                            window.location.reload();
+                        } else {
+                            alert(data.message || 'Failed to update reply pin state.');
+                        }
+                    } catch (e) {
+                        console.error('Error toggling reply pin state:', e);
+                    }
+                });
+            });
+
+            // Delete Thread (Author or Moderator)
+            document.querySelectorAll('.btn-delete-thread').forEach(btn => {
+                btn.addEventListener('click', async function () {
+                    const threadId = this.dataset.threadId;
+                    const isModerator = this.dataset.isModerator === 'true';
+
+                    let reason = '';
+                    if (isModerator) {
+                        reason = prompt('Enter moderation reason (optional):', 'Violates community guidelines') || '';
+                    } else {
+                        if (!confirm('Are you sure you want to delete this question?')) return;
+                    }
+
+                    const body = new URLSearchParams({ id: threadId, reason: reason });
+                    try {
+                        const res = await fetch('/Discussion/DeleteThread', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/x-www-form-urlencoded',
+                                'RequestVerificationToken': antiForgeryToken,
+                                'X-Requested-With': 'XMLHttpRequest'
+                            },
+                            body: body.toString()
+                        });
+                        const data = await res.json();
+                        if (res.ok && data.success) {
+                            window.location.reload();
+                        } else {
+                            alert(data.message || 'Failed to delete question.');
+                        }
+                    } catch (e) {
+                        console.error('Error deleting thread:', e);
+                    }
+                });
+            });
+
+            // Delete Reply (Author or Moderator)
+            document.querySelectorAll('.btn-delete-reply').forEach(btn => {
+                btn.addEventListener('click', async function () {
+                    const replyId = this.dataset.replyId;
+                    const isModerator = this.dataset.isModerator === 'true';
+
+                    let reason = '';
+                    if (isModerator) {
+                        reason = prompt('Enter moderation reason (optional):', 'Inappropriate or unhelpful comment') || '';
+                    } else {
+                        if (!confirm('Are you sure you want to delete this reply?')) return;
+                    }
+
+                    const body = new URLSearchParams({ id: replyId, reason: reason });
+                    try {
+                        const res = await fetch('/Discussion/DeleteReply', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/x-www-form-urlencoded',
+                                'RequestVerificationToken': antiForgeryToken,
+                                'X-Requested-With': 'XMLHttpRequest'
+                            },
+                            body: body.toString()
+                        });
+                        const data = await res.json();
+                        if (res.ok && data.success) {
+                            window.location.reload();
+                        } else {
+                            alert(data.message || 'Failed to delete reply.');
+                        }
+                    } catch (e) {
+                        console.error('Error deleting reply:', e);
+                    }
+                });
+            });
         })();
     </script>
 }

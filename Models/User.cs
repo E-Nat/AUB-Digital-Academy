@@ -36,4 +36,6 @@ public class User : IdentityUser
     public virtual ICollection<TelegramVerificationRequest> TelegramVerificationRequests { get; set; } = new List<TelegramVerificationRequest>();
     public virtual ICollection<TelegramLinkToken> TelegramLinkTokens { get; set; } = new List<TelegramLinkToken>();
     public virtual ICollection<CourseAssistant> AssistedCourses { get; set; } = new List<CourseAssistant>();
+    public virtual ICollection<LessonDiscussionThread> DiscussionThreads { get; set; } = new List<LessonDiscussionThread>();
+    public virtual ICollection<LessonDiscussionReply> DiscussionReplies { get; set; } = new List<LessonDiscussionReply>();
 }

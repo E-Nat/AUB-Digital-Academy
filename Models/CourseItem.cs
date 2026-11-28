@@ -28,5 +28,6 @@ public class CourseItem
     public virtual Assignment? Assignment { get; set; }
     public virtual ICollection<CourseProgress> Progress { get; set; } = new List<CourseProgress>();
     public virtual ICollection<CourseItemPrerequisite> Prerequisites { get; set; } = new List<CourseItemPrerequisite>();
+    public virtual ICollection<LessonDiscussionThread> DiscussionThreads { get; set; } = new List<LessonDiscussionThread>();
 }
 

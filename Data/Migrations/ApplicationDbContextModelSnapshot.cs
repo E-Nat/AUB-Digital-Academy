@@ -498,6 +498,127 @@ namespace AUBDigitalAcademy.Data.Migrations
                     b.ToTable("Lessons");
                 });
 
+            modelBuilder.Entity("AUBDigitalAcademy.Models.LessonDiscussionReply", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("DeletedById")
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsInstructorAnswer")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsPinned")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("ModerationReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<int>("ThreadId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(450)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DeletedById");
+
+                    b.HasIndex("ThreadId");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("ThreadId", "IsPinned", "CreatedAt");
+
+                    b.ToTable("LessonDiscussionReplies");
+                });
+
+            modelBuilder.Entity("AUBDigitalAcademy.Models.LessonDiscussionThread", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
+
+                    b.Property<int>("CourseItemId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("DeletedById")
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<bool>("IsAnswered")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsPinned")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("ModerationReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(450)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CourseItemId");
+
+                    b.HasIndex("DeletedById");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("CourseItemId", "IsPinned", "CreatedAt");
+
+                    b.ToTable("LessonDiscussionThreads");
+                });
+
             modelBuilder.Entity("AUBDigitalAcademy.Models.Major", b =>
                 {
                     b.Property<int>("Id")
@@ -1314,6 +1435,58 @@ namespace AUBDigitalAcademy.Data.Migrations
                     b.Navigation("CourseItem");
                 });
 
+            modelBuilder.Entity("AUBDigitalAcademy.Models.LessonDiscussionReply", b =>
+                {
+                    b.HasOne("AUBDigitalAcademy.Models.User", "DeletedBy")
+                        .WithMany()
+                        .HasForeignKey("DeletedById")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("AUBDigitalAcademy.Models.LessonDiscussionThread", "Thread")
+                        .WithMany("Replies")
+                        .HasForeignKey("ThreadId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("AUBDigitalAcademy.Models.User", "User")
+                        .WithMany("DiscussionReplies")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("DeletedBy");
+
+                    b.Navigation("Thread");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("AUBDigitalAcademy.Models.LessonDiscussionThread", b =>
+                {
+                    b.HasOne("AUBDigitalAcademy.Models.CourseItem", "CourseItem")
+                        .WithMany("DiscussionThreads")
+                        .HasForeignKey("CourseItemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("AUBDigitalAcademy.Models.User", "DeletedBy")
+                        .WithMany()
+                        .HasForeignKey("DeletedById")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("AUBDigitalAcademy.Models.User", "User")
+                        .WithMany("DiscussionThreads")
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("CourseItem");
+
+                    b.Navigation("DeletedBy");
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("AUBDigitalAcademy.Models.Major", b =>
                 {
                     b.HasOne("AUBDigitalAcademy.Models.Category", "Category")
@@ -1530,6 +1703,8 @@ namespace AUBDigitalAcademy.Data.Migrations
 
                     b.Navigation("Book");
 
+                    b.Navigation("DiscussionThreads");
+
                     b.Navigation("Lesson");
 
                     b.Navigation("Prerequisites");
@@ -1537,6 +1712,11 @@ namespace AUBDigitalAcademy.Data.Migrations
                     b.Navigation("Progress");
 
                     b.Navigation("Quiz");
+                });
+
+            modelBuilder.Entity("AUBDigitalAcademy.Models.LessonDiscussionThread", b =>
+                {
+                    b.Navigation("Replies");
                 });
 
             modelBuilder.Entity("AUBDigitalAcademy.Models.Major", b =>
@@ -1571,6 +1751,10 @@ namespace AUBDigitalAcademy.Data.Migrations
                     b.Navigation("AssignmentSubmissions");
 
                     b.Navigation("AssistedCourses");
+
+                    b.Navigation("DiscussionReplies");
+
+                    b.Navigation("DiscussionThreads");
 
                     b.Navigation("Enrollments");
 

@@ -128,6 +128,9 @@ public class StudentLessonPlayerViewModel
 
     // Curriculum Navigation Sidebar
     public List<StudentPlayerModuleViewModel> Modules { get; set; } = new();
+
+    // Lesson Discussions (Phase 5B)
+    public LessonDiscussionsViewModel Discussions { get; set; } = new();
 }
 
 public class StudentLessonNavigationItemViewModel

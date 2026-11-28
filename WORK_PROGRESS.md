@@ -12,7 +12,10 @@
 - **EF Core Migrations:** All 4 SQL Server migrations (`InitialSqlServerCreate`, `AddCourseAssistantJoinTable`, `Phase4_StudentLearningAssessmentWorkflow`, `Phase4_FinalRelationalAttachmentsAndQuizSecurity`) are applied cleanly against local `aub_sqlserver`.
 - **Test Suites:**
   - `dotnet test`: **0 test projects** (no xUnit/NUnit/MSTest project exists yet).
-  - **Security, Authentication & Curriculum Suites Executed After `TASK-P1-02` (2026-11-27): 199/199 PASSED:**
+  - **Security, Authentication, Curriculum & Phase 5 Suites Executed (2026-11-27): 246/246 PASSED:**
+    - `--test-lesson-discussions` (`LessonDiscussionsIntegrationTestRunner`): 22/22 passed
+    - `--test-course-access-modes` (`CourseAccessModePrerequisitesTestRunner`): 17/17 passed
+    - `--test-video-tracking` (`VideoWatchTrackingTestRunner`): 8/8 passed
     - `--test-google-linking-security` (`GoogleAccountLinkingSecurityTestRunner`): 42/42 passed
     - `--test-password-reset-security` (`PasswordResetSecurityTestRunner`): 19/19 passed
     - `--test-registration-telegram-security` (`RegistrationTelegramSecurityTestRunner`): 24/24 passed
