@@ -55,8 +55,8 @@
 
 | Feature | Status | Evidence & Notes |
 |---|---|---|
-| Shared Faculty Dashboard (`Teacher/Dashboard`) | **Partial (Broken Card Links)** | `TeacherController.Dashboard` & `TeacherService` work, but `ManageUrl` sets `/Teacher/Courses/Details/{id}` (404) and `PendingReviewsCount` omits `Late` submissions. |
-| My Courses & Course Details / Roster (`Teacher/Courses`, `CourseDetails`) | **Implemented** | `TeacherController.Courses`, `CourseDetails` (`/Teacher/CourseDetails/{id}`) scoped by `TeacherId`. |
+| Shared Faculty Dashboard (`Teacher/Dashboard`) | **Implemented** | `TeacherController.Dashboard` & `TeacherService` work; `ManageUrl` (`/Teacher/Courses/Details/{id}`) cleanly routes to `TeacherController.CourseDetails` via route alias; `PendingReviewsCount` accurately counts latest `Submitted`/`Late` submissions. |
+| My Courses & Course Details / Roster (`Teacher/Courses`, `CourseDetails`) | **Implemented** | `TeacherController.Courses`, `CourseDetails` (`/Teacher/Courses/Details/{id}` and `/Teacher/CourseDetails/{id}`) scoped by `TeacherId` and TA assignments. |
 | Curriculum & Assessment Authoring Access | **UI-Backend Disconnect** | `AcademicController` allows Teachers to manage owned courses (`CanManageCourseAsync`), but `Teacher/CourseDetails.cshtml` has no link to `/Academic/Curriculum/{id}`, and `Curriculum.cshtml` "Back to Courses" links to Admin-only `/Academic/Course` (403). |
 | Assignments, Quizzes & Books Overview | **Implemented (Missing Sidebar Links)** | `TeacherController.{Assignments,Quizzes,Books}` work, but `_Layout.cshtml` sidebar links to broken `/Teacher/Submissions` instead of `/Teacher/Assignments`, and omits `Quizzes`/`Books`. |
 | Review & Grade Assignment Submissions (`Teacher/Submissions`) | **Implemented** | `TeacherService.GradeSubmissionAsync` enforces ownership, `IsLatest == true`, 0..MaxScore, and feedback. (`DownloadSubmission` legacy path skips `IsDeleted` check.) |

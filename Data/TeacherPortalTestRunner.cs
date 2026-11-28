@@ -1,9 +1,15 @@
+using System.Security.Claims;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ViewFeatures;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using AUBDigitalAcademy.Controllers;
 using AUBDigitalAcademy.Models;
 using AUBDigitalAcademy.Models.Enums;
+using AUBDigitalAcademy.Models.ViewModels;
 using AUBDigitalAcademy.Services.Interfaces;
 
 namespace AUBDigitalAcademy.Data;
@@ -73,6 +79,18 @@ public static class TeacherPortalTestRunner
         await userManager.CreateAsync(student1, "Student@123");
         await userManager.AddToRoleAsync(student1, "Student");
 
+        var taUser = new User
+        {
+            UserName = $"ta_{timestamp}@aub.edu.kh",
+            Email = $"ta_{timestamp}@aub.edu.kh",
+            FullName = "Alex Assistant",
+            UniversityId = $"TA_{timestamp}",
+            EmailConfirmed = true,
+            IsActive = true
+        };
+        await userManager.CreateAsync(taUser, "Teacher@123");
+        await userManager.AddToRoleAsync(taUser, "Assistance");
+
         // Seed Category, Major, Semester
         var category = await context.Categories.FirstOrDefaultAsync();
         if (category == null)
@@ -122,6 +140,16 @@ public static class TeacherPortalTestRunner
             Status = CourseStatus.Published
         };
         context.Courses.Add(courseB);
+        await context.SaveChangesAsync();
+
+        var assistantA = new CourseAssistant
+        {
+            CourseId = courseA.Id,
+            AssistantId = taUser.Id,
+            CanGrade = true,
+            AssignedAt = DateTime.UtcNow
+        };
+        context.CourseAssistants.Add(assistantA);
         await context.SaveChangesAsync();
 
         // Enroll Student 1 in Course A
@@ -432,7 +460,97 @@ public static class TeacherPortalTestRunner
                 failed++;
             }
 
-            // TEST 17: Cleanup Test Seed Data
+            // TEST 17: CourseDetails Routing & Controller Action Verification
+            var storageService = scope.ServiceProvider.GetRequiredService<IAssignmentStorageService>();
+            var teacherLogger = scope.ServiceProvider.GetRequiredService<ILogger<TeacherController>>();
+            var htmlSanitizer = scope.ServiceProvider.GetService<IHtmlSanitizationService>();
+            var tempDataProvider = scope.ServiceProvider.GetService<ITempDataProvider>() ?? new DummyTempDataProvider();
+
+            TeacherController BuildTeacherController(User? user, string? role)
+            {
+                var ctrl = new TeacherController(teacherService, storageService, context, userManager, teacherLogger, htmlSanitizer);
+                var httpContext = new DefaultHttpContext();
+                if (user != null)
+                {
+                    var claims = new List<Claim>
+                    {
+                        new(ClaimTypes.NameIdentifier, user.Id),
+                        new(ClaimTypes.Name, user.UserName ?? user.Email ?? "user"),
+                    };
+                    if (!string.IsNullOrEmpty(role))
+                    {
+                        claims.Add(new(ClaimTypes.Role, role));
+                    }
+                    httpContext.User = new ClaimsPrincipal(new ClaimsIdentity(claims, "TestAuth"));
+                }
+                ctrl.ControllerContext = new ControllerContext { HttpContext = httpContext };
+                ctrl.TempData = new TempDataDictionary(httpContext, tempDataProvider);
+                return ctrl;
+            }
+
+            // 17.1: Verify route attributes on CourseDetails action method
+            var cdMethod = typeof(TeacherController).GetMethod(nameof(TeacherController.CourseDetails));
+            var routeAttrs = cdMethod?.GetCustomAttributes(typeof(RouteAttribute), false)
+                .Cast<RouteAttribute>()
+                .Select(r => r.Template)
+                .ToList() ?? new List<string>();
+            bool hasManageRoute = routeAttrs.Contains("Teacher/Courses/Details/{id:int}");
+            bool hasLegacyRoute = routeAttrs.Contains("Teacher/CourseDetails/{id:int?}");
+
+            // 17.2: Authorized Teacher accesses owned course (/Teacher/Courses/Details/{id})
+            var ctrlA = BuildTeacherController(teacherA, "Teacher");
+            var resA = await ctrlA.CourseDetails(courseA.Id);
+            bool teacherAOk = resA is ViewResult vrA &&
+                              vrA.Model is TeacherCourseDetailsViewModel m1 &&
+                              m1.Id == courseA.Id &&
+                              m1.RoleLabel == "Instructor";
+
+            // 17.3: Authorized TA accesses assigned course
+            var ctrlTA = BuildTeacherController(taUser, "Assistance");
+            var resTA = await ctrlTA.CourseDetails(courseA.Id);
+            bool taAOk = resTA is ViewResult vrTA &&
+                         vrTA.Model is TeacherCourseDetailsViewModel m2 &&
+                         m2.Id == courseA.Id &&
+                         m2.RoleLabel == "Teaching Assistant" &&
+                         m2.CanGrade == true;
+
+            // 17.4: Unauthorized Teacher cannot access unowned course (redirects to Courses)
+            var ctrlB = BuildTeacherController(teacherB, "Teacher");
+            var resB = await ctrlB.CourseDetails(courseA.Id);
+            bool teacherBOk = resB is RedirectToActionResult rtaB &&
+                              rtaB.ActionName == nameof(TeacherController.Courses) &&
+                              ctrlB.TempData.ContainsKey("ErrorMessage");
+
+            // 17.5: TA cannot access unassigned course (redirects to Courses)
+            var resTAB = await ctrlTA.CourseDetails(courseB.Id);
+            bool taBOk = resTAB is RedirectToActionResult rtaTAB &&
+                         rtaTAB.ActionName == nameof(TeacherController.Courses);
+
+            // 17.6: Invalid course ID (0) safely redirects to Courses
+            var resZero = await ctrlA.CourseDetails(0);
+            bool zeroOk = resZero is RedirectToActionResult rtaZero &&
+                          rtaZero.ActionName == nameof(TeacherController.Courses);
+
+            // 17.7: Unauthenticated request redirects to Login
+            var ctrlAnon = BuildTeacherController(null, null);
+            var resAnon = await ctrlAnon.CourseDetails(courseA.Id);
+            bool anonOk = resAnon is RedirectToActionResult rtaAnon &&
+                          rtaAnon.ActionName == "Login" &&
+                          rtaAnon.ControllerName == "Account";
+
+            if (hasManageRoute && hasLegacyRoute && teacherAOk && taAOk && teacherBOk && taBOk && zeroOk && anonOk)
+            {
+                Console.WriteLine("  [PASS] Test 17: TeacherController.CourseDetails verified: /Teacher/Courses/Details/{id:int} & /Teacher/CourseDetails/{id:int?} routes active, authorized instructor & TA access verified, and cross-course/unauthenticated access strictly blocked");
+                passed++;
+            }
+            else
+            {
+                Console.WriteLine($"  [FAIL] Test 17: CourseDetails controller verification mismatch (ManageRoute={hasManageRoute}, LegacyRoute={hasLegacyRoute}, TeacherA={teacherAOk}, TA={taAOk}, TeacherB={teacherBOk}, TAB={taBOk}, Zero={zeroOk}, Anon={anonOk})");
+                failed++;
+            }
+
+            // TEST 18: Cleanup Test Seed Data
+            context.CourseAssistants.RemoveRange(context.CourseAssistants.Where(ca => ca.AssistantId == taUser.Id));
             context.QuizSubmissions.RemoveRange(context.QuizSubmissions.Where(qs => qs.StudentId == student1.Id || qs.StudentId == student2.Id));
             context.Quizzes.RemoveRange(context.Quizzes.Where(q => q.CourseItemId == itemQuiz1.Id));
             context.AssignmentSubmissions.RemoveRange(context.AssignmentSubmissions.Where(s => s.StudentId == student1.Id || s.StudentId == student2.Id));
@@ -445,10 +563,11 @@ public static class TeacherPortalTestRunner
 
             await userManager.DeleteAsync(student2);
             await userManager.DeleteAsync(student1);
+            await userManager.DeleteAsync(taUser);
             await userManager.DeleteAsync(teacherA);
             await userManager.DeleteAsync(teacherB);
 
-            Console.WriteLine("  [PASS] Test 17: Clean Database Restoration: Test teacher accounts & course data cleaned up cleanly from SQL Server");
+            Console.WriteLine("  [PASS] Test 18: Clean Database Restoration: Test teacher accounts, TA data & course records cleaned up cleanly from SQL Server");
             passed++;
         }
         catch (Exception ex)
@@ -465,5 +584,11 @@ public static class TeacherPortalTestRunner
         {
             throw new InvalidOperationException($"Teacher Portal Test Suite failed with {failed} failure(s).");
         }
+    }
+
+    private sealed class DummyTempDataProvider : ITempDataProvider
+    {
+        public IDictionary<string, object> LoadTempData(HttpContext context) => new Dictionary<string, object>();
+        public void SaveTempData(HttpContext context, IDictionary<string, object> values) { }
     }
 }
