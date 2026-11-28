@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using AUBDigitalAcademy.Data;
 using AUBDigitalAcademy.Models;
+using AUBDigitalAcademy.Models.Enums;
 using AUBDigitalAcademy.Models.ViewModels;
 using AUBDigitalAcademy.Services.Interfaces;
 
@@ -410,6 +411,38 @@ public class DiscussionService : IDiscussionService
 
         _logger.LogInformation("Discussion reply {ReplyId} added to thread {ThreadId} by user {UserId}.",
             reply.Id, threadId, userId);
+
+        // Dispatch DiscussionReply notification to the thread author if replied by someone else
+        if (thread.UserId != userId)
+        {
+            try
+            {
+                var replier = await _userManager.FindByIdAsync(userId);
+                var replierName = replier?.FullName ?? "A participant";
+                var item = await _context.CourseItems
+                    .Include(ci => ci.Chapter)
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(ci => ci.Id == thread.CourseItemId);
+                var courseId = item?.Chapter?.CourseId ?? 0;
+
+                var notif = new Notification
+                {
+                    UserId = thread.UserId,
+                    Type = NotificationType.DiscussionReply,
+                    Title = $"Reply to your question: {thread.Title}",
+                    Message = $"{replierName} replied to your question in {item?.Title ?? "lesson"}.",
+                    TargetUrl = courseId > 0 ? $"/Student/Course/{courseId}/Lesson/{thread.CourseItemId}#thread-card-{thread.Id}" : null,
+                    IsRead = false,
+                    CreatedAt = DateTime.UtcNow
+                };
+                _context.Notifications.Add(notif);
+                await _context.SaveChangesAsync();
+            }
+            catch (Exception notifEx)
+            {
+                _logger.LogWarning(notifEx, "Failed to dispatch discussion reply notification for thread {ThreadId}.", threadId);
+            }
+        }
 
         return DiscussionOperationResult.Ok("Reply posted successfully.", threadId: threadId, replyId: reply.Id);
     }

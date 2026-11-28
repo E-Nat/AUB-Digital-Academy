@@ -46,5 +46,6 @@ public class Course
     public virtual ICollection<Chapter> Chapters { get; set; } = new List<Chapter>();
     public virtual ICollection<Enrollment> Enrollments { get; set; } = new List<Enrollment>();
     public virtual ICollection<CourseAssistant> CourseAssistants { get; set; } = new List<CourseAssistant>();
+    public virtual ICollection<Announcement> Announcements { get; set; } = new List<Announcement>();
 }
 

@@ -501,6 +501,36 @@ public class CurriculumService : ICurriculumService
             _logger.LogInformation("Lesson '{Title}' created with CourseItemID {CourseItemId} and LessonID {LessonId}.",
                 courseItem.Title, courseItem.Id, lesson.Id);
 
+            // Notify enrolled students of the new lesson
+            try
+            {
+                var enrolledStudentIds = await _context.Enrollments
+                    .Where(e => e.CourseId == chapter.CourseId)
+                    .Select(e => e.StudentId)
+                    .ToListAsync();
+
+                if (enrolledStudentIds.Any())
+                {
+                    var now = DateTime.UtcNow;
+                    var notifs = enrolledStudentIds.Select(sid => new Notification
+                    {
+                        UserId = sid,
+                        Type = NotificationType.NewLesson,
+                        Title = $"New Lesson: {courseItem.Title}",
+                        Message = $"A new lesson has been added to {chapter.Course?.Title ?? "your course"}.",
+                        TargetUrl = $"/Student/Course/{chapter.CourseId}/Lesson/{courseItem.Id}",
+                        IsRead = false,
+                        CreatedAt = now
+                    });
+                    _context.Notifications.AddRange(notifs);
+                    await _context.SaveChangesAsync();
+                }
+            }
+            catch (Exception notifEx)
+            {
+                _logger.LogWarning(notifEx, "Failed to dispatch new lesson notifications for CourseItem {CourseItemId}.", courseItem.Id);
+            }
+
             return CurriculumOperationResult.Success(courseItem.Id, courseItem.Title, "Lesson created successfully.", chapterId, lesson.Id);
         }
         catch (Exception ex)
@@ -1029,6 +1059,46 @@ public class CurriculumService : ICurriculumService
         {
             await _context.SaveChangesAsync();
             _logger.LogInformation("MarkLessonCompleteAsync: Successfully recorded completion for student {StudentId}, Lesson ID {CourseItemId}.", studentId, courseItemId);
+
+            // Check course milestone (100% completion)
+            try
+            {
+                var totalLessonsInCourse = await _context.CourseItems
+                    .CountAsync(ci => ci.Chapter.CourseId == courseId && ci.Type == ItemType.Lesson);
+
+                var completedLessonsInCourse = await _context.CourseProgresses
+                    .CountAsync(cp => cp.StudentId == studentId && cp.CourseItem.Chapter.CourseId == courseId && cp.CourseItem.Type == ItemType.Lesson);
+
+                if (totalLessonsInCourse > 0 && completedLessonsInCourse >= totalLessonsInCourse)
+                {
+                    var alreadyNotified = await _context.Notifications.AnyAsync(n =>
+                        n.UserId == studentId &&
+                        n.Type == NotificationType.CourseMilestone &&
+                        n.TargetUrl == $"/Student/Course/{courseId}");
+
+                    if (!alreadyNotified)
+                    {
+                        var courseObj = await _context.Courses.FindAsync(courseId);
+                        var milestoneNotif = new Notification
+                        {
+                            UserId = studentId,
+                            Type = NotificationType.CourseMilestone,
+                            Title = "Course Milestone: 100% Completed!",
+                            Message = $"Congratulations! You have completed all lessons in {courseObj?.Title ?? "your course"}.",
+                            TargetUrl = $"/Student/Course/{courseId}",
+                            IsRead = false,
+                            CreatedAt = DateTime.UtcNow
+                        };
+                        _context.Notifications.Add(milestoneNotif);
+                        await _context.SaveChangesAsync();
+                    }
+                }
+            }
+            catch (Exception milestoneEx)
+            {
+                _logger.LogWarning(milestoneEx, "Failed to check or dispatch milestone notification for student {StudentId}.", studentId);
+            }
+
             return CurriculumOperationResult.Success(courseItemId, courseItem.Title, "Lesson marked as complete.");
         }
         catch (DbUpdateException ex)
@@ -2264,6 +2334,27 @@ public class CurriculumService : ICurriculumService
         }
         _context.QuizSubmissionAnswers.AddRange(answersToInsert);
         await _context.SaveChangesAsync();
+
+        // Dispatch Grade Released notification to student
+        try
+        {
+            var notif = new Notification
+            {
+                UserId = studentId,
+                Type = NotificationType.GradeReleased,
+                Title = $"Quiz Graded: {courseItem.Title}",
+                Message = $"Your score for {courseItem.Title} is {score}% ({(isPassed ? "Passed" : "Not Passed")}).",
+                TargetUrl = $"/Student/Course/{courseId}/Quiz/{courseItemId}",
+                IsRead = false,
+                CreatedAt = DateTime.UtcNow
+            };
+            _context.Notifications.Add(notif);
+            await _context.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to dispatch quiz grade notification for student {StudentId}.", studentId);
+        }
 
         _logger.LogInformation("Student {StudentId} submitted Quiz ID {QuizId} (Submission ID {SubmissionId}, Attempt {Attempt}/{Max}): Score={Score}%, IsPassed={IsPassed}.",
             studentId, quiz.Id, submission.Id, existingAttemptsCount + 1, quiz.MaxAttempts, score, isPassed);

@@ -589,6 +589,33 @@ public class TeacherService : ITeacherService
 
         await _context.SaveChangesAsync();
 
+        // Dispatch Grade Released notification to the student
+        try
+        {
+            var assignmentTitle = submission.Assignment?.CourseItem?.Title ?? "Assignment";
+            var maxScore = submission.Assignment?.MaxScore ?? 100;
+            var targetUrl = course != null && submission.Assignment?.CourseItemId != null
+                ? $"/Student/Course/{course.Id}/Assignment/{submission.Assignment.CourseItemId}"
+                : null;
+
+            var notif = new Notification
+            {
+                UserId = submission.StudentId,
+                Type = NotificationType.GradeReleased,
+                Title = $"Assignment Graded: {assignmentTitle}",
+                Message = $"Your submission for {assignmentTitle} has been graded: {score}/{maxScore} pts.",
+                TargetUrl = targetUrl,
+                IsRead = false,
+                CreatedAt = DateTime.UtcNow
+            };
+            _context.Notifications.Add(notif);
+            await _context.SaveChangesAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to dispatch grade released notification for submission {SubmissionId}.", submissionId);
+        }
+
         _logger.LogInformation("Submission {SubmissionId} graded by user {TeacherId} with score {Score}", submissionId, teacherId, score);
 
         return new TeacherGradingResult

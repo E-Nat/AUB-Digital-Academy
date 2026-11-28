@@ -33,6 +33,9 @@
                 <a href="/Teacher/Grades?courseId=@Model.Id" class="btn btn-primary rounded-pill px-3 py-2 text-xs font-semibold">
                     <i class="bi bi-clipboard-data me-1"></i> Course Grades
                 </a>
+                <button type="button" class="btn btn-outline-warning rounded-pill px-3 py-2 text-xs font-semibold" data-bs-toggle="modal" data-bs-target="#courseAnnouncementModal">
+                    <i class="bi bi-megaphone me-1"></i> Post Announcement
+                </button>
             </div>
         </div>
     </div>
@@ -217,6 +220,49 @@
                     </table>
                 </div>
             </div>
+        </div>
+    </div>
+</div>
+
+<!-- Course Announcement Modal -->
+<div class="modal fade" id="courseAnnouncementModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title fw-bold"><i class="bi bi-megaphone me-1 text-primary"></i> Post Course Announcement</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form asp-controller="Notification" asp-action="CreateAnnouncement" method="post">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="Scope" value="1" />
+                <input type="hidden" name="CourseId" value="@Model.Id" />
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold text-dark">Course</label>
+                        <input type="text" class="form-control form-control-sm bg-light" value="@Model.Code — @Model.Title" readonly />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold text-dark">Title <span class="text-danger">*</span></label>
+                        <input type="text" name="Title" class="form-control form-control-sm" placeholder="e.g. Extra office hours this Thursday" required minlength="3" maxlength="200" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-semibold text-dark">Message <span class="text-danger">*</span></label>
+                        <textarea name="Content" class="form-control form-control-sm" rows="4" placeholder="Announcement content for enrolled students..." required minlength="3" maxlength="4000"></textarea>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" name="IsPinned" value="true" id="isPinnedCourseCheck">
+                        <label class="form-check-label small" for="isPinnedCourseCheck">
+                            Pin announcement to top
+                        </label>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-3" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-sm btn-primary rounded-pill px-3 fw-semibold">
+                        <i class="bi bi-send me-1"></i> Publish & Notify Students
+                    </button>
+                </div>
+            </form>
         </div>
     </div>
 </div>

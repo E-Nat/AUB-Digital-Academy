@@ -186,3 +186,116 @@ function initBackendSidebarActiveState() {
 
     syncActiveNav();
 }
+
+// Phase 5C: In-App Notification Center Topbar Script
+(function () {
+    const btn = document.getElementById('notificationBtn');
+    const badge = document.getElementById('notificationBadge');
+    const container = document.getElementById('notificationListContainer');
+    const markAllBtn = document.getElementById('markAllReadBtn');
+    if (!btn || !badge) return;
+
+    // 1. Fetch unread count on page load
+    async function updateUnreadCount() {
+        try {
+            const res = await fetch('/api/Notification/UnreadCount');
+            if (!res.ok) return;
+            const data = await res.json();
+            if (data.success && data.unreadCount > 0) {
+                badge.textContent = data.unreadCount > 99 ? '99+' : data.unreadCount;
+                badge.style.display = 'inline-block';
+            } else {
+                badge.style.display = 'none';
+            }
+        } catch (e) {
+            // Silently fail if not authenticated
+        }
+    }
+
+    updateUnreadCount();
+
+    // 2. Fetch notifications when dropdown opens
+    btn.addEventListener('show.bs.dropdown', async function () {
+        if (!container) return;
+        try {
+            const res = await fetch('/api/Notification/List?take=10');
+            if (!res.ok) return;
+            const data = await res.json();
+            if (data.success && data.data && data.data.notifications && data.data.notifications.length > 0) {
+                container.replaceChildren();
+                data.data.notifications.forEach(n => {
+                    const item = document.createElement('a');
+                    item.href = n.targetUrl || '/Notifications';
+                    item.className = `dropdown-item p-3 border-bottom text-wrap d-flex align-items-start gap-2.5 ${n.isRead ? 'opacity-75' : 'bg-primary-subtle bg-opacity-10 fw-semibold'}`;
+                    item.dataset.notifId = n.id;
+
+                    item.innerHTML = `
+                        <div class="flex-shrink-0 mt-0.5">
+                            <i class="bi ${n.iconClass} fs-5"></i>
+                        </div>
+                        <div class="flex-grow-1" style="min-width: 0;">
+                            <div class="d-flex align-items-center justify-content-between gap-1 mb-0.5">
+                                <span class="badge ${n.badgeBgClass} rounded-pill" style="font-size: 10px;">${n.typeDisplay}</span>
+                                <small class="text-muted" style="font-size: 11px;">${n.relativeTime}</small>
+                            </div>
+                            <div class="small text-dark text-truncate fw-bold mb-0.5">${n.title}</div>
+                            <div class="text-secondary small text-truncate" style="font-size: 12px;">${n.message}</div>
+                        </div>
+                    `;
+
+                    item.addEventListener('click', async function () {
+                        if (!n.isRead) {
+                            const token = document.querySelector('input[name="__RequestVerificationToken"]')?.value || '';
+                            const body = new URLSearchParams({ id: n.id });
+                            fetch('/api/Notification/MarkAsRead', {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/x-www-form-urlencoded',
+                                    'RequestVerificationToken': token
+                                },
+                                body: body.toString()
+                            });
+                        }
+                    });
+
+                    container.appendChild(item);
+                });
+            } else {
+                container.innerHTML = `
+                    <div class="p-4 text-center text-muted">
+                        <i class="bi bi-bell-slash fs-3 d-block mb-2 text-secondary opacity-50"></i>
+                        <div class="fw-semibold small text-dark-emphasis">No new notifications</div>
+                        <div class="text-secondary small mt-1" style="font-size: 12px;">You are completely caught up on system notices.</div>
+                    </div>`;
+            }
+        } catch (e) {
+            console.error('Error fetching notifications:', e);
+        }
+    });
+
+    // 3. Mark all as read
+    if (markAllBtn) {
+        markAllBtn.addEventListener('click', async function (e) {
+            e.stopPropagation();
+            try {
+                const token = document.querySelector('input[name="__RequestVerificationToken"]')?.value || '';
+                const res = await fetch('/api/Notification/MarkAllAsRead', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'RequestVerificationToken': token
+                    }
+                });
+                if (res.ok) {
+                    badge.style.display = 'none';
+                    document.querySelectorAll('#notificationListContainer .dropdown-item').forEach(el => {
+                        el.classList.remove('bg-primary-subtle', 'bg-opacity-10', 'fw-semibold');
+                        el.classList.add('opacity-75');
+                    });
+                }
+            } catch (err) {
+                console.error('Error marking all as read:', err);
+            }
+        });
+    }
+})();

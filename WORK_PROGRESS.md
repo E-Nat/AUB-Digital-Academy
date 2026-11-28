@@ -1,6 +1,6 @@
 # AUB Digital Academy — Codebase Audit & Work Progress
 
-> **Last Verified:** 2026-11-27  
+> **Last Verified:** 2026-11-28  
 > **Reference Specification:** [`docs/project.md`](./docs/project.md)  
 > **Audit Deliverables:** [`docs/FULL_PROJECT_AUDIT.md`](./docs/FULL_PROJECT_AUDIT.md) | [`docs/DEVELOPMENT_ROADMAP.md`](./docs/DEVELOPMENT_ROADMAP.md) | [`docs/FEATURE_STATUS.md`](./docs/FEATURE_STATUS.md)
 
@@ -9,10 +9,11 @@
 ## 1. Verified Project Health & Build/Test Status
 
 - **Build (`dotnet build --no-restore`):** **0 Errors, 0 Warnings** (`NU1902`/`NU1903` resolved by pinning `System.Security.Cryptography.Pkcs` `10.0.15`; `dotnet list package --vulnerable --include-transitive` reports zero vulnerable packages).
-- **EF Core Migrations:** All 4 SQL Server migrations (`InitialSqlServerCreate`, `AddCourseAssistantJoinTable`, `Phase4_StudentLearningAssessmentWorkflow`, `Phase4_FinalRelationalAttachmentsAndQuizSecurity`) are applied cleanly against local `aub_sqlserver`.
+- **EF Core Migrations:** All 5 SQL Server migrations (`InitialSqlServerCreate`, `AddCourseAssistantJoinTable`, `Phase4_StudentLearningAssessmentWorkflow`, `Phase4_FinalRelationalAttachmentsAndQuizSecurity`, `AddNotificationsAndAnnouncements`) are applied cleanly against local `aub_sqlserver`.
 - **Test Suites:**
   - `dotnet test`: **0 test projects** (no xUnit/NUnit/MSTest project exists yet).
-  - **Security, Authentication, Curriculum & Phase 5 Suites Executed (2026-11-27): 246/246 PASSED:**
+  - **Security, Authentication, Curriculum & Phase 5 Suites Executed (2026-11-28): 268/268 PASSED:**
+    - `--test-notifications-announcements` (`NotificationAnnouncementIntegrationTestRunner`): 22/22 passed
     - `--test-lesson-discussions` (`LessonDiscussionsIntegrationTestRunner`): 22/22 passed
     - `--test-course-access-modes` (`CourseAccessModePrerequisitesTestRunner`): 17/17 passed
     - `--test-video-tracking` (`VideoWatchTrackingTestRunner`): 8/8 passed
@@ -73,8 +74,8 @@
 ### P2 — Missing Features (Deferred & Phase 5–6)
 - Categories, Majors, Semesters CRUD (`Views/Academic/{Category,Major,Semester,CourseItem}.cshtml` are 1-line stubs).
 - `SettingsController` Profile & Change Password.
-- **Phase 5:** Video watch tracking (>=90% anti-seek + resume; replace blind `CompleteLesson`), Sequential Access & Multi-Prerequisites, Student/Faculty Video Progress Dashboards, Lesson Discussions, In-App Notification Center, Global & Course Announcements.
-- **Phase 6:** `LoginHistory`, real `Admin/Reports`, System Lookups (`ItemTypes`, `ViewAnswerType`), Final Grades/Transcripts (`Grades`), and resolution of `Admin/{Schedule,Payments,Invoices,Payroll}` placeholders.
+- **Phase 5 [COMPLETED 2026-11-28]:** Video watch tracking (`TASK-P2-02`), Sequential Access & Multi-Prerequisites (`TASK-P2-03`), Student & Faculty Video Progress Dashboards (`TASK-P2-04`), Lesson Discussions & Moderation (`TASK-P2-05`), and In-App Notification Center & Announcements (`TASK-P2-06`) — all verified with 268/268 passed integration tests.
+- **Phase 6 [PENDING]:** `LoginHistory`, real `Admin/Reports`, System Lookups (`ItemTypes`, `ViewAnswerType`), Final Grades/Transcripts (`Grades`), and resolution of `Admin/{Schedule,Payments,Invoices,Payroll}` placeholders.
 
 ---
 

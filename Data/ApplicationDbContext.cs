@@ -29,6 +29,8 @@ public class ApplicationDbContext : IdentityDbContext<User>
     public DbSet<CourseItemPrerequisite> CourseItemPrerequisites { get; set; }
     public DbSet<LessonDiscussionThread> LessonDiscussionThreads { get; set; }
     public DbSet<LessonDiscussionReply> LessonDiscussionReplies { get; set; }
+    public DbSet<Announcement> Announcements { get; set; }
+    public DbSet<Notification> Notifications { get; set; }
     public DbSet<QuizSubmission> QuizSubmissions { get; set; }
     public DbSet<AssignmentSubmission> AssignmentSubmissions { get; set; }
     public DbSet<AssignmentAttachment> AssignmentAttachments { get; set; }
@@ -149,6 +151,38 @@ public class ApplicationDbContext : IdentityDbContext<User>
                 .WithMany()
                 .HasForeignKey(r => r.DeletedById)
                 .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // Announcement
+        builder.Entity<Announcement>(entity =>
+        {
+            entity.HasIndex(a => a.CourseId);
+            entity.HasIndex(a => a.CreatedById);
+            entity.HasIndex(a => new { a.Scope, a.PublishedAt });
+            entity.HasIndex(a => new { a.CourseId, a.PublishedAt });
+
+            entity.HasOne(a => a.Course)
+                .WithMany(c => c.Announcements)
+                .HasForeignKey(a => a.CourseId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(a => a.CreatedBy)
+                .WithMany(u => u.AnnouncementsCreated)
+                .HasForeignKey(a => a.CreatedById)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // Notification
+        builder.Entity<Notification>(entity =>
+        {
+            entity.HasIndex(n => n.UserId);
+            entity.HasIndex(n => n.IsRead);
+            entity.HasIndex(n => new { n.UserId, n.IsRead, n.CreatedAt });
+
+            entity.HasOne(n => n.User)
+                .WithMany(u => u.Notifications)
+                .HasForeignKey(n => n.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         // Category

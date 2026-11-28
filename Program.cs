@@ -30,7 +30,8 @@ bool isEnrollmentTestMode = isInitTestDbOnly ||
                             args.Contains("--test-academic-lookups") ||
                             args.Contains("--test-video-tracking") ||
                             args.Contains("--test-course-access-modes") ||
-                            args.Contains("--test-lesson-discussions");
+                            args.Contains("--test-lesson-discussions") ||
+                            args.Contains("--test-notifications-announcements");
 
 // Add services to the container.
 string connectionString;
@@ -215,6 +216,7 @@ builder.Services.AddScoped<AUBDigitalAcademy.Services.Interfaces.IVideoStorageSe
 builder.Services.AddScoped<AUBDigitalAcademy.Services.Interfaces.IAuthService, AUBDigitalAcademy.Services.Implementations.AuthService>();
 builder.Services.AddScoped<AUBDigitalAcademy.Services.Interfaces.IGoogleAuthService, AUBDigitalAcademy.Services.Implementations.GoogleAuthService>();
 builder.Services.AddScoped<AUBDigitalAcademy.Services.Interfaces.IDiscussionService, AUBDigitalAcademy.Services.Implementations.DiscussionService>();
+builder.Services.AddScoped<AUBDigitalAcademy.Services.Interfaces.INotificationService, AUBDigitalAcademy.Services.Implementations.NotificationService>();
 if (!isEnrollmentTestMode)
 {
     builder.Services.AddHostedService<AUBDigitalAcademy.Services.Implementations.TelegramPollingService>();
@@ -299,6 +301,12 @@ if (args.Contains("--test-course-access-modes"))
 if (args.Contains("--test-lesson-discussions"))
 {
     await LessonDiscussionsIntegrationTestRunner.RunTestsAsync(app.Services);
+    return;
+}
+
+if (args.Contains("--test-notifications-announcements"))
+{
+    await NotificationAnnouncementIntegrationTestRunner.RunTestsAsync(app.Services);
     return;
 }
 
